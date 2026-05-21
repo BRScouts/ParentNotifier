@@ -199,7 +199,7 @@ function header_nav_active(string $filename): string
                 <?php if (LOGO_URL !== ''): ?>
                     <span class="site-logo-frame">
                         <img
-                            src="https://exbelt2026.irvalscouts.org.uk/assets/logo-generator-linear-blackwhite-png.png"
+                            src="https://exbelt2026.irvalscouts.org.uk/assets/logo.png"
                             alt="<?= e(APP_NAME) ?> logo"
                             class="site-logo compact-site-logo"
                         >

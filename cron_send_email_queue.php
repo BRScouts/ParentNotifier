@@ -206,7 +206,7 @@ function make_placeholder_replacements(string $subject, string $content): array
     $appName = (string)mail_constant('APP_NAME', 'Explorer Belt Live');
     $logoUrl = (string)mail_constant(
         'MAIL_LOGO_URL',
-        'https://exbelt2026.irvalscouts.org.uk/assets/photos/logo-generator-linear-blackwhite-png.png'
+        'https://exbelt2026.irvalscouts.org.uk/assets/logo.png'
     );
 
     $ckUrl = (string)mail_constant('MAIL_CK_URL', 'https://ckenterprises.co.uk');
