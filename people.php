@@ -1635,7 +1635,6 @@ include __DIR__ . '/header.php';
                             <th>Team</th>
                             <th>Date of birth</th>
                             <th>Participant contact</th>
-                            <th>Parent form</th>
                             <th>Alerts</th>
                             <th>Status</th>
                         </tr>
@@ -1678,13 +1677,7 @@ include __DIR__ . '/header.php';
                                     <?php endif; ?>
                                 </td>
 
-                                <td>
-                                    <?php if (parent_form_completed($person)): ?>
-                                        <span class="completion-pill completion-complete">Complete</span>
-                                    <?php else: ?>
-                                        <span class="completion-pill completion-incomplete">Missing</span>
-                                    <?php endif; ?>
-                                </td>
+                               
 
                                 <td>
                                     <?php if (person_has_allergies($person)): ?>
