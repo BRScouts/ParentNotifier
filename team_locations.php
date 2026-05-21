@@ -311,6 +311,20 @@ foreach ($teamData as $teamId => $data) {
 
 $mapJson = json_encode($mapTeams, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
+
+$selectedTeamId = 0;
+
+if (!empty($teamData)) {
+    $requestedTeamId = (int)($_GET['team_id'] ?? 0);
+
+    if ($requestedTeamId > 0 && isset($teamData[$requestedTeamId])) {
+        $selectedTeamId = $requestedTeamId;
+    } else {
+        $firstTeamId = array_key_first($teamData);
+        $selectedTeamId = $firstTeamId !== null ? (int)$firstTeamId : 0;
+    }
+}
+
 include __DIR__ . '/header.php';
 ?>
 
@@ -331,21 +345,13 @@ include __DIR__ . '/header.php';
         color: #ffffff !important;
     }
 
-    .locations-page-layout {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) 420px;
-        gap: 1.5rem;
-        align-items: start;
-    }
-
-    @media (max-width: 1100px) {
-        .locations-page-layout {
-            grid-template-columns: 1fr;
-        }
+    .locations-shell {
+        max-width: 1480px;
     }
 
     .locations-map-panel,
-    .locations-side-panel,
+    .locations-team-browser,
+    .locations-team-detail,
     .locations-table-panel {
         border: 2px solid #d8d8d8;
         background: #ffffff;
@@ -354,21 +360,23 @@ include __DIR__ . '/header.php';
     }
 
     .locations-map-panel h2,
-    .locations-side-panel h2,
-    .locations-table-panel h2 {
+    .locations-team-browser h2,
+    .locations-team-detail h2,
+    .locations-table-panel h2,
+    .locations-team-detail h3 {
         margin-top: 0;
         font-weight: 900;
     }
 
     #team-progress-map {
-        height: 720px;
+        height: 620px;
         border: 2px solid #1d1d1d;
         background: #f3f2f1;
     }
 
     @media (max-width: 700px) {
         #team-progress-map {
-            height: 480px;
+            height: 430px;
         }
     }
 
@@ -383,61 +391,138 @@ include __DIR__ . '/header.php';
         margin-bottom: 0;
     }
 
-    .team-progress-card {
-        border: 2px solid #d8d8d8;
-        background: #ffffff;
-        margin-bottom: 1rem;
+    .locations-browser-layout {
+        display: grid;
+        grid-template-columns: 360px minmax(0, 1fr);
+        gap: 1.5rem;
+        align-items: start;
     }
 
-    .team-progress-card-header {
-        padding: 1rem;
+    @media (max-width: 1100px) {
+        .locations-browser-layout {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .locations-team-browser {
+        position: sticky;
+        top: 1rem;
+        max-height: calc(100vh - 2rem);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+
+    @media (max-width: 1100px) {
+        .locations-team-browser {
+            position: static;
+            max-height: none;
+        }
+    }
+
+    .team-browser-header {
+        flex: 0 0 auto;
         border-bottom: 2px solid #d8d8d8;
+        padding-bottom: 0.75rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .team-search {
+        border: 2px solid #1d1d1d;
+        border-radius: 0;
+        min-height: 42px;
+    }
+
+    .compact-team-list {
+        overflow-y: auto;
+        padding-right: 0.25rem;
+    }
+
+    @media (max-width: 1100px) {
+        .compact-team-list {
+            max-height: 420px;
+        }
+    }
+
+    .compact-team-card {
+        width: 100%;
+        border: 2px solid #d8d8d8;
+        background: #ffffff;
+        text-align: left;
+        padding: 0.85rem;
+        margin-bottom: 0.65rem;
+        cursor: pointer;
+        color: #1d1d1d;
+        display: block;
+    }
+
+    .compact-team-card:hover,
+    .compact-team-card:focus {
+        border-color: #1d1d1d;
+        box-shadow: 0 0 0 3px #ffdd00;
+        outline: none;
+    }
+
+    .compact-team-card.is-active {
+        border-color: #7413dc;
+        box-shadow: inset 6px 0 0 #7413dc;
         background: #f8f8f8;
     }
 
-    .team-progress-title-row {
-        display: flex;
-        justify-content: space-between;
-        gap: 1rem;
-        align-items: flex-start;
-    }
-
-    .team-progress-title-row h3 {
-        margin: 0;
-        font-size: 1.2rem;
-        font-weight: 900;
+    .compact-team-topline {
+        display: grid;
+        grid-template-columns: 20px minmax(0, 1fr) auto;
+        gap: 0.55rem;
+        align-items: start;
     }
 
     .team-colour-key {
-        width: 22px;
-        height: 22px;
+        width: 18px;
+        height: 18px;
         border: 2px solid #1d1d1d;
         flex: 0 0 auto;
+        margin-top: 0.2rem;
     }
 
-    .team-progress-meta {
-        margin-top: 0.5rem;
+    .compact-team-name {
+        font-weight: 900;
+        line-height: 1.2;
+        display: block;
+    }
+
+    .compact-team-meta {
         color: #505a5f;
+        font-size: 0.9rem;
+        line-height: 1.35;
+        display: block;
+        margin-top: 0.2rem;
     }
 
-    .team-progress-body {
-        padding: 1rem;
+    .compact-mileage {
+        font-weight: 900;
+        white-space: nowrap;
+    }
+
+    .compact-latest {
+        margin: 0.55rem 0 0;
+        color: #505a5f;
+        font-size: 0.9rem;
     }
 
     .face-row {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.3rem;
-        margin-bottom: 0.75rem;
+        gap: 0.25rem;
+        margin-top: 0.65rem;
     }
 
     .mini-face {
-        width: 30px !important;
-        height: 30px !important;
-        min-width: 30px !important;
-        min-height: 30px !important;
-        max-width: 30px !important;
-        max-height: 30px !important;
+        width: 28px !important;
+        height: 28px !important;
+        min-width: 28px !important;
+        min-height: 28px !important;
+        max-width: 28px !important;
+        max-height: 28px !important;
         border: 2px solid #1d1d1d;
         object-fit: cover;
         background: #7413dc;
@@ -445,11 +530,12 @@ include __DIR__ . '/header.php';
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        font-size: 0.75rem;
+        font-size: 0.7rem;
         font-weight: 900;
         line-height: 1;
         text-decoration: none;
         overflow: hidden;
+        border-radius: 50%;
     }
 
     .mini-face img {
@@ -457,6 +543,86 @@ include __DIR__ . '/header.php';
         height: 100%;
         object-fit: cover;
         display: block;
+    }
+
+    .mini-face-more {
+        background: #f3f2f1;
+        color: #1d1d1d;
+    }
+
+    .selected-team-panel {
+        display: none;
+    }
+
+    .selected-team-panel.is-active {
+        display: block;
+    }
+
+    .selected-team-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 1rem;
+        align-items: start;
+        border-bottom: 2px solid #d8d8d8;
+        padding-bottom: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    @media (max-width: 760px) {
+        .selected-team-header {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .selected-team-header h2 {
+        margin-bottom: 0.35rem;
+    }
+
+    .team-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        justify-content: flex-end;
+    }
+
+    @media (max-width: 760px) {
+        .team-actions {
+            justify-content: flex-start;
+        }
+    }
+
+    .selected-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.75rem;
+        margin-bottom: 1.25rem;
+    }
+
+    @media (max-width: 760px) {
+        .selected-stats-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .stat-box {
+        border: 2px solid #d8d8d8;
+        background: #f8f8f8;
+        padding: 0.9rem;
+    }
+
+    .stat-label {
+        display: block;
+        color: #505a5f;
+        font-size: 0.9rem;
+        font-weight: 800;
+        margin-bottom: 0.25rem;
+    }
+
+    .stat-value {
+        display: block;
+        font-size: 1.25rem;
+        font-weight: 900;
+        line-height: 1.2;
     }
 
     .checkin-state {
@@ -477,18 +643,33 @@ include __DIR__ . '/header.php';
         color: #1d1d1d;
     }
 
+    .selected-content-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        gap: 1rem;
+        align-items: start;
+    }
+
+    @media (max-width: 900px) {
+        .selected-content-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
     .route-stops {
         list-style: none;
         padding: 0;
-        margin: 0.75rem 0 0;
+        margin: 0;
+        border: 2px solid #d8d8d8;
+        background: #ffffff;
     }
 
     .route-stop {
         display: grid;
         grid-template-columns: 16px minmax(0, 1fr);
-        gap: 0.5rem;
+        gap: 0.6rem;
         border-top: 1px solid #d8d8d8;
-        padding: 0.6rem 0;
+        padding: 0.7rem;
     }
 
     .route-stop:first-child {
@@ -509,16 +690,59 @@ include __DIR__ . '/header.php';
 
     .route-stop small {
         color: #505a5f;
+        display: block;
+    }
+
+    .team-members-panel {
+        border: 2px solid #d8d8d8;
+        background: #f8f8f8;
+        padding: 1rem;
+    }
+
+    .member-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.5rem;
+    }
+
+    @media (max-width: 500px) {
+        .member-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .member-chip {
+        display: grid;
+        grid-template-columns: 32px minmax(0, 1fr);
+        gap: 0.5rem;
+        align-items: center;
+        color: #1d1d1d;
+        text-decoration: none;
+        background: #ffffff;
+        border: 1px solid #d8d8d8;
+        padding: 0.35rem;
+    }
+
+    .member-chip:hover,
+    .member-chip:focus {
+        color: #1d1d1d;
+        text-decoration: underline;
+        border-color: #1d1d1d;
+    }
+
+    .member-chip .mini-face {
+        margin: 0;
+    }
+
+    .member-name {
+        font-weight: 800;
+        line-height: 1.2;
+        overflow-wrap: anywhere;
     }
 
     .team-empty {
         color: #505a5f;
         margin-bottom: 0;
-    }
-
-    .distance-value {
-        font-size: 1.1rem;
-        font-weight: 900;
     }
 
     .locations-table-panel {
@@ -536,6 +760,10 @@ include __DIR__ . '/header.php';
     .leaflet-popup-content strong {
         font-weight: 900;
     }
+
+    .hidden-by-search {
+        display: none !important;
+    }
 </style>
 
 <section class="page-hero">
@@ -547,28 +775,118 @@ include __DIR__ . '/header.php';
     </div>
 </section>
 
-<main id="main-content" class="container-fluid my-5 px-4">
+<main id="main-content" class="container-fluid my-5 px-4 locations-shell">
 
-    <div class="locations-page-layout">
+    <section class="locations-map-panel">
+        <h2>Team progress map</h2>
 
-        <section class="locations-map-panel">
-            <h2>Team progress map</h2>
+        <div class="map-help">
+            <p>
+                Routes are drawn as approximate straight lines between manually entered check-ins.
+                They are not turn-by-turn walking routes and should be treated as a progress overview only.
+            </p>
+        </div>
 
-            <div class="map-help">
-                <p>
-                    Routes are drawn as approximate straight lines between manually entered check-ins.
-                    They are not turn-by-turn walking routes and should be treated as a progress overview only.
+        <div id="team-progress-map"></div>
+    </section>
+
+    <div class="locations-browser-layout">
+
+        <aside class="locations-team-browser">
+            <div class="team-browser-header">
+                <h2>Teams</h2>
+
+                <label class="sr-only" for="team-filter">Search teams</label>
+                <input
+                    class="form-control team-search"
+                    id="team-filter"
+                    type="search"
+                    placeholder="Search teams..."
+                    autocomplete="off"
+                >
+
+                <p class="muted mt-2 mb-0" id="team-filter-count">
+                    <?= count($teamData) ?> team<?= count($teamData) === 1 ? '' : 's' ?>
                 </p>
             </div>
 
-            <div id="team-progress-map"></div>
-        </section>
+            <div class="compact-team-list" id="compact-team-list">
+                <?php if (empty($teamData)): ?>
+                    <p>No teams have been added yet.</p>
+                <?php endif; ?>
 
-        <aside class="locations-side-panel">
-            <h2>Teams</h2>
+                <?php foreach ($teamData as $teamId => $data): ?>
+                    <?php
+                    $team = $data['team'];
+                    $latest = $data['latest_location'];
+                    $checkedToday = $data['checked_in_today'];
+                    $teamName = (string)$team['name'];
+                    $teamSearch = strtolower($teamName . ' ' . ($team['status'] ?? '') . ' ' . ($latest['location_name'] ?? ''));
+                    ?>
 
+                    <button
+                        type="button"
+                        class="compact-team-card js-team-selector <?= (int)$teamId === $selectedTeamId ? 'is-active' : '' ?>"
+                        data-team-id="<?= (int)$teamId ?>"
+                        data-team-search="<?= e($teamSearch) ?>"
+                    >
+                        <span class="compact-team-topline">
+                            <span
+                                class="team-colour-key"
+                                style="background: <?= e($data['colour']) ?>;"
+                                aria-hidden="true"
+                            ></span>
+
+                            <span>
+                                <span class="compact-team-name"><?= e($teamName) ?></span>
+                                <span class="compact-team-meta">
+                                    <?= e(status_label($team['status'])) ?>
+                                </span>
+                            </span>
+
+                            <span class="compact-mileage">
+                                <?= e(number_format($data['total_miles'], 1)) ?> mi
+                            </span>
+                        </span>
+
+                        <span class="compact-latest">
+                            <?php if ($latest): ?>
+                                Latest: <?= e($latest['location_name']) ?><br>
+                                <?= e(format_datetime($latest['checked_in_at'])) ?>
+                            <?php else: ?>
+                                No check-ins yet
+                            <?php endif; ?>
+                        </span>
+
+                        <span class="face-row" aria-label="Team members">
+                            <?php foreach (array_slice($data['people'], 0, 8) as $person): ?>
+                                <?php $personName = person_display_name($person); ?>
+
+                                <span class="mini-face" title="<?= e($personName) ?>">
+                                    <?php if (!empty($person['photo_url'])): ?>
+                                        <img src="<?= e($person['photo_url']) ?>" alt="">
+                                    <?php else: ?>
+                                        <?= e(person_initials($personName)) ?>
+                                    <?php endif; ?>
+                                </span>
+                            <?php endforeach; ?>
+
+                            <?php if (count($data['people']) > 8): ?>
+                                <span class="mini-face mini-face-more">
+                                    +<?= count($data['people']) - 8 ?>
+                                </span>
+                            <?php endif; ?>
+                        </span>
+                    </button>
+                <?php endforeach; ?>
+            </div>
+        </aside>
+
+        <section class="locations-team-detail">
             <?php if (empty($teamData)): ?>
-                <p>No teams have been added yet.</p>
+                <div class="team-empty">
+                    No team records are available.
+                </div>
             <?php endif; ?>
 
             <?php foreach ($teamData as $teamId => $data): ?>
@@ -578,112 +896,156 @@ include __DIR__ . '/header.php';
                 $checkedToday = $data['checked_in_today'];
                 ?>
 
-                <article class="team-progress-card" id="team-card-<?= (int)$teamId ?>">
-                    <div class="team-progress-card-header">
-                        <div class="team-progress-title-row">
-                            <div>
-                                <h3><?= e($team['name']) ?></h3>
+                <article
+                    class="selected-team-panel js-team-detail <?= (int)$teamId === $selectedTeamId ? 'is-active' : '' ?>"
+                    data-team-id="<?= (int)$teamId ?>"
+                >
+                    <div class="selected-team-header">
+                        <div>
+                            <h2><?= e($team['name']) ?></h2>
 
-                                <div class="team-progress-meta">
-                                    <span class="status-pill <?= e(status_class($team['status'])) ?>">
-                                        <?= e(status_label($team['status'])) ?>
-                                    </span>
-                                </div>
-                            </div>
+                            <p class="mb-1">
+                                <span class="status-pill <?= e(status_class($team['status'])) ?>">
+                                    <?= e(status_label($team['status'])) ?>
+                                </span>
+                            </p>
 
-                            <span
-                                class="team-colour-key"
-                                style="background: <?= e($data['colour']) ?>;"
-                                title="Map route colour"
-                            ></span>
+                            <?php if (!empty($team['description'])): ?>
+                                <p class="muted mb-0"><?= nl2br(e($team['description'])) ?></p>
+                            <?php endif; ?>
+                        </div>
+
+                        <div class="team-actions">
+                            <button
+                                type="button"
+                                class="btn btn-outline-primary btn-sm js-focus-team"
+                                data-team-id="<?= (int)$teamId ?>"
+                            >
+                                Focus on map
+                            </button>
+
+                            <a
+                                class="btn btn-outline-primary btn-sm"
+                                href="<?= e(url('team_links.php?view=team&team_id=' . (int)$teamId)) ?>"
+                            >
+                                Open team record
+                            </a>
                         </div>
                     </div>
 
-                    <div class="team-progress-body">
+                    <div class="selected-stats-grid">
+                        <div class="stat-box">
+                            <span class="stat-label">Distance covered</span>
+                            <span class="stat-value"><?= e(number_format($data['total_miles'], 1)) ?> miles</span>
+                        </div>
 
-                        <?php if (!empty($data['people'])): ?>
-                            <div class="face-row" aria-label="Team members">
-                                <?php foreach ($data['people'] as $person): ?>
-                                    <?php $personName = person_display_name($person); ?>
-
-                                    <span class="mini-face" title="<?= e($personName) ?>">
-                                        <?php if (!empty($person['photo_url'])): ?>
-                                            <img src="<?= e($person['photo_url']) ?>" alt="">
-                                        <?php else: ?>
-                                            <?= e(person_initials($personName)) ?>
-                                        <?php endif; ?>
-                                    </span>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php endif; ?>
-
-                        <p>
-                            <span class="distance-value">
-                                <?= e(number_format($data['total_miles'], 1)) ?> miles
+                        <div class="stat-box">
+                            <span class="stat-label">Check-in state</span>
+                            <span class="stat-value">
+                                <?php if ($checkedToday): ?>
+                                    <span class="checkin-state checkin-state-good">Checked in today</span>
+                                <?php else: ?>
+                                    <span class="checkin-state checkin-state-waiting">No check-in today</span>
+                                <?php endif; ?>
                             </span>
-                            <br>
-                            <span class="muted">
-                                Approximate distance between check-ins
-                            </span>
-                        </p>
+                        </div>
 
-                        <p>
-                            <?php if ($checkedToday): ?>
-                                <span class="checkin-state checkin-state-good">
-                                    Checked in today
-                                </span>
-                            <?php else: ?>
-                                <span class="checkin-state checkin-state-waiting">
-                                    No check-in today
-                                </span>
+                        <div class="stat-box">
+                            <span class="stat-label">Latest location</span>
+                            <span class="stat-value">
+                                <?php if ($latest): ?>
+                                    <?= e($latest['location_name']) ?>
+                                <?php else: ?>
+                                    Not recorded
+                                <?php endif; ?>
+                            </span>
+
+                            <?php if ($latest): ?>
+                                <span class="muted"><?= e(format_datetime($latest['checked_in_at'])) ?></span>
                             <?php endif; ?>
-                        </p>
+                        </div>
+                    </div>
 
-                        <?php if ($latest): ?>
-                            <p class="mb-2">
-                                <strong>Latest:</strong>
-                                <?= e($latest['location_name']) ?>
-                                <br>
-                                <span class="muted">
-                                    <?= e(format_datetime($latest['checked_in_at'])) ?>
-                                </span>
-                            </p>
-                        <?php else: ?>
-                            <p class="team-empty">
-                                No check-ins have been added for this team yet.
-                            </p>
-                        <?php endif; ?>
+                    <div class="selected-content-grid">
+                        <div>
+                            <h3>Route stops</h3>
 
-                        <?php if (!empty($data['locations'])): ?>
-                            <h4 class="h6 mt-3">Stops</h4>
+                            <?php if (empty($data['locations'])): ?>
+                                <p class="team-empty">
+                                    No check-ins have been added for this team yet.
+                                </p>
+                            <?php else: ?>
+                                <ol class="route-stops">
+                                    <?php foreach (array_reverse($data['locations']) as $stop): ?>
+                                        <li class="route-stop">
+                                            <span
+                                                class="route-stop-dot"
+                                                style="background: <?= e($data['colour']) ?>;"
+                                                aria-hidden="true"
+                                            ></span>
 
-                            <ol class="route-stops">
-                                <?php foreach (array_reverse($data['locations']) as $stop): ?>
-                                    <li class="route-stop">
-                                        <span
-                                            class="route-stop-dot"
-                                            style="background: <?= e($data['colour']) ?>;"
-                                            aria-hidden="true"
-                                        ></span>
+                                            <span>
+                                                <strong><?= e($stop['location_name']) ?></strong>
 
-                                        <span>
-                                            <strong><?= e($stop['location_name']) ?></strong>
-                                            <small>
-                                                <?= e(format_datetime($stop['checked_in_at'])) ?>
-                                                <?php if (!empty($stop['leader_name'])): ?>
-                                                    by <?= e($stop['leader_name']) ?>
+                                                <small>
+                                                    <?= e(format_datetime($stop['checked_in_at'])) ?>
+                                                    <?php if (!empty($stop['leader_name'])): ?>
+                                                        by <?= e($stop['leader_name']) ?>
+                                                    <?php endif; ?>
+                                                </small>
+
+                                                <?php if (!empty($stop['public_note'])): ?>
+                                                    <small><?= e($stop['public_note']) ?></small>
                                                 <?php endif; ?>
-                                            </small>
-                                        </span>
-                                    </li>
-                                <?php endforeach; ?>
-                            </ol>
-                        <?php endif; ?>
 
+                                                <?php if (!empty($stop['latitude']) && !empty($stop['longitude'])): ?>
+                                                    <small>
+                                                        <?= e($stop['latitude']) ?>, <?= e($stop['longitude']) ?>
+                                                    </small>
+                                                <?php endif; ?>
+                                            </span>
+                                        </li>
+                                    <?php endforeach; ?>
+                                </ol>
+                            <?php endif; ?>
+                        </div>
+
+                        <aside class="team-members-panel">
+                            <h3>Team members</h3>
+
+                            <?php if (empty($data['people'])): ?>
+                                <p class="team-empty">
+                                    No young people are assigned to this team.
+                                </p>
+                            <?php else: ?>
+                                <div class="member-grid">
+                                    <?php foreach ($data['people'] as $person): ?>
+                                        <?php
+                                        $personName = person_display_name($person);
+                                        $personUrl = url('people.php?person_id=' . (int)$person['id']);
+                                        ?>
+
+                                        <a class="member-chip" href="<?= e($personUrl) ?>">
+                                            <span class="mini-face" aria-hidden="true">
+                                                <?php if (!empty($person['photo_url'])): ?>
+                                                    <img src="<?= e($person['photo_url']) ?>" alt="">
+                                                <?php else: ?>
+                                                    <?= e(person_initials($personName)) ?>
+                                                <?php endif; ?>
+                                            </span>
+
+                                            <span class="member-name">
+                                                <?= e($personName) ?>
+                                            </span>
+                                        </a>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php endif; ?>
+                        </aside>
                     </div>
                 </article>
             <?php endforeach; ?>
-        </aside>
+        </section>
 
     </div>
 
@@ -736,76 +1098,186 @@ include __DIR__ . '/header.php';
 
 <script>
     (function () {
-        if (typeof L === 'undefined') {
-            return;
-        }
+        var map = null;
+        var teamLayers = {};
+        var teamBounds = {};
+        var allBounds = [];
+        var activeTeamId = <?= (int)$selectedTeamId ?>;
 
         var mapTeams = <?= $mapJson ?: '[]' ?>;
 
-        var map = L.map('team-progress-map', {
-            scrollWheelZoom: true
-        }).setView([54.5, -3.2], 6);
-
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(map);
-
-        var bounds = [];
-
-        mapTeams.forEach(function (team) {
-            var latLngs = [];
-
-            team.points.forEach(function (point, index) {
-                var latLng = [point.lat, point.lng];
-                latLngs.push(latLng);
-                bounds.push(latLng);
-
-                var marker = L.circleMarker(latLng, {
-                    radius: index === team.points.length - 1 ? 8 : 6,
-                    color: '#1d1d1d',
-                    weight: 2,
-                    fillColor: team.colour,
-                    fillOpacity: 1
-                }).addTo(map);
-
-                var popupHtml =
-                    '<strong>' + escapeHtml(team.name) + '</strong><br>' +
-                    escapeHtml(point.location_name) + '<br>' +
-                    '<span>' + escapeHtml(point.checked_in_at) + '</span><br>' +
-                    '<span>Leader: ' + escapeHtml(point.leader_name) + '</span>';
-
-                if (point.public_note) {
-                    popupHtml += '<br><br>' + escapeHtml(point.public_note);
-                }
-
-                marker.bindPopup(popupHtml);
-            });
-
-            if (latLngs.length >= 2) {
-                L.polyline(latLngs, {
-                    color: team.colour,
-                    weight: 4,
-                    opacity: 0.85,
-                    dashArray: '8, 8'
-                }).addTo(map);
-            }
-        });
-
-        if (bounds.length > 0) {
-            map.fitBounds(bounds, {
-                padding: [30, 30]
-            });
-        }
-
         function escapeHtml(value) {
-            return String(value)
+            return String(value || '')
                 .replace(/&/g, '&amp;')
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#039;');
         }
+
+        function initialiseMap() {
+            if (typeof L === 'undefined') {
+                return;
+            }
+
+            map = L.map('team-progress-map', {
+                scrollWheelZoom: true
+            }).setView([62.2, 25.3], 6);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(map);
+
+            mapTeams.forEach(function (team) {
+                var latLngs = [];
+                var layerGroup = L.layerGroup().addTo(map);
+
+                team.points.forEach(function (point, index) {
+                    var latLng = [point.lat, point.lng];
+                    latLngs.push(latLng);
+                    allBounds.push(latLng);
+
+                    var marker = L.circleMarker(latLng, {
+                        radius: index === team.points.length - 1 ? 8 : 6,
+                        color: '#1d1d1d',
+                        weight: 2,
+                        fillColor: team.colour,
+                        fillOpacity: 1
+                    }).addTo(layerGroup);
+
+                    var popupHtml =
+                        '<strong>' + escapeHtml(team.name) + '</strong><br>' +
+                        escapeHtml(point.location_name) + '<br>' +
+                        '<span>' + escapeHtml(point.checked_in_at) + '</span><br>' +
+                        '<span>Leader: ' + escapeHtml(point.leader_name) + '</span>';
+
+                    if (point.public_note) {
+                        popupHtml += '<br><br>' + escapeHtml(point.public_note);
+                    }
+
+                    marker.bindPopup(popupHtml);
+
+                    marker.on('click', function () {
+                        selectTeam(team.id, false);
+                    });
+                });
+
+                if (latLngs.length >= 2) {
+                    L.polyline(latLngs, {
+                        color: team.colour,
+                        weight: 4,
+                        opacity: 0.85,
+                        dashArray: '8, 8'
+                    }).addTo(layerGroup);
+                }
+
+                teamLayers[team.id] = layerGroup;
+                teamBounds[team.id] = latLngs;
+            });
+
+            if (allBounds.length > 0) {
+                map.fitBounds(allBounds, {
+                    padding: [30, 30]
+                });
+            }
+
+            if (activeTeamId > 0) {
+                setTimeout(function () {
+                    focusTeamOnMap(activeTeamId);
+                }, 250);
+            }
+        }
+
+        function selectTeam(teamId, shouldFocusMap) {
+            activeTeamId = parseInt(teamId, 10);
+
+            document.querySelectorAll('.js-team-selector').forEach(function (button) {
+                button.classList.toggle('is-active', parseInt(button.dataset.teamId, 10) === activeTeamId);
+            });
+
+            document.querySelectorAll('.js-team-detail').forEach(function (panel) {
+                panel.classList.toggle('is-active', parseInt(panel.dataset.teamId, 10) === activeTeamId);
+            });
+
+            if (shouldFocusMap) {
+                focusTeamOnMap(activeTeamId);
+            }
+        }
+
+        function focusTeamOnMap(teamId) {
+            if (!map || !teamBounds[teamId] || teamBounds[teamId].length === 0) {
+                return;
+            }
+
+            if (teamBounds[teamId].length === 1) {
+                map.setView(teamBounds[teamId][0], 11);
+            } else {
+                map.fitBounds(teamBounds[teamId], {
+                    padding: [45, 45]
+                });
+            }
+        }
+
+        document.querySelectorAll('.js-team-selector').forEach(function (button) {
+            button.addEventListener('click', function () {
+                selectTeam(button.dataset.teamId, true);
+            });
+        });
+
+        document.querySelectorAll('.js-focus-team').forEach(function (button) {
+            button.addEventListener('click', function () {
+                focusTeamOnMap(parseInt(button.dataset.teamId, 10));
+            });
+        });
+
+        var filterInput = document.getElementById('team-filter');
+        var filterCount = document.getElementById('team-filter-count');
+        var teamButtons = Array.prototype.slice.call(document.querySelectorAll('.js-team-selector'));
+
+        function applyTeamFilter() {
+            if (!filterInput) {
+                return;
+            }
+
+            var query = filterInput.value.toLowerCase().trim();
+            var visibleCount = 0;
+            var firstVisible = null;
+            var activeStillVisible = false;
+
+            teamButtons.forEach(function (button) {
+                var haystack = String(button.dataset.teamSearch || '').toLowerCase();
+                var matches = query === '' || haystack.indexOf(query) !== -1;
+
+                button.classList.toggle('hidden-by-search', !matches);
+
+                if (matches) {
+                    visibleCount++;
+
+                    if (!firstVisible) {
+                        firstVisible = button;
+                    }
+
+                    if (parseInt(button.dataset.teamId, 10) === activeTeamId) {
+                        activeStillVisible = true;
+                    }
+                }
+            });
+
+            if (filterCount) {
+                filterCount.textContent = visibleCount + ' team' + (visibleCount === 1 ? '' : 's');
+            }
+
+            if (!activeStillVisible && firstVisible) {
+                selectTeam(firstVisible.dataset.teamId, true);
+            }
+        }
+
+        if (filterInput) {
+            filterInput.addEventListener('input', applyTeamFilter);
+        }
+
+        initialiseMap();
     })();
 </script>
 
