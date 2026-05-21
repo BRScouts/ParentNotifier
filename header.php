@@ -97,28 +97,6 @@ function header_leader_bio_column(PDO $pdo): ?string
     return null;
 }
 
-function header_leader_phone_column(PDO $pdo): ?string
-{
-    foreach (['phone', 'phone_number', 'mobile', 'mobile_number', 'contact_number'] as $column) {
-        if (header_column_exists($pdo, 'leaders', $column)) {
-            return $column;
-        }
-    }
-
-    return null;
-}
-
-function header_leader_role_column(PDO $pdo): ?string
-{
-    foreach (['role', 'title', 'position'] as $column) {
-        if (header_column_exists($pdo, 'leaders', $column)) {
-            return $column;
-        }
-    }
-
-    return null;
-}
-
 function header_fetch_leader(PDO $pdo, int $leaderId): ?array
 {
     $stmt = $pdo->prepare(
@@ -232,8 +210,6 @@ if (
 
         $name = trim($_POST['profile_name'] ?? '');
         $email = trim($_POST['profile_email'] ?? '');
-        $phone = trim($_POST['profile_phone'] ?? '');
-        $role = trim($_POST['profile_role'] ?? '');
         $bio = trim($_POST['profile_bio'] ?? '');
 
         if ($name === '') {
@@ -245,8 +221,6 @@ if (
         }
 
         $bioColumn = header_leader_bio_column($pdo);
-        $phoneColumn = header_leader_phone_column($pdo);
-        $roleColumn = header_leader_role_column($pdo);
         $hasPhotoColumn = header_column_exists($pdo, 'leaders', 'photo_url');
 
         $updates = [
@@ -260,16 +234,6 @@ if (
         if (header_column_exists($pdo, 'leaders', 'email')) {
             $updates[] = 'email = ?';
             $params[] = $email !== '' ? $email : null;
-        }
-
-        if ($phoneColumn) {
-            $updates[] = $phoneColumn . ' = ?';
-            $params[] = $phone !== '' ? $phone : null;
-        }
-
-        if ($roleColumn) {
-            $updates[] = $roleColumn . ' = ?';
-            $params[] = $role !== '' ? $role : null;
         }
 
         if ($bioColumn) {
@@ -322,22 +286,16 @@ if (!empty($_SESSION['header_profile_success'])) {
 
 $currentLeader = null;
 $leaderBioColumn = null;
-$leaderPhoneColumn = null;
-$leaderRoleColumn = null;
 
 if ($user && !empty($user['id'])) {
     $currentLeader = header_fetch_leader($pdo, (int)$user['id']);
     $leaderBioColumn = header_leader_bio_column($pdo);
-    $leaderPhoneColumn = header_leader_phone_column($pdo);
-    $leaderRoleColumn = header_leader_role_column($pdo);
 }
 
 $leaderName = $currentLeader['name'] ?? ($user['name'] ?? 'Leader');
 $leaderEmail = $currentLeader['email'] ?? ($user['email'] ?? '');
 $leaderPhoto = header_media_url($currentLeader['photo_url'] ?? '');
 $leaderBio = $leaderBioColumn ? (string)($currentLeader[$leaderBioColumn] ?? '') : '';
-$leaderPhone = $leaderPhoneColumn ? (string)($currentLeader[$leaderPhoneColumn] ?? '') : '';
-$leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? '') : '';
 ?>
 <!doctype html>
 <html lang="en">
@@ -348,7 +306,7 @@ $leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? 
 
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="<?= e(url('assets/css/app.css?v=10')) ?>">
+    <link rel="stylesheet" href="<?= e(url('assets/css/app.css?v=11')) ?>">
 
     <style>
         .site-header {
@@ -359,7 +317,7 @@ $leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? 
         }
 
         .compact-navbar {
-            min-height: 84px;
+            min-height: 80px;
             padding-top: 0;
             padding-bottom: 0;
         }
@@ -367,9 +325,9 @@ $leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? 
         .site-brand {
             display: flex;
             align-items: center;
-            height: 84px;
+            height: 80px;
             padding: 0;
-            margin: 0 1.2rem 0 0;
+            margin: 0 1.15rem 0 0;
             background: transparent !important;
             border: 0 !important;
             box-shadow: none !important;
@@ -378,9 +336,9 @@ $leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? 
         }
 
         .site-logo-frame {
-            width: 250px;
-            height: 84px;
-            max-height: 84px;
+            width: 225px;
+            height: 80px;
+            max-height: 80px;
             display: flex;
             align-items: center;
             justify-content: flex-start;
@@ -391,11 +349,11 @@ $leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? 
             padding: 0;
             margin: 0;
             line-height: 1;
-            flex: 0 0 250px;
+            flex: 0 0 225px;
         }
 
         .site-logo {
-            width: 250px !important;
+            width: 225px !important;
             height: auto !important;
             max-width: none !important;
             max-height: none !important;
@@ -408,15 +366,15 @@ $leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? 
             padding: 0 !important;
             margin: 0 !important;
             line-height: 1;
-            transform: scale(1.16);
+            transform: scale(1.14);
             transform-origin: left center;
         }
 
         .site-logo-placeholder {
-            width: 62px;
-            height: 62px;
-            min-width: 62px;
-            min-height: 62px;
+            width: 58px;
+            height: 58px;
+            min-width: 58px;
+            min-height: 58px;
             border: 2px solid #ffffff;
             background: transparent;
             color: #ffffff;
@@ -424,7 +382,7 @@ $leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? 
             align-items: center;
             justify-content: center;
             font-weight: 900;
-            font-size: 1.25rem;
+            font-size: 1.15rem;
             line-height: 1;
             box-shadow: none;
             padding: 0;
@@ -445,10 +403,11 @@ $leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? 
             font-weight: 850;
             font-size: 0.94rem;
             padding: 0.42rem 0.62rem !important;
-            border-radius: 999px;
+            border-radius: 0;
             white-space: nowrap;
             text-decoration: none;
             line-height: 1.2;
+            border: 2px solid transparent;
         }
 
         .compact-nav .nav-link:hover,
@@ -456,12 +415,15 @@ $leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? 
             background: rgba(255, 255, 255, 0.16);
             color: #ffffff !important;
             text-decoration: none;
+            border-color: rgba(255, 255, 255, 0.35);
         }
 
         .compact-nav .nav-item.active .nav-link {
             background: #ffffff;
             color: #7413dc !important;
             text-decoration: none;
+            border-color: #ffffff;
+            border-radius: 0;
         }
 
         .profile-menu {
@@ -470,10 +432,10 @@ $leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? 
         }
 
         .profile-toggle {
-            border: 2px solid rgba(255, 255, 255, 0.7);
+            border: 2px solid rgba(255, 255, 255, 0.75);
             background: rgba(255, 255, 255, 0.12);
             color: #ffffff;
-            border-radius: 999px;
+            border-radius: 0;
             padding: 0.2rem 0.35rem 0.2rem 0.2rem;
             display: flex;
             align-items: center;
@@ -494,7 +456,7 @@ $leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? 
             height: 42px;
             min-width: 42px;
             min-height: 42px;
-            border-radius: 50%;
+            border-radius: 0;
             border: 2px solid #ffffff;
             object-fit: cover;
             background: #4d0b95;
@@ -505,11 +467,6 @@ $leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? 
             font-weight: 900;
             font-size: 0.9rem;
             overflow: hidden;
-        }
-
-        .profile-caret {
-            font-size: 0.85rem;
-            padding-right: 0.2rem;
         }
 
         .profile-dropdown {
@@ -544,6 +501,7 @@ $leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? 
             padding: 0.75rem 0.9rem;
             color: #1d1d1d;
             text-decoration: none;
+            border-radius: 0;
         }
 
         .profile-dropdown .dropdown-item:hover,
@@ -556,12 +514,13 @@ $leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? 
             padding: 0.25rem 0.5rem;
             border-width: 1px;
             margin-left: auto;
+            border-radius: 0;
         }
 
         .profile-modal-photo {
             width: 96px;
             height: 96px;
-            border-radius: 50%;
+            border-radius: 0;
             border: 2px solid #1d1d1d;
             object-fit: cover;
             background: #7413dc;
@@ -606,13 +565,13 @@ $leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? 
 
         @media (max-width: 1199.98px) {
             .site-logo-frame {
-                width: 220px;
-                flex-basis: 220px;
+                width: 198px;
+                flex-basis: 198px;
             }
 
             .site-logo {
-                width: 220px !important;
-                transform: scale(1.14);
+                width: 198px !important;
+                transform: scale(1.12);
             }
 
             .compact-nav .nav-link {
@@ -624,26 +583,26 @@ $leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? 
 
         @media (max-width: 991.98px) {
             .compact-navbar {
-                min-height: 76px;
+                min-height: 74px;
                 padding-top: 0;
                 padding-bottom: 0;
             }
 
             .site-brand {
-                height: 76px;
-                max-height: 76px;
+                height: 74px;
+                max-height: 74px;
             }
 
             .site-logo-frame {
-                width: 210px;
-                height: 76px;
-                max-height: 76px;
-                flex-basis: 210px;
+                width: 189px;
+                height: 74px;
+                max-height: 74px;
+                flex-basis: 189px;
             }
 
             .site-logo {
-                width: 210px !important;
-                transform: scale(1.12);
+                width: 189px !important;
+                transform: scale(1.1);
             }
 
             #mainNav {
@@ -694,18 +653,19 @@ $leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? 
                 width: 100%;
                 transform: none !important;
                 margin-top: 0.5rem;
+                border-radius: 0;
             }
         }
 
         @media (max-width: 575.98px) {
             .site-logo-frame {
-                width: 185px;
-                flex-basis: 185px;
+                width: 167px;
+                flex-basis: 167px;
             }
 
             .site-logo {
-                width: 185px !important;
-                transform: scale(1.1);
+                width: 167px !important;
+                transform: scale(1.08);
             }
 
             .profile-avatar {
@@ -718,13 +678,13 @@ $leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? 
 
         @media (max-width: 380px) {
             .site-logo-frame {
-                width: 160px;
-                flex-basis: 160px;
+                width: 144px;
+                flex-basis: 144px;
             }
 
             .site-logo {
-                width: 160px !important;
-                transform: scale(1.08);
+                width: 144px !important;
+                transform: scale(1.06);
             }
         }
     </style>
@@ -971,13 +931,6 @@ $leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? 
                                 >
                             </div>
                         </div>
-
-                        <?php if ($leaderPhoneColumn || $leaderRoleColumn): ?>
-                            <div class="form-row">
-                                
-
-                            </div>
-                        <?php endif; ?>
 
                         <?php if ($leaderBioColumn): ?>
                             <div class="form-group">
