@@ -1609,12 +1609,7 @@ include __DIR__ . '/header.php';
 
                         <p><?= nl2br(e($log['body'])) ?></p>
 
-                        <form method="post" onsubmit="return confirm('Delete this log entry?');">
-                            <input type="hidden" name="action" value="delete_log">
-                            <input type="hidden" name="person_id" value="<?= (int)$currentPerson['id'] ?>">
-                            <input type="hidden" name="log_id" value="<?= (int)$log['id'] ?>">
-                            <button class="btn btn-outline-danger btn-sm">Delete log</button>
-                        </form>
+                        
                     </article>
                 <?php endforeach; ?>
             <?php endif; ?>
