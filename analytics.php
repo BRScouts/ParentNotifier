@@ -144,6 +144,233 @@ function analytics_page_filter_sql(string $alias = ''): string
     ';
 }
 
+function analytics_normalise_email(?string $email): string
+{
+    return strtolower(trim((string)$email));
+}
+
+function analytics_json_items(?string $json): array
+{
+    if (!$json) {
+        return [];
+    }
+
+    $decoded = json_decode($json, true);
+
+    return is_array($decoded) ? $decoded : [];
+}
+
+function analytics_emails_from_json_list(?string $json): array
+{
+    $items = analytics_json_items($json);
+    $emails = [];
+
+    foreach ($items as $item) {
+        if (!is_string($item)) {
+            continue;
+        }
+
+        $email = trim($item);
+
+        if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $emails[] = $email;
+        }
+    }
+
+    return $emails;
+}
+
+function analytics_emails_from_emergency_contacts(?string $json): array
+{
+    $items = analytics_json_items($json);
+    $emails = [];
+
+    foreach ($items as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+
+        $email = trim((string)($item['email'] ?? ''));
+
+        if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $emails[] = $email;
+        }
+    }
+
+    return $emails;
+}
+
+function analytics_build_leader_email_lookup(PDO $pdo): array
+{
+    $lookup = [];
+
+    if (!analytics_page_table_exists($pdo, 'leaders')) {
+        return $lookup;
+    }
+
+    try {
+        $rows = $pdo->query(
+            'SELECT id, name, email
+             FROM leaders
+             WHERE email IS NOT NULL
+               AND email <> ""'
+        )->fetchAll();
+
+        foreach ($rows as $row) {
+            $email = analytics_normalise_email($row['email'] ?? '');
+
+            if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $lookup[$email] = [
+                    'leader_id' => (int)$row['id'],
+                    'leader_name' => $row['name'] ?? 'Leader',
+                ];
+            }
+        }
+    } catch (Throwable $exception) {
+        return [];
+    }
+
+    return $lookup;
+}
+
+function analytics_build_email_team_lookup(PDO $pdo): array
+{
+    $lookup = [];
+
+    if (!analytics_page_table_exists($pdo, 'young_people')) {
+        return $lookup;
+    }
+
+    $hasTeams = analytics_page_table_exists($pdo, 'teams');
+
+    $teamSelect = $hasTeams ? 't.name AS team_name' : 'NULL AS team_name';
+    $teamJoin = $hasTeams ? 'LEFT JOIN teams t ON t.id = yp.team_id' : '';
+
+    try {
+        $stmt = $pdo->query(
+            'SELECT
+                yp.id,
+                yp.name,
+                yp.team_id,
+                yp.participant_email,
+                yp.parent_emails_json,
+                yp.emergency_contacts_json,
+                ' . $teamSelect . '
+             FROM young_people yp
+             ' . $teamJoin . '
+             WHERE yp.is_active = 1'
+        );
+
+        foreach ($stmt->fetchAll() as $person) {
+            $teamId = !empty($person['team_id']) ? (int)$person['team_id'] : null;
+
+            if (!$teamId) {
+                continue;
+            }
+
+            $teamName = $person['team_name'] ?: 'Team #' . $teamId;
+
+            $emails = [];
+
+            if (!empty($person['participant_email'])) {
+                $emails[] = $person['participant_email'];
+            }
+
+            foreach (analytics_emails_from_json_list($person['parent_emails_json'] ?? null) as $email) {
+                $emails[] = $email;
+            }
+
+            foreach (analytics_emails_from_emergency_contacts($person['emergency_contacts_json'] ?? null) as $email) {
+                $emails[] = $email;
+            }
+
+            foreach ($emails as $email) {
+                $normalised = analytics_normalise_email($email);
+
+                if ($normalised === '' || !filter_var($normalised, FILTER_VALIDATE_EMAIL)) {
+                    continue;
+                }
+
+                if (!isset($lookup[$normalised])) {
+                    $lookup[$normalised] = [
+                        'team_id' => $teamId,
+                        'team_name' => $teamName,
+                        'people' => [],
+                    ];
+                }
+
+                $lookup[$normalised]['people'][(int)$person['id']] = $person['name'];
+            }
+        }
+    } catch (Throwable $exception) {
+        return [];
+    }
+
+    return $lookup;
+}
+
+function analytics_resolve_email_attribution(?string $email, array $teamLookup, array $leaderLookup): array
+{
+    $normalised = analytics_normalise_email($email);
+
+    if ($normalised === '' || !filter_var($normalised, FILTER_VALIDATE_EMAIL)) {
+        return [
+            'type' => 'unattributed',
+            'team_id' => null,
+            'team_name' => null,
+            'label' => 'Not attributed',
+        ];
+    }
+
+    if (isset($leaderLookup[$normalised])) {
+        return [
+            'type' => 'leader',
+            'team_id' => null,
+            'team_name' => null,
+            'label' => 'Leader',
+        ];
+    }
+
+    if (isset($teamLookup[$normalised])) {
+        return [
+            'type' => 'team',
+            'team_id' => $teamLookup[$normalised]['team_id'],
+            'team_name' => $teamLookup[$normalised]['team_name'],
+            'label' => $teamLookup[$normalised]['team_name'],
+        ];
+    }
+
+    return [
+        'type' => 'unattributed',
+        'team_id' => null,
+        'team_name' => null,
+        'label' => 'Not attributed',
+    ];
+}
+
+function analytics_resolve_row_attribution(array $row, array $teamLookup, array $leaderLookup): array
+{
+    if (!empty($row['related_team_id'])) {
+        return [
+            'type' => 'team',
+            'team_id' => (int)$row['related_team_id'],
+            'team_name' => $row['team_name'] ?? ('Team #' . (int)$row['related_team_id']),
+            'label' => $row['team_name'] ?? ('Team #' . (int)$row['related_team_id']),
+        ];
+    }
+
+    return analytics_resolve_email_attribution($row['recipient_email'] ?? ($row['to_email'] ?? null), $teamLookup, $leaderLookup);
+}
+
+function analytics_increment_group(array &$groups, string $key, array $base, int $visits = 1): void
+{
+    if (!isset($groups[$key])) {
+        $groups[$key] = $base;
+    }
+
+    $groups[$key]['visits'] += $visits;
+}
+
 $today = new DateTime('today');
 $defaultFrom = (clone $today)->modify('-30 days')->format('Y-m-d');
 $defaultTo = $today->format('Y-m-d');
@@ -162,6 +389,9 @@ $hasTokens = analytics_page_table_exists($pdo, 'email_tracking_tokens');
 $hasEvents = analytics_page_table_exists($pdo, 'email_tracking_events');
 $hasPageVisits = analytics_page_table_exists($pdo, 'page_visits');
 $hasTeams = analytics_page_table_exists($pdo, 'teams');
+
+$teamEmailLookup = analytics_build_email_team_lookup($pdo);
+$leaderEmailLookup = analytics_build_leader_email_lookup($pdo);
 
 $summary = [
     'emails_sent' => 0,
@@ -184,9 +414,11 @@ $clickerRows = [];
 $recentClickRows = [];
 $zeroClickRows = [];
 $yearRows = [];
+$quickestClick = null;
 $leaderVisitCount = 0;
 $excludedAdminVisitCount = 0;
 $unattributedVisitCount = 0;
+$ignoredUnattributedForTeamCount = 0;
 $error = '';
 
 try {
@@ -241,6 +473,7 @@ try {
                 eq.related_team_id,
                 ' . $teamNameSelect . '
                 ett.id AS tracking_token_id,
+                ett.recipient_email,
                 ett.open_count,
                 ett.click_count,
                 ett.first_opened_at,
@@ -264,16 +497,26 @@ try {
         $stmt->execute([$fromDateTime, $toDateTime]);
         $emailRows = $stmt->fetchAll();
 
+        foreach ($emailRows as &$emailRow) {
+            $attribution = analytics_resolve_row_attribution($emailRow, $teamEmailLookup, $leaderEmailLookup);
+            $emailRow['analytics_attribution'] = $attribution;
+        }
+        unset($emailRow);
+
         $stmt = $pdo->prepare(
             'SELECT
                 eq.id,
                 eq.to_email,
                 eq.subject,
                 eq.sent_at,
+                eq.related_team_id,
+                ' . $teamNameSelect . '
+                ett.recipient_email,
                 ett.open_count,
                 ett.click_count
              FROM email_queue eq
              LEFT JOIN email_tracking_tokens ett ON ett.email_queue_id = eq.id
+             ' . $teamJoin . '
              WHERE eq.status = "sent"
                AND eq.sent_at BETWEEN ? AND ?
                AND COALESCE(ett.click_count, 0) = 0
@@ -283,6 +526,40 @@ try {
 
         $stmt->execute([$fromDateTime, $toDateTime]);
         $zeroClickRows = $stmt->fetchAll();
+
+        foreach ($zeroClickRows as &$zeroRow) {
+            $zeroRow['analytics_attribution'] = analytics_resolve_row_attribution($zeroRow, $teamEmailLookup, $leaderEmailLookup);
+        }
+        unset($zeroRow);
+
+        $stmt = $pdo->prepare(
+            'SELECT
+                eq.id,
+                eq.to_email,
+                eq.subject,
+                eq.sent_at,
+                eq.related_team_id,
+                ' . $teamNameSelect . '
+                ett.recipient_email,
+                ett.first_clicked_at,
+                ett.click_count,
+                TIMESTAMPDIFF(SECOND, eq.sent_at, ett.first_clicked_at) AS seconds_to_first_click
+             FROM email_queue eq
+             INNER JOIN email_tracking_tokens ett ON ett.email_queue_id = eq.id
+             ' . $teamJoin . '
+             WHERE eq.status = "sent"
+               AND eq.sent_at BETWEEN ? AND ?
+               AND ett.first_clicked_at IS NOT NULL
+             ORDER BY seconds_to_first_click ASC
+             LIMIT 1'
+        );
+
+        $stmt->execute([$fromDateTime, $toDateTime]);
+        $quickestClick = $stmt->fetch() ?: null;
+
+        if ($quickestClick) {
+            $quickestClick['analytics_attribution'] = analytics_resolve_row_attribution($quickestClick, $teamEmailLookup, $leaderEmailLookup);
+        }
     }
 
     if ($hasPageVisits) {
@@ -347,50 +624,129 @@ try {
         $stmt->execute([$fromDateTime, $toDateTime]);
         $pageRows = $stmt->fetchAll();
 
-        $teamNameSelect = $hasTeams ? 't.name AS team_name,' : 'NULL AS team_name,';
-        $teamJoin = $hasTeams ? 'LEFT JOIN teams t ON t.id = pv.related_team_id' : '';
+        /**
+         * Fetch parent-facing page visits and do team/clicker attribution in PHP.
+         * This lets us infer a team from the people table without adding a table.
+         */
+        $teamVisitGroups = [];
+        $clickerGroups = [];
 
         $stmt = $pdo->prepare(
             'SELECT
+                pv.session_id,
+                pv.email_queue_id,
+                pv.recipient_email,
                 pv.related_team_id,
-                ' . $teamNameSelect . '
-                COUNT(*) AS visits,
-                COUNT(DISTINCT pv.session_id) AS unique_sessions,
-                COUNT(DISTINCT pv.email_queue_id) AS attributed_emails
+                pv.related_post_id,
+                pv.request_path,
+                pv.page_key,
+                pv.visited_at,
+                t.name AS team_name
              FROM page_visits pv
-             ' . $teamJoin . '
+             LEFT JOIN teams t ON t.id = pv.related_team_id
              WHERE pv.visited_at BETWEEN ? AND ?
                AND pv.leader_id IS NULL
-               AND pv.related_team_id IS NOT NULL
                ' . analytics_page_filter_sql('pv') . '
-             GROUP BY pv.related_team_id, team_name
-             ORDER BY visits DESC, unique_sessions DESC
-             LIMIT 30'
+             ORDER BY pv.visited_at ASC
+             LIMIT 5000'
         );
 
         $stmt->execute([$fromDateTime, $toDateTime]);
-        $teamRows = $stmt->fetchAll();
 
-        $stmt = $pdo->prepare(
-            'SELECT
-                COALESCE(recipient_email, "Unknown / unattributed") AS recipient_email,
-                related_team_id,
-                COUNT(*) AS visits,
-                COUNT(DISTINCT session_id) AS sessions,
-                COUNT(DISTINCT request_path) AS pages_visited,
-                MIN(visited_at) AS first_visit_at,
-                MAX(visited_at) AS last_visit_at
-             FROM page_visits
-             WHERE visited_at BETWEEN ? AND ?
-               AND leader_id IS NULL
-               ' . analytics_page_filter_sql() . '
-             GROUP BY recipient_email, related_team_id
-             ORDER BY visits DESC, sessions DESC
-             LIMIT 30'
-        );
+        foreach ($stmt->fetchAll() as $visit) {
+            $attribution = analytics_resolve_row_attribution($visit, $teamEmailLookup, $leaderEmailLookup);
 
-        $stmt->execute([$fromDateTime, $toDateTime]);
-        $clickerRows = $stmt->fetchAll();
+            if ($attribution['type'] === 'leader') {
+                continue;
+            }
+
+            if ($attribution['type'] !== 'team' || empty($attribution['team_id'])) {
+                $ignoredUnattributedForTeamCount++;
+                continue;
+            }
+
+            $teamKey = (string)$attribution['team_id'];
+
+            if (!isset($teamVisitGroups[$teamKey])) {
+                $teamVisitGroups[$teamKey] = [
+                    'team_id' => $attribution['team_id'],
+                    'team_name' => $attribution['team_name'],
+                    'visits' => 0,
+                    'sessions' => [],
+                    'emails' => [],
+                ];
+            }
+
+            $teamVisitGroups[$teamKey]['visits']++;
+            $teamVisitGroups[$teamKey]['sessions'][$visit['session_id']] = true;
+
+            if (!empty($visit['email_queue_id'])) {
+                $teamVisitGroups[$teamKey]['emails'][(int)$visit['email_queue_id']] = true;
+            }
+
+            $recipientEmail = $visit['recipient_email'] ?: 'Unknown / unattributed';
+            $clickerKey = analytics_normalise_email($recipientEmail) . '|' . $teamKey;
+
+            if (!isset($clickerGroups[$clickerKey])) {
+                $clickerGroups[$clickerKey] = [
+                    'recipient_email' => $recipientEmail,
+                    'team_id' => $attribution['team_id'],
+                    'team_name' => $attribution['team_name'],
+                    'visits' => 0,
+                    'sessions' => [],
+                    'pages' => [],
+                    'first_visit_at' => $visit['visited_at'],
+                    'last_visit_at' => $visit['visited_at'],
+                ];
+            }
+
+            $clickerGroups[$clickerKey]['visits']++;
+            $clickerGroups[$clickerKey]['sessions'][$visit['session_id']] = true;
+            $clickerGroups[$clickerKey]['pages'][$visit['request_path']] = true;
+
+            if (strtotime($visit['visited_at']) < strtotime($clickerGroups[$clickerKey]['first_visit_at'])) {
+                $clickerGroups[$clickerKey]['first_visit_at'] = $visit['visited_at'];
+            }
+
+            if (strtotime($visit['visited_at']) > strtotime($clickerGroups[$clickerKey]['last_visit_at'])) {
+                $clickerGroups[$clickerKey]['last_visit_at'] = $visit['visited_at'];
+            }
+        }
+
+        foreach ($teamVisitGroups as $teamGroup) {
+            $teamRows[] = [
+                'team_id' => $teamGroup['team_id'],
+                'team_name' => $teamGroup['team_name'],
+                'visits' => $teamGroup['visits'],
+                'unique_sessions' => count($teamGroup['sessions']),
+                'attributed_emails' => count($teamGroup['emails']),
+            ];
+        }
+
+        usort($teamRows, static function ($a, $b) {
+            return $b['visits'] <=> $a['visits'];
+        });
+
+        $teamRows = array_slice($teamRows, 0, 30);
+
+        foreach ($clickerGroups as $clickerGroup) {
+            $clickerRows[] = [
+                'recipient_email' => $clickerGroup['recipient_email'],
+                'team_id' => $clickerGroup['team_id'],
+                'team_name' => $clickerGroup['team_name'],
+                'visits' => $clickerGroup['visits'],
+                'sessions' => count($clickerGroup['sessions']),
+                'pages_visited' => count($clickerGroup['pages']),
+                'first_visit_at' => $clickerGroup['first_visit_at'],
+                'last_visit_at' => $clickerGroup['last_visit_at'],
+            ];
+        }
+
+        usort($clickerRows, static function ($a, $b) {
+            return $b['visits'] <=> $a['visits'];
+        });
+
+        $clickerRows = array_slice($clickerRows, 0, 30);
 
         $stmt = $pdo->query(
             'SELECT
@@ -418,6 +774,8 @@ try {
                 ete.recipient_email,
                 ete.tracked_url,
                 ete.request_path,
+                ete.related_team_id,
+                t.name AS team_name,
                 eq.subject,
                 eq.sent_at,
                 CASE
@@ -427,6 +785,7 @@ try {
                 END AS seconds_after_sent
              FROM email_tracking_events ete
              LEFT JOIN email_queue eq ON eq.id = ete.email_queue_id
+             LEFT JOIN teams t ON t.id = ete.related_team_id
              WHERE ete.created_at BETWEEN ? AND ?
                AND ete.event_type = "click"
                AND (
@@ -442,6 +801,11 @@ try {
 
         $stmt->execute([$fromDateTime, $toDateTime]);
         $recentClickRows = $stmt->fetchAll();
+
+        foreach ($recentClickRows as &$clickRow) {
+            $clickRow['analytics_attribution'] = analytics_resolve_row_attribution($clickRow, $teamEmailLookup, $leaderEmailLookup);
+        }
+        unset($clickRow);
     }
 } catch (Throwable $exception) {
     $error = $exception->getMessage();
@@ -475,12 +839,18 @@ include __DIR__ . '/header.php';
 
     .analytics-grid {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(5, minmax(0, 1fr));
         gap: 1rem;
         margin-bottom: 1.5rem;
     }
 
-    @media (max-width: 1000px) {
+    @media (max-width: 1200px) {
+        .analytics-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+    }
+
+    @media (max-width: 780px) {
         .analytics-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
@@ -743,7 +1113,8 @@ include __DIR__ . '/header.php';
         <p class="mb-0">
             Page usage only reports parent-facing pages: Dashboard, Leaders and Contact.
             Logged-in leader visits are excluded from parent usage figures.
-            Email open tracking is approximate because some mail apps block or proxy images.
+            Team attribution is inferred from existing people records where possible.
+            Manually entered emails that cannot be matched to a team, person or leader are left unattributed.
         </p>
     </div>
 
@@ -773,6 +1144,22 @@ include __DIR__ . '/header.php';
             </p>
             <p class="metric-sub">
                 <?= (int)$summary['total_clicks'] ?> total clicks
+            </p>
+        </div>
+
+        <div class="metric-card">
+            <h2>Quickest click</h2>
+            <p class="metric-value">
+                <?= $quickestClick ? e(analytics_seconds_to_human((int)$quickestClick['seconds_to_first_click'])) : 'None' ?>
+            </p>
+            <p class="metric-sub">
+                <?php if ($quickestClick): ?>
+                    <?= e($quickestClick['to_email']) ?>
+                    <br>
+                    <?= e($quickestClick['analytics_attribution']['label'] ?? 'Not attributed') ?>
+                <?php else: ?>
+                    No click recorded in this period
+                <?php endif; ?>
             </p>
         </div>
 
@@ -813,7 +1200,7 @@ include __DIR__ . '/header.php';
                             <th>Sent</th>
                             <th>Recipient</th>
                             <th>Subject</th>
-                            <th>Team</th>
+                            <th>Attribution</th>
                             <th>Opens</th>
                             <th>Clicks</th>
                             <th>Open</th>
@@ -826,12 +1213,18 @@ include __DIR__ . '/header.php';
                             <?php
                             $openCount = (int)($row['open_count'] ?? 0);
                             $clickCount = (int)($row['click_count'] ?? 0);
+                            $attribution = $row['analytics_attribution'] ?? ['label' => 'Not attributed', 'type' => 'unattributed'];
                             ?>
                             <tr>
                                 <td><?= e(analytics_safe_datetime($row['sent_at'] ?? null)) ?></td>
                                 <td><?= e($row['to_email'] ?? '') ?></td>
                                 <td><?= e($row['subject'] ?? '') ?></td>
-                                <td><?= e($row['team_name'] ?: ($row['related_team_id'] ? 'Team #' . $row['related_team_id'] : 'Not team-specific')) ?></td>
+                                <td>
+                                    <?= e($attribution['label'] ?? 'Not attributed') ?>
+                                    <?php if (($attribution['type'] ?? '') === 'unattributed'): ?>
+                                        <br><span class="muted">Manual or unmatched</span>
+                                    <?php endif; ?>
+                                </td>
                                 <td>
                                     <strong><?= $openCount ?></strong>
                                     <?php if (!empty($row['first_opened_at'])): ?>
@@ -870,6 +1263,7 @@ include __DIR__ . '/header.php';
                     <?php
                     $openCount = (int)($row['open_count'] ?? 0);
                     $clickCount = (int)($row['click_count'] ?? 0);
+                    $attribution = $row['analytics_attribution'] ?? ['label' => 'Not attributed', 'type' => 'unattributed'];
                     ?>
                     <details class="email-mobile-card">
                         <summary>
@@ -882,8 +1276,8 @@ include __DIR__ . '/header.php';
                             <dt>Sent</dt>
                             <dd><?= e(analytics_safe_datetime($row['sent_at'] ?? null)) ?></dd>
 
-                            <dt>Team</dt>
-                            <dd><?= e($row['team_name'] ?: ($row['related_team_id'] ? 'Team #' . $row['related_team_id'] : 'Not team-specific')) ?></dd>
+                            <dt>Attribution</dt>
+                            <dd><?= e($attribution['label'] ?? 'Not attributed') ?></dd>
 
                             <dt>Opens</dt>
                             <dd><?= $openCount ?></dd>
@@ -999,7 +1393,7 @@ include __DIR__ . '/header.php';
 
         <?php if (empty($clickerRows)): ?>
             <div class="empty-box">
-                No parent/clicker activity found for Dashboard, Leaders or Contact in this date range.
+                No team-attributed parent/clicker activity found for Dashboard, Leaders or Contact in this date range.
             </div>
         <?php else: ?>
             <div class="analytics-table-wrap">
@@ -1019,7 +1413,7 @@ include __DIR__ . '/header.php';
                         <?php foreach ($clickerRows as $row): ?>
                             <tr>
                                 <td><?= e($row['recipient_email'] ?? 'Unknown') ?></td>
-                                <td><?= e($row['related_team_id'] ? 'Team #' . $row['related_team_id'] : 'Not attributed') ?></td>
+                                <td><?= e($row['team_name'] ?: 'Team #' . $row['team_id']) ?></td>
                                 <td><?= (int)$row['visits'] ?></td>
                                 <td><?= (int)$row['sessions'] ?></td>
                                 <td><?= (int)$row['pages_visited'] ?></td>
@@ -1054,7 +1448,7 @@ include __DIR__ . '/header.php';
                     <tbody>
                         <?php foreach ($teamRows as $row): ?>
                             <tr>
-                                <td><?= e($row['team_name'] ?: 'Team #' . $row['related_team_id']) ?></td>
+                                <td><?= e($row['team_name'] ?: 'Team #' . $row['team_id']) ?></td>
                                 <td><?= (int)$row['visits'] ?></td>
                                 <td><?= (int)$row['unique_sessions'] ?></td>
                                 <td><?= (int)$row['attributed_emails'] ?></td>
@@ -1080,6 +1474,7 @@ include __DIR__ . '/header.php';
                         <tr>
                             <th>Clicked</th>
                             <th>Recipient</th>
+                            <th>Attribution</th>
                             <th>Subject</th>
                             <th>URL / page</th>
                             <th>After sent</th>
@@ -1087,9 +1482,11 @@ include __DIR__ . '/header.php';
                     </thead>
                     <tbody>
                         <?php foreach ($recentClickRows as $row): ?>
+                            <?php $attribution = $row['analytics_attribution'] ?? ['label' => 'Not attributed']; ?>
                             <tr>
                                 <td><?= e(analytics_safe_datetime($row['created_at'] ?? null)) ?></td>
                                 <td><?= e($row['recipient_email'] ?? 'Unknown') ?></td>
+                                <td><?= e($attribution['label'] ?? 'Not attributed') ?></td>
                                 <td><?= e($row['subject'] ?? '') ?></td>
                                 <td>
                                     <?= e($row['tracked_url'] ?: $row['request_path'] ?: '') ?>
@@ -1117,15 +1514,18 @@ include __DIR__ . '/header.php';
                         <tr>
                             <th>Sent</th>
                             <th>Recipient</th>
+                            <th>Attribution</th>
                             <th>Subject</th>
                             <th>Opens</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php foreach ($zeroClickRows as $row): ?>
+                            <?php $attribution = $row['analytics_attribution'] ?? ['label' => 'Not attributed']; ?>
                             <tr>
                                 <td><?= e(analytics_safe_datetime($row['sent_at'] ?? null)) ?></td>
                                 <td><?= e($row['to_email'] ?? '') ?></td>
+                                <td><?= e($attribution['label'] ?? 'Not attributed') ?></td>
                                 <td><?= e($row['subject'] ?? '') ?></td>
                                 <td><?= (int)($row['open_count'] ?? 0) ?></td>
                             </tr>
@@ -1186,12 +1586,17 @@ include __DIR__ . '/header.php';
         </p>
 
         <p>
+            Parent-facing visits ignored for team attribution because the email could not be matched to a team, person or leader:
+            <strong><?= (int)$ignoredUnattributedForTeamCount ?></strong>.
+        </p>
+
+        <p>
             Unattributed visits to parent-facing pages in this date range:
             <strong><?= (int)$unattributedVisitCount ?></strong>.
         </p>
 
         <p class="muted mb-0">
-            Parent usage tables only include Dashboard, Leaders and Contact, and exclude visits where <code>leader_id</code> is recorded.
+            Team attribution is inferred from the existing people records. Emails that do not match a participant, parent update contact, emergency contact or leader remain unattributed.
         </p>
     </section>
 
