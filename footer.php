@@ -19,7 +19,7 @@
             <div class="footer-message">
                 <strong>No news is not bad news.</strong>
                 <span>
-                    Updates and locations are added manually by leaders and may be delayed while teams are being checked in.
+                    Updates and locations are added manually by leaders and may be delayed while teams are being checked in/ information being inputted due to delay in signal.
                 </span>
             </div>
         </div>

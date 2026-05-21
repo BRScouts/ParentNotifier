@@ -101,12 +101,7 @@ a {
 .compact-site-logo,
 .site-header .site-brand img.site-logo,
 .site-header .site-brand img.compact-site-logo {
-    width: 52px !important;
-    height: 52px !important;
-    min-width: 52px !important;
-    min-height: 52px !important;
-    max-width: 52px !important;
-    max-height: 52px !important;
+
     object-fit: contain !important;
     display: block;
     border: 0 !important;
@@ -181,17 +176,7 @@ a {
         min-height: 54px;
     }
 
-    .site-logo,
-    .compact-site-logo,
-    .site-header .site-brand img.site-logo,
-    .site-header .site-brand img.compact-site-logo {
-        width: 44px !important;
-        height: 44px !important;
-        min-width: 44px !important;
-        min-height: 44px !important;
-        max-width: 44px !important;
-        max-height: 44px !important;
-    }
+   
 
     .site-logo-placeholder,
     .compact-logo-placeholder {
