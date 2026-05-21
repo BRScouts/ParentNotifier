@@ -1634,9 +1634,7 @@ include __DIR__ . '/header.php';
                             <th>Name</th>
                             <th>Team</th>
                             <th>Date of birth</th>
-                            <th>Participant contact</th>
                             <th>Alerts</th>
-                            <th>Status</th>
                         </tr>
                     </thead>
 
@@ -1663,21 +1661,6 @@ include __DIR__ . '/header.php';
 
                                 <td><?= e(person_age($person['dob'] ?? null)) ?></td>
 
-                                <td>
-                                    <?php if (!empty($person['participant_email'])): ?>
-                                        <a href="mailto:<?= e($person['participant_email']) ?>">
-                                            <?= e($person['participant_email']) ?>
-                                        </a>
-                                    <?php else: ?>
-                                        <span class="muted">No email</span>
-                                    <?php endif; ?>
-
-                                    <?php if (!empty($person['participant_phone'])): ?>
-                                        <br><?= e($person['participant_phone']) ?>
-                                    <?php endif; ?>
-                                </td>
-
-                               
 
                                 <td>
                                     <?php if (person_has_allergies($person)): ?>
@@ -1687,13 +1670,7 @@ include __DIR__ . '/header.php';
                                     <?php endif; ?>
                                 </td>
 
-                                <td>
-                                    <?php if ((int)$person['is_active'] === 1): ?>
-                                        <span class="status-pill status-checked-in">Active</span>
-                                    <?php else: ?>
-                                        <span class="status-pill status-delayed">Inactive</span>
-                                    <?php endif; ?>
-                                </td>
+                               
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
