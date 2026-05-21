@@ -15,6 +15,8 @@ $success = '';
 $previewHtml = '';
 $previewCount = 0;
 $showPreview = false;
+$previewRecipient = null;
+$previewSubject = '';
 
 const EMAIL_ALL_TEMPLATE_PATH = __DIR__ . '/assets/email_template.html';
 
@@ -169,11 +171,6 @@ function email_all_unique_valid_emails(array $emails): array
     return array_values($clean);
 }
 
-function email_all_team_link(array $team): string
-{
-    return url('dashboard.php?token=' . $team['parent_token']);
-}
-
 function email_all_main_app_link(): string
 {
     return url('dashboard.php');
@@ -192,6 +189,20 @@ function email_all_apply_placeholders(string $value, array $context): string
     return str_replace(array_keys($replacements), array_values($replacements), $value);
 }
 
+function email_all_source_label(string $source): string
+{
+    $labels = [
+        'participant' => 'Participant',
+        'updates' => 'Update contact',
+        'emergency' => 'Emergency contact',
+        'manual' => 'Manual recipient',
+        'leader' => 'Leader',
+        'sender_copy' => 'Sender copy',
+    ];
+
+    return $labels[$source] ?? ucfirst(str_replace('_', ' ', $source));
+}
+
 function email_all_build_content(
     string $messageHtml,
     string $ctaUrl,
@@ -207,6 +218,17 @@ function email_all_build_content(
     return $html;
 }
 
+/**
+ * Render the final HTML email exactly as the cron/template system should see it.
+ *
+ * Supports common placeholders in assets/email_template.html:
+ * - {{subject}}, {{SUBJECT}}, {{title}}, {{TITLE}}
+ * - {{content}}, {{CONTENT}}, {{body}}, {{BODY}}
+ * - {{app_name}}, {{APP_NAME}}
+ *
+ * If the template does not contain a recognised content placeholder, the content
+ * is inserted before </body>, or appended to the end as a fallback.
+ */
 function email_all_render_template_preview(string $subject, string $content): string
 {
     $template = '';
@@ -217,7 +239,7 @@ function email_all_render_template_preview(string $subject, string $content): st
 
     if (!$template) {
         return '
-            <div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;border:1px solid #ddd;">
+            <div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;border:1px solid #ddd;background:#ffffff;">
                 <div style="background:#7413dc;color:#fff;padding:20px;">
                     <h1 style="margin:0;color:#fff;">' . e(APP_NAME) . '</h1>
                 </div>
@@ -232,23 +254,66 @@ function email_all_render_template_preview(string $subject, string $content): st
         ';
     }
 
-    $replacements = [
-        '{{subject}}' => e($subject),
-        '{{SUBJECT}}' => e($subject),
-        '{{title}}' => e($subject),
-        '{{TITLE}}' => e($subject),
-        '{{content}}' => $content,
-        '{{CONTENT}}' => $content,
-        '{{body}}' => $content,
-        '{{BODY}}' => $content,
-        '{{app_name}}' => e(APP_NAME),
-        '{{APP_NAME}}' => e(APP_NAME),
+    $contentTokens = [
+        '{{content}}',
+        '{{CONTENT}}',
+        '{{body}}',
+        '{{BODY}}',
+        '[[content]]',
+        '[[CONTENT]]',
+        '[[body]]',
+        '[[BODY]]',
+        '%CONTENT%',
+        '%%CONTENT%%',
+        '{content}',
+        '{CONTENT}',
     ];
 
-    $rendered = str_replace(array_keys($replacements), array_values($replacements), $template);
+    $subjectTokens = [
+        '{{subject}}',
+        '{{SUBJECT}}',
+        '{{title}}',
+        '{{TITLE}}',
+        '[[subject]]',
+        '[[SUBJECT]]',
+        '[[title]]',
+        '[[TITLE]]',
+        '%SUBJECT%',
+        '%%SUBJECT%%',
+        '{subject}',
+        '{SUBJECT}',
+    ];
 
-    if ($rendered === $template && stripos($template, '{{content}}') === false && stripos($template, '{{CONTENT}}') === false) {
-        $rendered .= $content;
+    $appNameTokens = [
+        '{{app_name}}',
+        '{{APP_NAME}}',
+        '[[app_name]]',
+        '[[APP_NAME]]',
+        '%APP_NAME%',
+        '%%APP_NAME%%',
+        '{app_name}',
+        '{APP_NAME}',
+    ];
+
+    $rendered = $template;
+    $rendered = str_replace($subjectTokens, e($subject), $rendered);
+    $rendered = str_replace($appNameTokens, e(APP_NAME), $rendered);
+
+    $hadContentPlaceholder = false;
+
+    foreach ($contentTokens as $token) {
+        if (strpos($rendered, $token) !== false) {
+            $hadContentPlaceholder = true;
+            $rendered = str_replace($token, $content, $rendered);
+        }
+    }
+
+    if (!$hadContentPlaceholder) {
+        if (stripos($rendered, '</body>') !== false) {
+            $rendered = preg_replace('/<\/body>/i', $content . '</body>', $rendered, 1);
+        } else {
+            $rendered .= $content;
+        }
     }
 
     return $rendered;
@@ -377,8 +442,7 @@ function email_all_build_recipient_map(PDO $pdo, array $teamsById, array $leader
     }, $selectedLeaderIds))));
 
     /**
-     * Presets decide the selected teams and recipient types server-side too,
-     * so the queue is not dependent on JavaScript.
+     * Presets decide selected teams and recipient types server-side too.
      */
     if ($preset !== 'custom') {
         $selectedTeamIds = [];
@@ -693,6 +757,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ];
 
                 $previewCount = count($recipientMap);
+                $previewRecipient = $firstRecipient;
+                $previewSubject = $sampleSubject;
                 $previewHtml = email_all_render_template_preview($sampleSubject, $sampleContent);
                 $showPreview = true;
             } catch (Throwable $exception) {
@@ -1024,6 +1090,34 @@ include __DIR__ . '/header.php';
         margin-bottom: 1rem;
     }
 
+    .preview-recipient-panel {
+        border: 2px solid #1d1d1d;
+        background: #f8f8f8;
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .preview-recipient-panel h3 {
+        margin-top: 0;
+        font-weight: 900;
+    }
+
+    .preview-recipient-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.75rem;
+    }
+
+    @media (max-width: 720px) {
+        .preview-recipient-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .preview-recipient-grid p {
+        margin-bottom: 0;
+    }
+
     .button-row {
         display: flex;
         flex-wrap: wrap;
@@ -1076,9 +1170,50 @@ include __DIR__ . '/header.php';
             <div class="warning-box">
                 <strong>Check the preview carefully.</strong>
                 <p class="mb-0">
-                    The preview uses the first recipient as an example. Personal placeholders will be replaced separately for each queued email.
+                    The example below is the actual email template rendered for one recipient.
+                    Other recipients will have their own placeholders and links replaced when queued.
                 </p>
             </div>
+
+            <?php if ($previewRecipient): ?>
+                <div class="preview-recipient-panel">
+                    <h3>Example recipient used for this preview</h3>
+
+                    <div class="preview-recipient-grid">
+                        <p>
+                            <strong>To:</strong><br>
+                            <?= e($previewRecipient['email']) ?>
+                        </p>
+
+                        <p>
+                            <strong>Recipient type:</strong><br>
+                            <?= e(email_all_source_label($previewRecipient['source'] ?? '')) ?>
+                        </p>
+
+                        <p>
+                            <strong>Subject after placeholders:</strong><br>
+                            <?= e($previewSubject) ?>
+                        </p>
+
+                        <p>
+                            <strong>Link used:</strong><br>
+                            <a href="<?= e($previewRecipient['cta_url']) ?>" target="_blank" rel="noopener">
+                                <?= e($previewRecipient['cta_url']) ?>
+                            </a>
+                        </p>
+
+                        <p>
+                            <strong>Young person placeholder:</strong><br>
+                            <?= e($previewRecipient['context']['young_person_name'] ?: 'Blank for this recipient') ?>
+                        </p>
+
+                        <p>
+                            <strong>Team placeholder:</strong><br>
+                            <?= e($previewRecipient['context']['team_name'] ?: 'Blank for this recipient') ?>
+                        </p>
+                    </div>
+                </div>
+            <?php endif; ?>
 
             <div class="preview-frame">
                 <?= $previewHtml ?>
@@ -1384,7 +1519,7 @@ include __DIR__ . '/header.php';
                             <div class="warning-box">
                                 <strong>Next step:</strong>
                                 <p class="mb-0">
-                                    You will see a preview of the email template before anything is added to the queue.
+                                    You will see the email template rendered for one actual recipient before anything is added to the queue.
                                 </p>
                             </div>
 

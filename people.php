@@ -462,7 +462,7 @@ function render_people_form(array $teams, ?array $formPerson = null): void
             </div>
 
             <p class="muted">
-                If unchecked, their photo border shows red on the main people list. If checked, the border shows black.
+                When this box is ticked the parent has completed the onboarding form, unticking this box will allow them to complete it again.
             </p>
         </div>
 
