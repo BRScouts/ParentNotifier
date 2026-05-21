@@ -9,14 +9,28 @@ if (!$user && !$parentTeam) {
     redirect('403.php');
 }
 
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+}
+
 $error = '';
+$success = '';
 $isLeader = (bool)$user;
 $isParentView = !$user && $parentTeam;
 
-if ($isLeader) {
-    $teams = $pdo->query('SELECT * FROM teams ORDER BY name ASC')->fetchAll();
-} else {
-    $teams = [$parentTeam];
+/**
+ * CSRF helper
+ */
+if (empty($_SESSION['dashboard_csrf'])) {
+    $_SESSION['dashboard_csrf'] = bin2hex(random_bytes(32));
+}
+
+$csrfToken = $_SESSION['dashboard_csrf'];
+
+function dashboard_csrf_valid(): bool
+{
+    return isset($_POST['csrf_token'], $_SESSION['dashboard_csrf'])
+        && hash_equals((string)$_SESSION['dashboard_csrf'], (string)$_POST['csrf_token']);
 }
 
 /**
@@ -31,33 +45,16 @@ function safe_post_html(string $html): string
         return '';
     }
 
-    /**
-     * If this is an old plain-text post, escape it and preserve line breaks.
-     */
     if ($html === strip_tags($html)) {
         return nl2br(e($html));
     }
 
-    /**
-     * Match the formatting allowed by add_update.php.
-     */
     $allowedTags = '<p><br><strong><b><em><i><u><a><ol><ul><li><span><blockquote>';
 
     $html = strip_tags($html, $allowedTags);
-
-    /**
-     * Remove inline event handlers.
-     */
     $html = preg_replace('/\son[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html);
-
-    /**
-     * Remove javascript: links.
-     */
     $html = preg_replace('/href\s*=\s*([\'"])\s*javascript:[^\'"]*\1/i', 'href="#"', $html);
 
-    /**
-     * Only allow simple colour/background-colour styles.
-     */
     $html = preg_replace_callback('/style\s*=\s*([\'"])(.*?)\1/i', function ($matches) {
         $style = $matches[2];
         $safeRules = [];
@@ -84,6 +81,23 @@ function safe_post_html(string $html): string
     return $html;
 }
 
+function clean_post_html_for_save(string $html): string
+{
+    $html = trim($html);
+
+    if ($html === '') {
+        return '';
+    }
+
+    $allowedTags = '<p><br><strong><b><em><i><u><a><ol><ul><li><span><blockquote>';
+
+    $html = strip_tags($html, $allowedTags);
+    $html = preg_replace('/\son[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html);
+    $html = preg_replace('/href\s*=\s*([\'"])\s*javascript:[^\'"]*\1/i', 'href="#"', $html);
+
+    return $html;
+}
+
 function media_url(string $path): string
 {
     $path = trim($path);
@@ -99,20 +113,220 @@ function media_url(string $path): string
     return url($path);
 }
 
+function initials_from_name(string $name): string
+{
+    $parts = preg_split('/\s+/', trim($name));
+    $initials = '';
+
+    foreach ($parts as $part) {
+        if ($part !== '') {
+            $initials .= strtoupper(substr($part, 0, 1));
+        }
+
+        if (strlen($initials) >= 2) {
+            break;
+        }
+    }
+
+    return $initials ?: '?';
+}
+
+function osm_map_url($lat, $lng): string
+{
+    $lat = (float)$lat;
+    $lng = (float)$lng;
+
+    return 'https://www.openstreetmap.org/?mlat=' . rawurlencode((string)$lat)
+        . '&mlon=' . rawurlencode((string)$lng)
+        . '#map=13/' . rawurlencode((string)$lat)
+        . '/' . rawurlencode((string)$lng);
+}
+
+function is_location_post(array $post): bool
+{
+    return ($post['post_type'] ?? '') === 'check_in';
+}
+
+/**
+ * Leader-only post actions.
+ * Location/check-in posts cannot be edited/deleted from here.
+ */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isLeader) {
+    $action = $_POST['action'] ?? '';
+
+    try {
+        if (!dashboard_csrf_valid()) {
+            throw new RuntimeException('Security check failed. Please refresh and try again.');
+        }
+
+        $postId = (int)($_POST['post_id'] ?? 0);
+
+        if ($postId <= 0) {
+            throw new RuntimeException('Invalid post selected.');
+        }
+
+        $stmt = $pdo->prepare('SELECT * FROM posts WHERE id = ? LIMIT 1');
+        $stmt->execute([$postId]);
+        $postToManage = $stmt->fetch();
+
+        if (!$postToManage) {
+            throw new RuntimeException('Post not found.');
+        }
+
+        if (is_location_post($postToManage)) {
+            throw new RuntimeException('Location check-ins cannot be edited from the dashboard.');
+        }
+
+        if ($action === 'toggle_pin') {
+            $newPinnedState = (int)($_POST['new_pinned_state'] ?? 0) === 1 ? 1 : 0;
+
+            if ($newPinnedState === 1) {
+                $pdo->beginTransaction();
+
+                $pdo->exec('UPDATE posts SET is_pinned = 0');
+
+                $stmt = $pdo->prepare('UPDATE posts SET is_pinned = 1 WHERE id = ?');
+                $stmt->execute([$postId]);
+
+                $pdo->commit();
+            } else {
+                $stmt = $pdo->prepare('UPDATE posts SET is_pinned = 0 WHERE id = ?');
+                $stmt->execute([$postId]);
+            }
+
+            redirect('dashboard.php#post-' . $postId);
+        }
+
+        if ($action === 'delete_post') {
+            $pdo->beginTransaction();
+
+            try {
+                /**
+                 * If post_photos has FK cascade this is harmless.
+                 * If not, this keeps orphaned photo rows out of the database.
+                 */
+                try {
+                    $stmt = $pdo->prepare('DELETE FROM post_photos WHERE post_id = ?');
+                    $stmt->execute([$postId]);
+                } catch (Throwable $ignored) {
+                    // post_photos may not exist on older installs.
+                }
+
+                $stmt = $pdo->prepare('DELETE FROM posts WHERE id = ?');
+                $stmt->execute([$postId]);
+
+                $pdo->commit();
+
+                redirect('dashboard.php');
+            } catch (Throwable $exception) {
+                $pdo->rollBack();
+                throw $exception;
+            }
+        }
+
+        if ($action === 'edit_post') {
+            $title = trim($_POST['title'] ?? '');
+            $body = clean_post_html_for_save($_POST['body'] ?? '');
+            $visibility = $_POST['visibility'] ?? 'public';
+            $teamId = ($_POST['team_id'] ?? '') !== '' ? (int)$_POST['team_id'] : null;
+            $postType = $_POST['post_type'] ?? 'general';
+            $photoUrl = trim($_POST['photo_url'] ?? '');
+            $isPinned = isset($_POST['is_pinned']) ? 1 : 0;
+
+            if ($title === '') {
+                throw new RuntimeException('Post title is required.');
+            }
+
+            if ($body === '') {
+                throw new RuntimeException('Post content is required.');
+            }
+
+            if (!in_array($visibility, ['public', 'team'], true)) {
+                $visibility = 'public';
+            }
+
+            if ($visibility === 'team' && !$teamId) {
+                throw new RuntimeException('Choose a team for a team-only update.');
+            }
+
+            if (!in_array($postType, ['general', 'team_update', 'photo', 'important'], true)) {
+                $postType = 'general';
+            }
+
+            $pdo->beginTransaction();
+
+            try {
+                if ($isPinned === 1) {
+                    $pdo->exec('UPDATE posts SET is_pinned = 0');
+                }
+
+                $stmt = $pdo->prepare(
+                    'UPDATE posts
+                     SET title = ?,
+                         body = ?,
+                         visibility = ?,
+                         team_id = ?,
+                         post_type = ?,
+                         photo_url = ?,
+                         is_pinned = ?
+                     WHERE id = ?'
+                );
+
+                $stmt->execute([
+                    $title,
+                    $body,
+                    $visibility,
+                    $teamId,
+                    $postType,
+                    $photoUrl,
+                    $isPinned,
+                    $postId,
+                ]);
+
+                $pdo->commit();
+
+                redirect('dashboard.php#post-' . $postId);
+            } catch (Throwable $exception) {
+                $pdo->rollBack();
+                throw $exception;
+            }
+        }
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        $error = $exception->getMessage();
+    }
+}
+
+/**
+ * Teams visible to viewer.
+ */
+if ($isLeader) {
+    $teams = $pdo->query('SELECT * FROM teams ORDER BY name ASC')->fetchAll();
+} else {
+    $teams = [$parentTeam];
+}
+
+$visibleTeamIds = [];
+
+foreach ($teams as $team) {
+    if (!empty($team['id'])) {
+        $visibleTeamIds[] = (int)$team['id'];
+    }
+}
+
 /**
  * Fetch feed.
- *
- * Leaders see all posts.
- * Parents/team-link users see:
- * - public posts
- * - posts for their team
  */
 if ($isLeader) {
     $stmt = $pdo->query(
         'SELECT 
             p.*, 
             t.name AS team_name, 
-            l.name AS leader_name 
+            l.name AS leader_name,
+            l.photo_url AS leader_photo_url
          FROM posts p 
          LEFT JOIN teams t ON t.id = p.team_id 
          LEFT JOIN leaders l ON l.id = p.leader_id 
@@ -140,7 +354,8 @@ if ($isLeader) {
         'SELECT 
             p.*, 
             t.name AS team_name, 
-            l.name AS leader_name 
+            l.name AS leader_name,
+            l.photo_url AS leader_photo_url
          FROM posts p 
          LEFT JOIN teams t ON t.id = p.team_id 
          LEFT JOIN leaders l ON l.id = p.leader_id 
@@ -173,7 +388,7 @@ if ($isLeader) {
 }
 
 /**
- * Fetch multiple photos for the feed posts.
+ * Fetch multiple photos for posts.
  */
 $postPhotosByPostId = [];
 $postIds = array_map(static function ($post) {
@@ -197,11 +412,40 @@ if (!empty($postIds)) {
             $postPhotosByPostId[(int)$photo['post_id']][] = $photo;
         }
     } catch (Throwable $exception) {
-        /**
-         * If post_photos has not been created yet, keep dashboard working
-         * using the old posts.photo_url fallback.
-         */
         $postPhotosByPostId = [];
+    }
+}
+
+/**
+ * Team members for visible teams.
+ */
+$teamMembersByTeam = [];
+
+if (!empty($visibleTeamIds)) {
+    try {
+        $placeholders = implode(',', array_fill(0, count($visibleTeamIds), '?'));
+
+        $stmt = $pdo->prepare(
+            'SELECT id, team_id, name, photo_url, allergies_json
+             FROM young_people
+             WHERE team_id IN (' . $placeholders . ')
+               AND is_active = 1
+             ORDER BY name ASC'
+        );
+
+        $stmt->execute($visibleTeamIds);
+
+        foreach ($stmt->fetchAll() as $member) {
+            $teamId = (int)$member['team_id'];
+
+            if (!isset($teamMembersByTeam[$teamId])) {
+                $teamMembersByTeam[$teamId] = [];
+            }
+
+            $teamMembersByTeam[$teamId][] = $member;
+        }
+    } catch (Throwable $exception) {
+        $teamMembersByTeam = [];
     }
 }
 
@@ -234,7 +478,7 @@ foreach ($recentLocations as $location) {
 }
 
 /**
- * Match check-in posts to the closest location record for that team.
+ * Match check-in posts to closest location record for that team.
  */
 $postLocationByPostId = [];
 
@@ -281,9 +525,6 @@ foreach ($feedPosts as $post) {
         }
     }
 
-    /**
-     * Only attach if within 6 hours.
-     */
     if ($bestLocation && $bestDifference <= 21600) {
         $postLocationByPostId[$postId] = $bestLocation;
     }
@@ -298,11 +539,7 @@ if ($isParentView && !empty($parentTeam['id'])) {
 include __DIR__ . '/header.php';
 ?>
 
-<link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  
->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 
 <style>
     .page-hero,
@@ -351,10 +588,63 @@ include __DIR__ . '/header.php';
         border-bottom: 1px solid #d8d8d8;
     }
 
-    .feed-card-header h2 {
+    .feed-heading-row {
+        display: grid;
+        grid-template-columns: 46px minmax(0, 1fr) auto;
+        gap: 0.75rem;
+        align-items: start;
+    }
+
+    @media (max-width: 640px) {
+        .feed-heading-row {
+            grid-template-columns: 42px minmax(0, 1fr);
+        }
+
+        .feed-admin-actions {
+            grid-column: 1 / -1;
+            justify-content: flex-start;
+        }
+    }
+
+    .leader-avatar {
+        width: 46px;
+        height: 46px;
+        max-width: 46px;
+        max-height: 46px;
+        border-radius: 50%;
+        border: 2px solid #1d1d1d;
+        object-fit: cover;
+        background: #f3f2f1;
+        display: block;
+    }
+
+    .leader-avatar-placeholder {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #7413dc;
+        color: #ffffff;
+        font-weight: 900;
+        font-size: 0.9rem;
+    }
+
+    .feed-title-block h2 {
         margin: 0;
         font-size: 1.35rem;
         font-weight: 900;
+    }
+
+    .feed-admin-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        justify-content: flex-end;
+    }
+
+    .feed-admin-actions .btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.85rem;
+        font-weight: 800;
     }
 
     .feed-meta {
@@ -460,11 +750,52 @@ include __DIR__ . '/header.php';
         border-color: #00703c;
     }
 
+    .team-faces {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        margin: 0 0 0.75rem;
+    }
+
+    .team-face,
+    .team-face-placeholder {
+        width: 34px;
+        height: 34px;
+        max-width: 34px;
+        max-height: 34px;
+        border-radius: 50%;
+        border: 2px solid #ffffff;
+        box-shadow: 0 0 0 1px #1d1d1d;
+        object-fit: cover;
+        background: #f3f2f1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
+        font-weight: 900;
+        color: #1d1d1d;
+        text-decoration: none;
+    }
+
+    .team-face-link:hover,
+    .team-face-link:focus {
+        transform: translateY(-1px);
+        text-decoration: none;
+    }
+
     .feed-map {
         height: 230px;
         border: 2px solid #1d1d1d;
         margin-top: 1rem;
         background: #f3f2f1;
+    }
+
+    .map-action-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+        margin-top: 0.75rem;
     }
 
     .sidebar-panel {
@@ -538,6 +869,29 @@ include __DIR__ . '/header.php';
         color: #505a5f;
         padding: 0 0.35rem;
     }
+
+    .modal-content {
+        border-radius: 0;
+        border: 2px solid #1d1d1d;
+    }
+
+    .modal-header {
+        background: #7413dc;
+        color: #ffffff;
+        border-radius: 0;
+    }
+
+    .modal-header .close {
+        color: #ffffff;
+        opacity: 1;
+    }
+
+    .edit-help {
+        border-left: 6px solid #1d70b8;
+        background: #eef7ff;
+        padding: 0.75rem;
+        margin-bottom: 1rem;
+    }
 </style>
 
 <section class="page-hero">
@@ -558,6 +912,12 @@ include __DIR__ . '/header.php';
     <?php if ($error): ?>
         <div class="alert alert-danger">
             <?= e($error) ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($success): ?>
+        <div class="alert alert-success">
+            <?= e($success) ?>
         </div>
     <?php endif; ?>
 
@@ -600,6 +960,9 @@ include __DIR__ . '/header.php';
                     $isLocation = ($post['post_type'] ?? '') === 'check_in';
                     $locationForPost = $postLocationByPostId[$postId] ?? null;
                     $postPhotos = $postPhotosByPostId[$postId] ?? [];
+                    $leaderName = $post['leader_name'] ?: 'Leader';
+                    $leaderPhoto = !empty($post['leader_photo_url']) ? media_url($post['leader_photo_url']) : '';
+                    $postTeamMembers = !empty($post['team_id']) ? ($teamMembersByTeam[(int)$post['team_id']] ?? []) : [];
                     ?>
 
                     <article
@@ -607,15 +970,71 @@ include __DIR__ . '/header.php';
                         class="feed-card <?= $isPinned ? 'feed-card-pinned' : '' ?>"
                     >
                         <div class="feed-card-header">
-                            <h2><?= e($post['title']) ?></h2>
+                            <div class="feed-heading-row">
+                                <div>
+                                    <?php if ($leaderPhoto !== ''): ?>
+                                        <img
+                                            class="leader-avatar"
+                                            src="<?= e($leaderPhoto) ?>"
+                                            alt="Photo of <?= e($leaderName) ?>"
+                                        >
+                                    <?php else: ?>
+                                        <div class="leader-avatar leader-avatar-placeholder" aria-hidden="true">
+                                            <?= e(initials_from_name($leaderName)) ?>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
 
-                            <p class="feed-meta">
-                                <?= e(format_datetime($post['published_at'])) ?>
-                                <span class="meta-separator">|</span>
-                                <?= e($post['team_name'] ?: 'All teams') ?>
-                                <span class="meta-separator">|</span>
-                                <?= e($post['leader_name'] ?: 'Leader') ?>
-                            </p>
+                                <div class="feed-title-block">
+                                    <h2><?= e($post['title']) ?></h2>
+
+                                    <p class="feed-meta">
+                                        <?= e(format_datetime($post['published_at'])) ?>
+                                        <span class="meta-separator">|</span>
+                                        <?= e($post['team_name'] ?: 'All teams') ?>
+                                        <span class="meta-separator">|</span>
+                                        <?= e($leaderName) ?>
+                                    </p>
+                                </div>
+
+                                <?php if ($isLeader && !$isLocation): ?>
+                                    <div class="feed-admin-actions">
+                                        <button
+                                            type="button"
+                                            class="btn btn-outline-primary btn-sm"
+                                            data-toggle="modal"
+                                            data-target="#editPostModal<?= $postId ?>"
+                                        >
+                                            Edit
+                                        </button>
+
+                                        <form method="post" class="d-inline">
+                                            <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+                                            <input type="hidden" name="action" value="toggle_pin">
+                                            <input type="hidden" name="post_id" value="<?= $postId ?>">
+                                            <input type="hidden" name="new_pinned_state" value="<?= $isPinned ? '0' : '1' ?>">
+
+                                            <button class="btn btn-outline-primary btn-sm" type="submit">
+                                                <?= $isPinned ? 'Unpin' : 'Pin' ?>
+                                            </button>
+                                        </form>
+
+                                        <form
+                                            method="post"
+                                            class="d-inline"
+                                            onsubmit="return confirm('Delete this update? This cannot be undone.');"
+                                        >
+                                            <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+                                            <input type="hidden" name="action" value="delete_post">
+                                            <input type="hidden" name="post_id" value="<?= $postId ?>">
+
+                                            <button class="btn btn-outline-danger btn-sm" type="submit">
+                                                Delete
+                                            </button>
+                                        </form>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
 
                             <div class="feed-badge-row">
                                 <?php if ($isPinned): ?>
@@ -635,6 +1054,40 @@ include __DIR__ . '/header.php';
                         </div>
 
                         <div class="feed-card-body">
+                            <?php if ($isLocation && !empty($postTeamMembers)): ?>
+                                <div class="team-faces" aria-label="Team members">
+                                    <?php foreach ($postTeamMembers as $member): ?>
+                                        <?php
+                                        $memberPhoto = !empty($member['photo_url']) ? media_url($member['photo_url']) : '';
+                                        $memberName = (string)$member['name'];
+                                        ?>
+                                        <?php if ($isLeader): ?>
+                                            <a
+                                                class="team-face-link"
+                                                href="<?= e(url('people.php?person=' . (int)$member['id'])) ?>"
+                                                title="<?= e($memberName) ?>"
+                                            >
+                                                <?php if ($memberPhoto !== ''): ?>
+                                                    <img class="team-face" src="<?= e($memberPhoto) ?>" alt="<?= e($memberName) ?>">
+                                                <?php else: ?>
+                                                    <span class="team-face-placeholder" aria-hidden="true">
+                                                        <?= e(initials_from_name($memberName)) ?>
+                                                    </span>
+                                                <?php endif; ?>
+                                            </a>
+                                        <?php else: ?>
+                                            <?php if ($memberPhoto !== ''): ?>
+                                                <img class="team-face" src="<?= e($memberPhoto) ?>" alt="">
+                                            <?php else: ?>
+                                                <span class="team-face-placeholder" aria-hidden="true">
+                                                    <?= e(initials_from_name($memberName)) ?>
+                                                </span>
+                                            <?php endif; ?>
+                                        <?php endif; ?>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php endif; ?>
+
                             <div class="feed-content">
                                 <?= safe_post_html((string)$post['body']) ?>
                             </div>
@@ -672,18 +1125,173 @@ include __DIR__ . '/header.php';
                                     data-zoom="12"
                                 ></div>
 
-                                <p class="map-caption">
-                                    The blue circle shows an approximate 1 mile area around their evening location.
-                                </p>
+                                <div class="map-action-row">
+                                    <a
+                                        class="btn btn-outline-primary btn-sm"
+                                        href="<?= e(osm_map_url($locationForPost['latitude'], $locationForPost['longitude'])) ?>"
+                                        target="_blank"
+                                        rel="noopener"
+                                    >
+                                        View on map
+                                    </a>
+
+                                    <p class="map-caption mb-0">
+                                        The blue circle shows an approximate 1 mile area around their evening location.
+                                    </p>
+                                </div>
                             <?php endif; ?>
                         </div>
                     </article>
+
+                    <?php if ($isLeader && !$isLocation): ?>
+                        <div
+                            class="modal fade"
+                            id="editPostModal<?= $postId ?>"
+                            tabindex="-1"
+                            role="dialog"
+                            aria-labelledby="editPostModalLabel<?= $postId ?>"
+                            aria-hidden="true"
+                        >
+                            <div class="modal-dialog modal-lg" role="document">
+                                <div class="modal-content">
+                                    <form method="post">
+                                        <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+                                        <input type="hidden" name="action" value="edit_post">
+                                        <input type="hidden" name="post_id" value="<?= $postId ?>">
+
+                                        <div class="modal-header">
+                                            <h5 class="modal-title" id="editPostModalLabel<?= $postId ?>">
+                                                Edit update
+                                            </h5>
+
+                                            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                                <span aria-hidden="true">&times;</span>
+                                            </button>
+                                        </div>
+
+                                        <div class="modal-body">
+                                            <div class="edit-help">
+                                                Edit normal updates here. Location check-ins are managed separately through location tools.
+                                            </div>
+
+                                            <div class="form-group">
+                                                <label for="title<?= $postId ?>">Title</label>
+                                                <input
+                                                    class="form-control"
+                                                    id="title<?= $postId ?>"
+                                                    name="title"
+                                                    value="<?= e($post['title']) ?>"
+                                                    required
+                                                >
+                                            </div>
+
+                                            <div class="form-group">
+                                                <label for="body<?= $postId ?>">Update</label>
+                                                <textarea
+                                                    class="form-control"
+                                                    id="body<?= $postId ?>"
+                                                    name="body"
+                                                    rows="7"
+                                                    required
+                                                ><?= e((string)$post['body']) ?></textarea>
+                                                <small class="form-text text-muted">
+                                                    Existing rich text is saved as HTML. Keep formatting tags if needed.
+                                                </small>
+                                            </div>
+
+                                            <div class="form-row">
+                                                <div class="form-group col-md-6">
+                                                    <label for="visibility<?= $postId ?>">Visibility</label>
+                                                    <select class="form-control" id="visibility<?= $postId ?>" name="visibility">
+                                                        <option value="public" <?= $post['visibility'] === 'public' ? 'selected' : '' ?>>
+                                                            All team parent links
+                                                        </option>
+                                                        <option value="team" <?= $post['visibility'] === 'team' ? 'selected' : '' ?>>
+                                                            One team only
+                                                        </option>
+                                                    </select>
+                                                </div>
+
+                                                <div class="form-group col-md-6">
+                                                    <label for="team_id<?= $postId ?>">Team</label>
+                                                    <select class="form-control" id="team_id<?= $postId ?>" name="team_id">
+                                                        <option value="">No specific team</option>
+                                                        <?php foreach ($teams as $team): ?>
+                                                            <option
+                                                                value="<?= (int)$team['id'] ?>"
+                                                                <?= (int)($post['team_id'] ?? 0) === (int)$team['id'] ? 'selected' : '' ?>
+                                                            >
+                                                                <?= e($team['name']) ?>
+                                                            </option>
+                                                        <?php endforeach; ?>
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            <div class="form-row">
+                                                <div class="form-group col-md-6">
+                                                    <label for="post_type<?= $postId ?>">Post type</label>
+                                                    <select class="form-control" id="post_type<?= $postId ?>" name="post_type">
+                                                        <option value="general" <?= $post['post_type'] === 'general' ? 'selected' : '' ?>>
+                                                            General update
+                                                        </option>
+                                                        <option value="team_update" <?= $post['post_type'] === 'team_update' ? 'selected' : '' ?>>
+                                                            Team update
+                                                        </option>
+                                                        <option value="photo" <?= $post['post_type'] === 'photo' ? 'selected' : '' ?>>
+                                                            Photo
+                                                        </option>
+                                                        <option value="important" <?= $post['post_type'] === 'important' ? 'selected' : '' ?>>
+                                                            Important
+                                                        </option>
+                                                    </select>
+                                                </div>
+
+                                                <div class="form-group col-md-6">
+                                                    <label for="photo_url<?= $postId ?>">External photo URL</label>
+                                                    <input
+                                                        class="form-control"
+                                                        id="photo_url<?= $postId ?>"
+                                                        name="photo_url"
+                                                        type="url"
+                                                        value="<?= e($post['photo_url'] ?? '') ?>"
+                                                    >
+                                                </div>
+                                            </div>
+
+                                            <div class="form-check">
+                                                <input
+                                                    class="form-check-input"
+                                                    type="checkbox"
+                                                    id="is_pinned<?= $postId ?>"
+                                                    name="is_pinned"
+                                                    <?= $isPinned ? 'checked' : '' ?>
+                                                >
+                                                <label class="form-check-label" for="is_pinned<?= $postId ?>">
+                                                    Pin this update
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-outline-secondary" data-dismiss="modal">
+                                                Cancel
+                                            </button>
+
+                                            <button type="submit" class="btn btn-primary">
+                                                Save update
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endif; ?>
                 <?php endforeach; ?>
             </section>
         </div>
 
         <aside>
-
             <section class="sidebar-panel">
                 <h2>Latest location</h2>
 
@@ -709,7 +1317,7 @@ include __DIR__ . '/header.php';
                                 <?= e($parentLatestLocation['location_name']) ?>
                             </p>
 
-                            <p class="muted mb-0">
+                            <p class="muted mb-2">
                                 <?= e(format_datetime($parentLatestLocation['checked_in_at'])) ?>
                             </p>
 
@@ -722,9 +1330,20 @@ include __DIR__ . '/header.php';
                                 data-zoom="11"
                             ></div>
 
-                            <p class="map-caption">
-                                The blue circle shows an approximate 1 mile area around their evening location.
-                            </p>
+                            <div class="map-action-row">
+                                <a
+                                    class="btn btn-outline-primary btn-sm"
+                                    href="<?= e(osm_map_url($parentLatestLocation['latitude'], $parentLatestLocation['longitude'])) ?>"
+                                    target="_blank"
+                                    rel="noopener"
+                                >
+                                    View on map
+                                </a>
+
+                                <p class="map-caption mb-0">
+                                    The blue circle shows an approximate 1 mile area around their evening location.
+                                </p>
+                            </div>
                         </div>
                     <?php else: ?>
                         <p class="muted mb-0">
@@ -752,9 +1371,18 @@ include __DIR__ . '/header.php';
                                 <p class="mb-1">
                                     <?= e($latestLocation['location_name']) ?>
                                 </p>
-                                <p class="muted mb-0">
+                                <p class="muted mb-2">
                                     <?= e(format_datetime($latestLocation['checked_in_at'])) ?>
                                 </p>
+
+                                <a
+                                    class="btn btn-outline-primary btn-sm"
+                                    href="<?= e(osm_map_url($latestLocation['latitude'], $latestLocation['longitude'])) ?>"
+                                    target="_blank"
+                                    rel="noopener"
+                                >
+                                    View on map
+                                </a>
                             <?php else: ?>
                                 <p class="muted mb-0">
                                     No location check-in yet.
@@ -764,18 +1392,13 @@ include __DIR__ . '/header.php';
                     <?php endforeach; ?>
                 <?php endif; ?>
             </section>
-
         </aside>
 
     </div>
 
 </main>
 
-<script
-    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-    crossorigin=""
-></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
     (function () {

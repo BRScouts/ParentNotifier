@@ -221,7 +221,7 @@ include __DIR__ . '/header.php';
             <h2>Access note</h2>
 
             <p>
-                Microsoft sign-in only works when the Microsoft account email matches a leader account in this portal.
+                Microsoft sign-in only works with a BR Scouts Office 365 Account.
             </p>
 
             <p>
