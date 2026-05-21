@@ -10,10 +10,21 @@ $error = '';
 
 const PEOPLE_UPLOAD_DIR = '/home/brscouts/exbelt2026.irvalscouts.org.uk/assets/people/';
 const PEOPLE_UPLOAD_PUBLIC_PATH = 'assets/people/';
+const PEOPLE_TIMEZONE = 'Europe/Helsinki';
 
 /**
  * Helpers
  */
+
+function people_now(): DateTime
+{
+    return new DateTime('now', new DateTimeZone(PEOPLE_TIMEZONE));
+}
+
+function people_now_for_database(): string
+{
+    return people_now()->format('Y-m-d H:i:s');
+}
 
 function json_items(?string $json): array
 {
@@ -163,10 +174,16 @@ function log_type_class(string $type): string
 function datetime_local_value(?string $datetime): string
 {
     if (!$datetime) {
-        return date('Y-m-d\TH:i');
+        return people_now()->format('Y-m-d\TH:i');
     }
 
-    return date('Y-m-d\TH:i', strtotime($datetime));
+    try {
+        $dt = new DateTime($datetime, new DateTimeZone(PEOPLE_TIMEZONE));
+
+        return $dt->format('Y-m-d\TH:i');
+    } catch (Throwable $exception) {
+        return date('Y-m-d\TH:i', strtotime($datetime));
+    }
 }
 
 function handle_profile_upload(string $fieldName, ?string $existingPath = null): ?string
@@ -602,7 +619,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $gender = trim($_POST['gender'] ?? '');
         $notes = trim($_POST['notes'] ?? '');
         $isActive = isset($_POST['is_active']) ? 1 : 0;
-        $parentFormCompletedAt = isset($_POST['parent_form_complete']) ? date('Y-m-d H:i:s') : null;
+        $parentFormCompletedAt = isset($_POST['parent_form_complete']) ? people_now_for_database() : null;
 
         if ($name === '') {
             $error = 'Name is required.';
@@ -691,7 +708,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (isset($_POST['parent_form_complete'])) {
                     $parentFormCompletedAt = !empty($existing['parent_form_completed_at'])
                         ? $existing['parent_form_completed_at']
-                        : date('Y-m-d H:i:s');
+                        : people_now_for_database();
                 } else {
                     $parentFormCompletedAt = null;
                 }
@@ -770,13 +787,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $occurredAtForDb = $occurredAt !== ''
                 ? str_replace('T', ' ', $occurredAt)
-                : date('Y-m-d H:i:s');
+                : people_now_for_database();
 
             $stmt = $pdo->prepare(
                 'INSERT INTO person_logs
-                    (person_id, leader_id, log_type, title, body, occurred_at)
+                    (person_id, leader_id, log_type, title, body, occurred_at, created_at)
                  VALUES
-                    (?, ?, ?, ?, ?, ?)'
+                    (?, ?, ?, ?, ?, ?, ?)'
             );
 
             $stmt->execute([
@@ -786,6 +803,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $title,
                 $body,
                 $occurredAtForDb,
+                people_now_for_database(),
             ]);
 
             redirect('people.php?person_id=' . $personId . '#logs');
@@ -1567,7 +1585,7 @@ include __DIR__ . '/header.php';
                             class="form-control"
                             type="datetime-local"
                             name="occurred_at"
-                            value="<?= e(datetime_local_value(date('Y-m-d H:i:s'))) ?>"
+                            value="<?= e(datetime_local_value(people_now_for_database())) ?>"
                         >
                     </div>
                 </div>
