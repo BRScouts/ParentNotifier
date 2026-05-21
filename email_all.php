@@ -80,6 +80,35 @@ function email_all_decode_json_list(?string $json): array
     return $items;
 }
 
+function email_all_decode_emergency_contact_emails(?string $json): array
+{
+    if (!$json) {
+        return [];
+    }
+
+    $decoded = json_decode($json, true);
+
+    if (!is_array($decoded)) {
+        return [];
+    }
+
+    $emails = [];
+
+    foreach ($decoded as $contact) {
+        if (!is_array($contact)) {
+            continue;
+        }
+
+        $email = trim((string)($contact['email'] ?? ''));
+
+        if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $emails[strtolower($email)] = $email;
+        }
+    }
+
+    return array_values($emails);
+}
+
 function email_all_valid_emails_from_text(string $text): array
 {
     $text = str_replace(["\r\n", "\r", "\n", ";"], ',', $text);
@@ -95,6 +124,21 @@ function email_all_valid_emails_from_text(string $text): array
     }
 
     return array_values($emails);
+}
+
+function email_all_unique_valid_emails(array $emails): array
+{
+    $clean = [];
+
+    foreach ($emails as $email) {
+        $email = trim((string)$email);
+
+        if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $clean[strtolower($email)] = $email;
+        }
+    }
+
+    return array_values($clean);
 }
 
 function email_all_team_link(array $team): string
@@ -141,6 +185,19 @@ function email_all_build_content(
     $html .= '<a href="' . e($ctaUrl) . '">' . e($ctaUrl) . '</a></p>';
 
     return $html;
+}
+
+function email_all_recipient_type_label(string $type): string
+{
+    if ($type === 'emergency') {
+        return 'Emergency contacts';
+    }
+
+    if ($type === 'all') {
+        return 'All contact emails';
+    }
+
+    return 'Parent update emails';
 }
 
 /**
@@ -195,6 +252,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $selectedTeamIds = array_values(array_unique(array_filter(array_map(static function ($value) {
         return (int)$value;
     }, $selectedTeamIds))));
+
+    $teamRecipientTypes = $_POST['team_recipient_type'] ?? [];
+    $teamRecipientTypes = is_array($teamRecipientTypes) ? $teamRecipientTypes : [];
 
     $selectedLeaderIds = $_POST['leader_ids'] ?? [];
     $selectedLeaderIds = is_array($selectedLeaderIds) ? $selectedLeaderIds : [];
@@ -253,8 +313,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $recipientMap = [];
 
             /**
-             * Team parent contacts.
-             * These recipients get their team-specific portal link.
+             * Team contacts.
+             *
+             * Recipient type is selected per team card:
+             * - parents: parent_emails_json
+             * - emergency: emergency_contacts_json
+             * - all: both merged
              */
             $placeholders = implode(',', array_fill(0, count($selectedTeamIds), '?'));
 
@@ -264,6 +328,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     yp.name,
                     yp.team_id,
                     yp.parent_emails_json,
+                    yp.emergency_contacts_json,
                     t.name AS team_name,
                     t.parent_token
                  FROM young_people yp
@@ -277,6 +342,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             foreach ($stmt->fetchAll() as $row) {
                 $teamId = (int)$row['team_id'];
+
                 $teamLink = !empty($row['parent_token'])
                     ? url('dashboard.php?token=' . $row['parent_token'])
                     : '';
@@ -285,13 +351,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     continue;
                 }
 
-                foreach (email_all_decode_json_list($row['parent_emails_json'] ?? null) as $email) {
-                    $email = trim($email);
+                $recipientType = $teamRecipientTypes[$teamId] ?? 'parents';
 
-                    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                        continue;
-                    }
+                if (!in_array($recipientType, ['parents', 'emergency', 'all'], true)) {
+                    $recipientType = 'parents';
+                }
 
+                $parentEmails = email_all_unique_valid_emails(
+                    email_all_decode_json_list($row['parent_emails_json'] ?? null)
+                );
+
+                $emergencyEmails = email_all_unique_valid_emails(
+                    email_all_decode_emergency_contact_emails($row['emergency_contacts_json'] ?? null)
+                );
+
+                if ($recipientType === 'emergency') {
+                    $emailsToUse = $emergencyEmails;
+                } elseif ($recipientType === 'all') {
+                    $emailsToUse = email_all_unique_valid_emails(array_merge($parentEmails, $emergencyEmails));
+                } else {
+                    $emailsToUse = $parentEmails;
+                }
+
+                foreach ($emailsToUse as $email) {
                     $key = strtolower($email);
 
                     if (!isset($recipientMap[$key])) {
@@ -301,6 +383,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'cta_url' => $teamLink,
                             'cta_label' => 'View the team portal',
                             'source' => 'team',
+                            'recipient_type' => $recipientType,
                         ];
                     }
                 }
@@ -322,6 +405,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'cta_url' => $mainAppLink,
                         'cta_label' => 'Open the portal',
                         'source' => 'manual',
+                        'recipient_type' => 'manual',
                     ];
                 }
             }
@@ -360,6 +444,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'cta_url' => $mainAppLink,
                             'cta_label' => 'Open the portal',
                             'source' => 'leader',
+                            'recipient_type' => 'leader',
                         ];
                     }
                 }
@@ -367,7 +452,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             /**
              * Always send a copy to the logged-in leader.
-             * Sender copy gets the main app URL.
              */
             $loggedInLeaderEmail = trim((string)($user['email'] ?? ''));
 
@@ -381,6 +465,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'cta_url' => $mainAppLink,
                         'cta_label' => 'Open the portal',
                         'source' => 'sender_copy',
+                        'recipient_type' => 'leader',
                     ];
                 }
             }
@@ -483,6 +568,35 @@ include __DIR__ . '/header.php';
         cursor: pointer;
     }
 
+    .team-card-top {
+        display: flex;
+        gap: 0.5rem;
+        align-items: flex-start;
+        margin-bottom: 0.65rem;
+    }
+
+    .team-card-title {
+        font-weight: 900;
+        line-height: 1.25;
+    }
+
+    .team-card-title small {
+        display: block;
+        color: #505a5f;
+        font-weight: 400;
+        margin-top: 0.2rem;
+    }
+
+    .team-recipient-select {
+        margin-top: 0.5rem;
+    }
+
+    .team-recipient-select label {
+        display: block;
+        font-weight: 800;
+        margin-bottom: 0.25rem;
+    }
+
     .team-check small,
     .leader-check small {
         display: block;
@@ -554,7 +668,7 @@ include __DIR__ . '/header.php';
     <section class="email-panel">
         <h2>Email details</h2>
 
-        <form method="post" id="emailAllForm">
+        <form method="post" id="emailAllForm" novalidate>
 
             <div class="form-group">
                 <label for="subject">Subject</label>
@@ -576,22 +690,49 @@ include __DIR__ . '/header.php';
                 <?php else: ?>
                     <div class="team-check-grid">
                         <?php foreach ($teams as $team): ?>
+                            <?php $teamId = (int)$team['id']; ?>
+
                             <div class="team-check">
-                                <label>
+                                <div class="team-card-top">
                                     <input
                                         type="checkbox"
+                                        id="team_<?= $teamId ?>"
                                         name="team_ids[]"
-                                        value="<?= (int)$team['id'] ?>"
+                                        value="<?= $teamId ?>"
                                         <?= empty($team['parent_token']) ? 'disabled' : '' ?>
                                     >
-                                    <span>
+
+                                    <label for="team_<?= $teamId ?>" class="team-card-title">
                                         <?= e($team['name']) ?>
 
                                         <?php if (empty($team['parent_token'])): ?>
                                             <small>No parent link configured</small>
                                         <?php endif; ?>
-                                    </span>
-                                </label>
+                                    </label>
+                                </div>
+
+                                <div class="team-recipient-select">
+                                    <label for="team_recipient_type_<?= $teamId ?>">
+                                        Recipients
+                                    </label>
+
+                                    <select
+                                        class="form-control form-control-sm"
+                                        id="team_recipient_type_<?= $teamId ?>"
+                                        name="team_recipient_type[<?= $teamId ?>]"
+                                        <?= empty($team['parent_token']) ? 'disabled' : '' ?>
+                                    >
+                                        <option value="parents" selected>
+                                            Parent update emails
+                                        </option>
+                                        <option value="emergency">
+                                            Emergency contact emails
+                                        </option>
+                                        <option value="all">
+                                            All contact emails
+                                        </option>
+                                    </select>
+                                </div>
                             </div>
                         <?php endforeach; ?>
                     </div>
@@ -656,7 +797,7 @@ include __DIR__ . '/header.php';
                     <div id="emailEditor"></div>
                 </div>
 
-                <textarea id="message_html" name="message_html" hidden required></textarea>
+                <textarea id="message_html" name="message_html" hidden></textarea>
             </div>
 
             <div class="warning-box">
@@ -705,6 +846,17 @@ include __DIR__ . '/header.php';
             if (plainText === '') {
                 event.preventDefault();
                 alert('Please enter the email message.');
+                return;
+            }
+
+            var subject = document.getElementById('subject');
+
+            if (!subject || subject.value.trim() === '') {
+                event.preventDefault();
+                alert('Please enter an email subject.');
+                if (subject) {
+                    subject.focus();
+                }
                 return;
             }
 
