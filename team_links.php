@@ -182,6 +182,11 @@ function finland_now(): DateTime
     return new DateTime('now', new DateTimeZone(FINLAND_TIMEZONE));
 }
 
+function finland_now_for_database(): string
+{
+    return finland_now()->format('Y-m-d H:i:s');
+}
+
 function finland_today(): string
 {
     return finland_now()->format('Y-m-d');
@@ -404,12 +409,13 @@ function create_reviewed_location_and_post(
     }
 
     $teamName = $team['name'] ?? 'Team';
+    $now = finland_now_for_database();
 
     $stmt = $pdo->prepare(
         'INSERT INTO team_locations
-            (team_id, leader_id, location_name, latitude, longitude, public_note, internal_note)
+            (team_id, leader_id, location_name, latitude, longitude, public_note, internal_note, checked_in_at)
          VALUES
-            (?, ?, ?, ?, ?, ?, ?)'
+            (?, ?, ?, ?, ?, ?, ?, ?)'
     );
 
     $stmt->execute([
@@ -420,6 +426,7 @@ function create_reviewed_location_and_post(
         $longitude,
         $publicNote,
         $internalNote,
+        $now,
     ]);
 
     $locationId = (int)$pdo->lastInsertId();
@@ -430,7 +437,7 @@ function create_reviewed_location_and_post(
              current_location_name = ?,
              current_latitude = ?,
              current_longitude = ?,
-             last_check_in_at = NOW()
+             last_check_in_at = ?
          WHERE id = ?'
     );
 
@@ -439,6 +446,7 @@ function create_reviewed_location_and_post(
         $locationName,
         $latitude,
         $longitude,
+        $now,
         $teamId,
     ]);
 
@@ -448,7 +456,7 @@ function create_reviewed_location_and_post(
         'INSERT INTO posts
             (team_id, leader_id, title, body, post_type, visibility, is_pinned, is_published, published_at)
          VALUES
-            (?, ?, ?, ?, "check_in", "team", 0, 1, NOW())'
+            (?, ?, ?, ?, "check_in", "team", 0, 1, ?)'
     );
 
     $stmt->execute([
@@ -456,6 +464,7 @@ function create_reviewed_location_and_post(
         $user['id'],
         $teamName . ' checked in',
         $feedBody,
+        $now,
     ]);
 
     $postId = (int)$pdo->lastInsertId();
@@ -475,13 +484,14 @@ function create_reviewed_location_and_post(
             'UPDATE explorer_checkins
              SET status = "reviewed",
                  reviewed_by = ?,
-                 reviewed_at = NOW(),
+                 reviewed_at = ?,
                  review_notes = ?
              WHERE id = ?'
         );
 
         $stmt->execute([
             $user['id'],
+            $now,
             $reviewNotes,
             $checkinId,
         ]);
@@ -623,11 +633,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->exec('UPDATE posts SET is_pinned = 0');
             }
 
+            $publishedAt = finland_now_for_database();
+
             $stmt = $pdo->prepare(
                 'INSERT INTO posts
                     (team_id, leader_id, title, body, post_type, visibility, photo_url, is_pinned, is_published, published_at)
                  VALUES
-                    (?, ?, ?, ?, ?, "team", ?, ?, 1, NOW())'
+                    (?, ?, ?, ?, ?, "team", ?, ?, 1, ?)'
             );
 
             $stmt->execute([
@@ -638,6 +650,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $postType,
                 $photoUrl,
                 $isPinned,
+                $publishedAt,
             ]);
 
             redirect('team_links.php?view=team&team_id=' . $teamId . '&tab=posts');
@@ -701,11 +714,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $reviewNotes = trim($_POST['review_notes'] ?? '');
 
         if ($teamId > 0 && $checkinId > 0) {
+            $reviewedAt = finland_now_for_database();
+
             $stmt = $pdo->prepare(
                 'UPDATE explorer_checkins
                  SET status = "rejected",
                      reviewed_by = ?,
-                     reviewed_at = NOW(),
+                     reviewed_at = ?,
                      review_notes = ?
                  WHERE id = ?
                    AND team_id = ?'
@@ -713,6 +728,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $stmt->execute([
                 $user['id'],
+                $reviewedAt,
                 $reviewNotes,
                 $checkinId,
                 $teamId,
