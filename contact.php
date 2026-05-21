@@ -264,21 +264,6 @@ include __DIR__ . '/header.php';
            
 
             <section class="contact-panel">
-                <h2>General enquiries</h2>
-
-                <div class="placeholder-box">
-                    <p>
-                        <strong>Placeholder group contact:</strong>
-                        rammyexplorers@gmail.com
-                    </p>
-
-                    
-
-                    
-                </div>
-            </section>
-
-            <section class="contact-panel">
                 <h2>What to include when contacting us</h2>
 
                 <ul class="contact-steps">

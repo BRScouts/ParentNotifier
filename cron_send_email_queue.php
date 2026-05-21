@@ -60,15 +60,30 @@ function mail_constant(string $name, $default = null)
     return defined($name) ? constant($name) : $default;
 }
 
+function email_template_path(): string
+{
+    return __DIR__ . '/assets/email_template.html';
+}
+
 function safe_email_html(string $html): string
 {
-    $allowedTags = '<p><br><strong><b><em><i><u><a><ol><ul><li><span><blockquote>';
+    $allowedTags = '<p><br><strong><b><em><i><u><a><ol><ul><li><span><blockquote><h1><h2><h3><h4><table><thead><tbody><tr><td><th>';
 
     $html = strip_tags($html, $allowedTags);
 
+    /**
+     * Remove inline JS/event handlers.
+     */
     $html = preg_replace('/\son[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html);
+
+    /**
+     * Remove javascript: links.
+     */
     $html = preg_replace('/href\s*=\s*([\'"])\s*javascript:[^\'"]*\1/i', 'href="#"', $html);
 
+    /**
+     * Permit basic inline styles for email formatting.
+     */
     $html = preg_replace_callback('/style\s*=\s*([\'"])(.*?)\1/i', function ($matches) {
         $style = $matches[2];
         $safeRules = [];
@@ -80,7 +95,7 @@ function safe_email_html(string $html): string
                 continue;
             }
 
-            if (preg_match('/^(color|background-color|font-weight|font-style|text-decoration)\s*:\s*[^;"\']+$/i', $rule)) {
+            if (preg_match('/^(color|background-color|font-weight|font-style|text-decoration|margin|margin-top|margin-bottom|padding|line-height|font-size|border-left|display)\s*:\s*[^;"\']+$/i', $rule)) {
                 $safeRules[] = $rule;
             }
         }
@@ -92,6 +107,9 @@ function safe_email_html(string $html): string
         return ' style="' . htmlspecialchars(implode('; ', $safeRules), ENT_QUOTES, 'UTF-8') . '"';
     }, $html);
 
+    /**
+     * Permit safe link targets only.
+     */
     $html = preg_replace_callback('/href\s*=\s*([\'"])(.*?)\1/i', function ($matches) {
         $quote = $matches[1];
         $href = trim(html_entity_decode($matches[2], ENT_QUOTES, 'UTF-8'));
@@ -123,7 +141,7 @@ function plain_text_to_html(string $text): string
     $html = '';
 
     foreach ($paragraphs as $paragraph) {
-        $paragraph = trim($paragraph);
+        $paragraph = trim((string)$paragraph);
 
         if ($paragraph === '') {
             continue;
@@ -164,7 +182,7 @@ function content_to_plain_text(string $content): string
     $content = preg_replace('/<\/p>/i', "\n\n", $content);
     $content = preg_replace('/<\/li>/i', "\n", $content);
 
-    $text = html_entity_decode(strip_tags($content), ENT_QUOTES, 'UTF-8');
+    $text = html_entity_decode(strip_tags((string)$content), ENT_QUOTES, 'UTF-8');
     $text = preg_replace("/\n{3,}/", "\n\n", (string)$text);
 
     return trim((string)$text);
@@ -176,148 +194,74 @@ function extract_first_url(string $content): string
         return rtrim($matches[0], '.,)');
     }
 
+    if (preg_match('/href\s*=\s*([\'"])(https?:\/\/.*?)\1/i', $content, $matches)) {
+        return trim((string)$matches[2]);
+    }
+
     return '';
+}
+
+function make_placeholder_replacements(string $subject, string $content): array
+{
+    $appName = (string)mail_constant('APP_NAME', 'Explorer Belt Live');
+    $logoUrl = (string)mail_constant(
+        'MAIL_LOGO_URL',
+        'https://exbelt2026.irvalscouts.org.uk/assets/photos/logo-generator-linear-blackwhite-png.png'
+    );
+
+    $ckUrl = (string)mail_constant('MAIL_CK_URL', 'https://ckenterprises.co.uk');
+
+    $contentHtml = content_to_html($content);
+    $plainText = content_to_plain_text($content);
+    $firstUrl = extract_first_url($content);
+
+    $preheader = mb_substr(
+        trim(preg_replace('/\s+/', ' ', $plainText)),
+        0,
+        140
+    );
+
+    if ($preheader === '') {
+        $preheader = $subject;
+    }
+
+    $ctaUrl = $firstUrl !== '' ? $firstUrl : (string)mail_constant('BASE_URL', '');
+    $ctaText = $firstUrl !== '' ? 'View update' : 'Open portal';
+
+    $introText = 'There is a new update from the Explorer Belt Live portal.';
+
+    return [
+        '{{APP_NAME}}' => htmlspecialchars($appName, ENT_QUOTES, 'UTF-8'),
+        '{{LOGO_URL}}' => htmlspecialchars($logoUrl, ENT_QUOTES, 'UTF-8'),
+        '{{EMAIL_TITLE}}' => htmlspecialchars($subject, ENT_QUOTES, 'UTF-8'),
+        '{{PREHEADER_TEXT}}' => htmlspecialchars($preheader, ENT_QUOTES, 'UTF-8'),
+        '{{EMAIL_HEADING}}' => htmlspecialchars($subject, ENT_QUOTES, 'UTF-8'),
+        '{{INTRO_TEXT}}' => htmlspecialchars($introText, ENT_QUOTES, 'UTF-8'),
+        '{{CONTENT_HTML}}' => $contentHtml,
+        '{{CTA_URL}}' => htmlspecialchars($ctaUrl, ENT_QUOTES, 'UTF-8'),
+        '{{CTA_TEXT}}' => htmlspecialchars($ctaText, ENT_QUOTES, 'UTF-8'),
+        '{{CK_ENTERPRISES_URL}}' => htmlspecialchars($ckUrl, ENT_QUOTES, 'UTF-8'),
+        '{{CURRENT_YEAR}}' => date('Y'),
+    ];
 }
 
 function build_email_template(string $subject, string $content): string
 {
-    $appName = htmlspecialchars((string)mail_constant('APP_NAME', 'Explorer Belt Live'), ENT_QUOTES, 'UTF-8');
-    $logoUrl = htmlspecialchars((string)mail_constant('MAIL_LOGO_URL', ''), ENT_QUOTES, 'UTF-8');
-    $ckUrl = htmlspecialchars((string)mail_constant('MAIL_CK_URL', 'https://ckenterprises.co.uk'), ENT_QUOTES, 'UTF-8');
-    $heading = htmlspecialchars($subject, ENT_QUOTES, 'UTF-8');
-    $contentHtml = content_to_html($content);
+    $templatePath = email_template_path();
 
-    $ctaUrlRaw = extract_first_url($content);
-    $ctaUrl = htmlspecialchars($ctaUrlRaw, ENT_QUOTES, 'UTF-8');
-
-    $logoHtml = '';
-
-    if ($logoUrl !== '') {
-        $logoHtml = '
-            <img
-                src="' . $logoUrl . '"
-                alt="' . $appName . '"
-                width="180"
-                style="display:block;width:180px;max-width:180px;height:auto;border:0;background:transparent;"
-            >
-        ';
-    } else {
-        $logoHtml = '
-            <div style="color:#ffffff;font-size:22px;font-weight:900;">
-                ' . $appName . '
-            </div>
-        ';
+    if (!file_exists($templatePath)) {
+        throw new RuntimeException('Email template was not found at assets/email_template.html');
     }
 
-    $ctaHtml = '';
+    $template = file_get_contents($templatePath);
 
-    if ($ctaUrl !== '') {
-        $ctaHtml = '
-            <tr>
-                <td style="padding:20px 24px 24px 24px;">
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0">
-                        <tr>
-                            <td style="background:#1d70b8;border:2px solid #1d70b8;">
-                                <a
-                                    href="' . $ctaUrl . '"
-                                    style="display:inline-block;padding:12px 18px;color:#ffffff;text-decoration:none;font-weight:900;font-size:16px;"
-                                >
-                                    View update
-                                </a>
-                            </td>
-                        </tr>
-                    </table>
-                </td>
-            </tr>
-        ';
+    if ($template === false || trim($template) === '') {
+        throw new RuntimeException('Email template could not be read or is empty.');
     }
 
-    return '<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <title>' . $heading . '</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-</head>
+    $replacements = make_placeholder_replacements($subject, $content);
 
-<body style="margin:0;padding:0;background:#f3f2f1;color:#1d1d1d;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.5;">
-
-    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
-        ' . $heading . '
-    </div>
-
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#f3f2f1;margin:0;padding:0;">
-        <tr>
-            <td align="center" style="padding:24px 12px;">
-
-                <table role="presentation" width="640" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:640px;background:#ffffff;border-collapse:collapse;">
-
-                    <tr>
-                        <td style="background:#7413dc;padding:20px 24px;color:#ffffff;">
-                            ' . $logoHtml . '
-                        </td>
-                    </tr>
-
-                    <tr>
-                        <td style="padding:28px 24px 12px 24px;">
-                            <h1 style="margin:0;color:#1d1d1d;font-size:28px;line-height:1.2;font-weight:900;">
-                                ' . $heading . '
-                            </h1>
-                        </td>
-                    </tr>
-
-                    <tr>
-                        <td style="padding:8px 24px 8px 24px;">
-                            <div style="color:#1d1d1d;font-size:16px;line-height:1.6;">
-                                ' . $contentHtml . '
-                            </div>
-                        </td>
-                    </tr>
-
-                    ' . $ctaHtml . '
-
-                    <tr>
-                        <td style="padding:16px 24px 24px 24px;">
-                            <div style="border-left:8px solid #ffdd00;background:#fff7bf;padding:14px 16px;">
-                                <p style="margin:0 0 8px 0;color:#1d1d1d;font-weight:900;">
-                                    No news is not bad news.
-                                </p>
-                                <p style="margin:0;color:#1d1d1d;font-size:15px;line-height:1.5;">
-                                    Updates and check-ins are added manually by leaders. They may not appear straight away,
-                                    and may be delayed until all groups are confirmed settled for the night.
-                                </p>
-                            </div>
-                        </td>
-                    </tr>
-
-                    <tr>
-                        <td style="background:#4d0b95;padding:18px 24px;color:#ffffff;">
-                            <p style="margin:0 0 8px 0;color:#ffffff;font-size:14px;line-height:1.5;">
-                                <strong>' . $appName . '</strong><br>
-                                Explorer Belt trip portal
-                            </p>
-
-                            <p style="margin:0 0 8px 0;color:#ffffff;font-size:13px;line-height:1.5;">
-                                You are receiving this email because your address is listed for trip updates.
-                            </p>
-
-                            <p style="margin:0;color:#ffffff;font-size:13px;line-height:1.5;">
-                                Provided by
-                                <a href="' . $ckUrl . '" style="color:#ffffff;font-weight:900;text-decoration:underline;">
-                                    CK Enterprises UK
-                                </a>
-                            </p>
-                        </td>
-                    </tr>
-
-                </table>
-
-            </td>
-        </tr>
-    </table>
-
-</body>
-</html>';
+    return strtr($template, $replacements);
 }
 
 function build_plain_text_email(string $subject, string $content): string
@@ -457,65 +401,72 @@ function mark_email_failed(PDO $pdo, int $id, string $error): void
  * Worker
  */
 
-reset_stale_processing_emails($pdo);
+try {
+    reset_stale_processing_emails($pdo);
 
-$emails = fetch_pending_emails($pdo);
+    $emails = fetch_pending_emails($pdo);
 
-$sent = 0;
-$failed = 0;
-$skipped = 0;
+    $sent = 0;
+    $failed = 0;
+    $skipped = 0;
 
-foreach ($emails as $email) {
-    $id = (int)$email['id'];
+    foreach ($emails as $email) {
+        $id = (int)$email['id'];
 
-    if (!mark_email_processing($pdo, $id)) {
-        $skipped++;
-        continue;
+        if (!mark_email_processing($pdo, $id)) {
+            $skipped++;
+            continue;
+        }
+
+        try {
+            $toEmail = trim((string)$email['to_email']);
+            $subject = trim((string)$email['subject']);
+            $content = (string)$email['content'];
+
+            if (!filter_var($toEmail, FILTER_VALIDATE_EMAIL)) {
+                throw new RuntimeException('Invalid recipient email address: ' . $toEmail);
+            }
+
+            if ($subject === '') {
+                throw new RuntimeException('Email subject is empty.');
+            }
+
+            if (trim($content) === '') {
+                throw new RuntimeException('Email content is empty.');
+            }
+
+            $mail = make_mailer();
+
+            $mail->addAddress($toEmail);
+            $mail->Subject = $subject;
+            $mail->isHTML(true);
+
+            /**
+             * This now loads /assets/email_template.html
+             * and replaces placeholders before sending.
+             */
+            $mail->Body = build_email_template($subject, $content);
+            $mail->AltBody = build_plain_text_email($subject, $content);
+
+            $mail->send();
+
+            mark_email_sent($pdo, $id);
+            $sent++;
+        } catch (Throwable $exception) {
+            mark_email_failed($pdo, $id, $exception->getMessage());
+            $failed++;
+        }
     }
 
-    try {
-        $toEmail = trim((string)$email['to_email']);
-        $subject = trim((string)$email['subject']);
-        $content = (string)$email['content'];
-
-        if (!filter_var($toEmail, FILTER_VALIDATE_EMAIL)) {
-            throw new RuntimeException('Invalid recipient email address: ' . $toEmail);
-        }
-
-        if ($subject === '') {
-            throw new RuntimeException('Email subject is empty.');
-        }
-
-        if (trim($content) === '') {
-            throw new RuntimeException('Email content is empty.');
-        }
-
-        $mail = make_mailer();
-
-        $mail->addAddress($toEmail);
-        $mail->Subject = $subject;
-        $mail->isHTML(true);
-        $mail->Body = build_email_template($subject, $content);
-        $mail->AltBody = build_plain_text_email($subject, $content);
-
-        $mail->send();
-
-        mark_email_sent($pdo, $id);
-        $sent++;
-    } catch (Throwable $exception) {
-        mark_email_failed($pdo, $id, $exception->getMessage());
-        $failed++;
-    }
+    cron_log(sprintf(
+        '[%s] Email queue processed. Sent: %d. Failed/requeued: %d. Skipped: %d. Checked: %d.',
+        date('Y-m-d H:i:s'),
+        $sent,
+        $failed,
+        $skipped,
+        count($emails)
+    ));
+} finally {
+    flock($lockHandle, LOCK_UN);
+    fclose($lockHandle);
 }
-
-cron_log(sprintf(
-    '[%s] Email queue processed. Sent: %d. Failed/requeued: %d. Skipped: %d. Checked: %d.',
-    date('Y-m-d H:i:s'),
-    $sent,
-    $failed,
-    $skipped,
-    count($emails)
-));
-
-flock($lockHandle, LOCK_UN);
-fclose($lockHandle);
