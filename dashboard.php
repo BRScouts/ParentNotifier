@@ -2197,7 +2197,7 @@ include __DIR__ . '/header.php';
 
                     <div class="location-note">
                         <p>
-                            Finlad time is currently <?= e(dashboard_finland_now()->format('H:i')) ?>, all updates are provided in Helsinki Local Time. Updates and check-ins are often added in the evening after teams have checked in, so please check back later if you don't see updates for today yet.
+                            Finlad time is currently <?= e(dashboard_finland_now()->format('H:i')) ?>, all updates are provided in Helsinki Local Time. 
                         </p>
                     </div>
 
