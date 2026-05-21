@@ -1824,7 +1824,7 @@ include __DIR__ . '/header.php';
                                                     </div>
 
                                                     <div class="form-group">
-                                                        <label>Internal leader note</label>
+                                                        <label>Internal leader notes</label>
                                                         <textarea class="form-control" name="internal_note" rows="4"><?= e($checkin['welfare_notes'] ?? '') ?></textarea>
                                                     </div>
 
