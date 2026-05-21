@@ -2193,12 +2193,11 @@ include __DIR__ . '/header.php';
                         </div>
                     <?php endif; ?>
                 <?php else: ?>
-                    <h2>Latest location</h2>
+                    <h2>Time Zones</h2>
 
                     <div class="location-note">
                         <p>
-                            If there is no location for a particular day,
-                            this does not necessarily indicate an issue. There may simply be a delay in entering the update.
+                            Finlad time is currently <?= e(dashboard_finland_now()->format('H:i')) ?>, all updates are provided in Helsinki Local Time. Updates and check-ins are often added in the evening after teams have checked in, so please check back later if you don't see updates for today yet.
                         </p>
                     </div>
 
