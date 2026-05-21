@@ -528,7 +528,7 @@ function queue_onboarding_confirmation_email(
     }
 
     $content .= '</ul>' .
-        '<p>Please look out for emails from <strong>' . e(ONBOARDING_CONFIRMATION_FROM_EMAIL) . '</strong>. If you do not receive this confirmation within the next hour, please check your junk/spam folder or contact the trip team.</p>';
+        '<p>Please look out for emails from <strong>' . e(ONBOARDING_CONFIRMATION_FROM_EMAIL) . '</strong>. This will send emails upto and prior to the event, consider adding this email address to your safe senders list.</p>';
 
     $stmt = $pdo->prepare(
         'INSERT INTO email_queue

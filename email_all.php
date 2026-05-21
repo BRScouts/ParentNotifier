@@ -3,11 +3,20 @@ require_once __DIR__ . '/auth.php';
 
 require_login();
 
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+}
+
 $pdo = db();
 $user = current_user();
 
 $error = '';
 $success = '';
+$previewHtml = '';
+$previewCount = 0;
+$showPreview = false;
+
+const EMAIL_ALL_TEMPLATE_PATH = __DIR__ . '/assets/email_template.html';
 
 /**
  * Helpers
@@ -51,6 +60,25 @@ function email_all_clean_html(string $html): string
     }, $html);
 
     return $html;
+}
+
+function email_all_column_exists(PDO $pdo, string $table, string $column): bool
+{
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT COUNT(*)
+             FROM information_schema.columns
+             WHERE table_schema = DATABASE()
+               AND table_name = ?
+               AND column_name = ?'
+        );
+
+        $stmt->execute([$table, $column]);
+
+        return (int)$stmt->fetchColumn() > 0;
+    } catch (Throwable $exception) {
+        return false;
+    }
 }
 
 function email_all_decode_json_list(?string $json): array
@@ -151,6 +179,81 @@ function email_all_main_app_link(): string
     return url('dashboard.php');
 }
 
+function email_all_apply_placeholders(string $value, array $context): string
+{
+    $replacements = [
+        '{{young_person_name}}' => $context['young_person_name'] ?? '',
+        '{{team_name}}' => $context['team_name'] ?? '',
+        '{{team_link}}' => $context['team_link'] ?? '',
+        '{{portal_link}}' => $context['portal_link'] ?? '',
+        '{{recipient_email}}' => $context['recipient_email'] ?? '',
+    ];
+
+    return str_replace(array_keys($replacements), array_values($replacements), $value);
+}
+
+function email_all_build_content(
+    string $messageHtml,
+    string $ctaUrl,
+    string $ctaLabel,
+    array $context
+): string {
+    $html = email_all_apply_placeholders($messageHtml, $context);
+
+    $html .= '<hr>';
+    $html .= '<p><strong>' . e($ctaLabel) . ':</strong><br>';
+    $html .= '<a href="' . e($ctaUrl) . '">' . e($ctaUrl) . '</a></p>';
+
+    return $html;
+}
+
+function email_all_render_template_preview(string $subject, string $content): string
+{
+    $template = '';
+
+    if (is_file(EMAIL_ALL_TEMPLATE_PATH)) {
+        $template = file_get_contents(EMAIL_ALL_TEMPLATE_PATH);
+    }
+
+    if (!$template) {
+        return '
+            <div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;border:1px solid #ddd;">
+                <div style="background:#7413dc;color:#fff;padding:20px;">
+                    <h1 style="margin:0;color:#fff;">' . e(APP_NAME) . '</h1>
+                </div>
+                <div style="padding:24px;">
+                    <h2>' . e($subject) . '</h2>
+                    ' . $content . '
+                </div>
+                <div style="background:#4d0b95;color:#fff;padding:16px;font-size:13px;">
+                    Provided by CK Enterprises UK
+                </div>
+            </div>
+        ';
+    }
+
+    $replacements = [
+        '{{subject}}' => e($subject),
+        '{{SUBJECT}}' => e($subject),
+        '{{title}}' => e($subject),
+        '{{TITLE}}' => e($subject),
+        '{{content}}' => $content,
+        '{{CONTENT}}' => $content,
+        '{{body}}' => $content,
+        '{{BODY}}' => $content,
+        '{{app_name}}' => e(APP_NAME),
+        '{{APP_NAME}}' => e(APP_NAME),
+    ];
+
+    $rendered = str_replace(array_keys($replacements), array_values($replacements), $template);
+
+    if ($rendered === $template && stripos($template, '{{content}}') === false && stripos($template, '{{CONTENT}}') === false) {
+        $rendered .= $content;
+    }
+
+    return $rendered;
+}
+
 function email_all_queue_email(
     PDO $pdo,
     string $toEmail,
@@ -171,53 +274,6 @@ function email_all_queue_email(
         $content,
         $teamId,
     ]);
-}
-
-function email_all_apply_placeholders(string $html, array $context): string
-{
-    $replacements = [
-        '{{young_person_name}}' => $context['young_person_name'] ?? '',
-        '{{team_name}}' => $context['team_name'] ?? '',
-        '{{team_link}}' => $context['team_link'] ?? '',
-        '{{portal_link}}' => $context['portal_link'] ?? '',
-        '{{recipient_email}}' => $context['recipient_email'] ?? '',
-    ];
-
-    return str_replace(array_keys($replacements), array_values($replacements), $html);
-}
-
-function email_all_build_content(
-    string $messageHtml,
-    string $ctaUrl,
-    string $ctaLabel,
-    array $context
-): string {
-    $html = email_all_apply_placeholders($messageHtml, $context);
-
-    $html .= '<hr>';
-    $html .= '<p><strong>' . e($ctaLabel) . ':</strong><br>';
-    $html .= '<a href="' . e($ctaUrl) . '">' . e($ctaUrl) . '</a></p>';
-
-    return $html;
-}
-
-function email_all_column_exists(PDO $pdo, string $table, string $column): bool
-{
-    try {
-        $stmt = $pdo->prepare(
-            'SELECT COUNT(*)
-             FROM information_schema.columns
-             WHERE table_schema = DATABASE()
-               AND table_name = ?
-               AND column_name = ?'
-        );
-
-        $stmt->execute([$table, $column]);
-
-        return (int)$stmt->fetchColumn() > 0;
-    } catch (Throwable $exception) {
-        return false;
-    }
 }
 
 /**
@@ -268,11 +324,15 @@ try {
 $teamCounts = [];
 
 try {
+    $participantEmailSelect = email_all_column_exists($pdo, 'young_people', 'participant_email')
+        ? 'SUM(CASE WHEN participant_email IS NOT NULL AND participant_email <> "" THEN 1 ELSE 0 END)'
+        : '0';
+
     $stmt = $pdo->query(
         'SELECT
             team_id,
             COUNT(*) AS people_count,
-            SUM(CASE WHEN participant_email IS NOT NULL AND participant_email <> "" THEN 1 ELSE 0 END) AS participant_email_count
+            ' . $participantEmailSelect . ' AS participant_email_count
          FROM young_people
          WHERE is_active = 1
          GROUP BY team_id'
@@ -289,33 +349,63 @@ try {
 }
 
 /**
- * Handle submit.
+ * Build recipient map from posted data.
  */
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $preset = $_POST['preset'] ?? 'custom';
+function email_all_build_recipient_map(PDO $pdo, array $teamsById, array $leaders, array $user, array $post): array
+{
+    $preset = $post['preset'] ?? 'custom';
+    $mainAppLink = email_all_main_app_link();
+    $recipientMap = [];
 
-    $selectedTeamIds = $_POST['team_ids'] ?? [];
+    $selectedTeamIds = $post['team_ids'] ?? [];
     $selectedTeamIds = is_array($selectedTeamIds) ? $selectedTeamIds : [];
 
     $selectedTeamIds = array_values(array_unique(array_filter(array_map(static function ($value) {
         return (int)$value;
     }, $selectedTeamIds))));
 
-    $teamRecipientTypes = $_POST['team_recipient_types'] ?? [];
+    $teamRecipientTypes = $post['team_recipient_types'] ?? [];
     $teamRecipientTypes = is_array($teamRecipientTypes) ? $teamRecipientTypes : [];
 
-    $includeLeaders = isset($_POST['include_leaders']) ? 1 : 0;
+    $includeLeaders = isset($post['include_leaders']) ? 1 : 0;
 
-    $selectedLeaderIds = $_POST['leader_ids'] ?? [];
+    $selectedLeaderIds = $post['leader_ids'] ?? [];
     $selectedLeaderIds = is_array($selectedLeaderIds) ? $selectedLeaderIds : [];
 
     $selectedLeaderIds = array_values(array_unique(array_filter(array_map(static function ($value) {
         return (int)$value;
     }, $selectedLeaderIds))));
 
-    $subject = trim($_POST['subject'] ?? '');
-    $messageHtml = email_all_clean_html($_POST['message_html'] ?? '');
-    $manualEmailsText = trim($_POST['manual_emails'] ?? '');
+    /**
+     * Presets decide the selected teams and recipient types server-side too,
+     * so the queue is not dependent on JavaScript.
+     */
+    if ($preset !== 'custom') {
+        $selectedTeamIds = [];
+
+        foreach ($teamsById as $teamId => $team) {
+            if (!empty($team['parent_token'])) {
+                $selectedTeamIds[] = (int)$teamId;
+            }
+        }
+
+        $teamRecipientTypes = [];
+
+        foreach ($selectedTeamIds as $teamId) {
+            if ($preset === 'all_contacts_participants_leaders') {
+                $teamRecipientTypes[$teamId] = ['participants', 'updates', 'emergency'];
+                $includeLeaders = 1;
+            } elseif ($preset === 'emergency_only') {
+                $teamRecipientTypes[$teamId] = ['emergency'];
+            } elseif ($preset === 'participants_only') {
+                $teamRecipientTypes[$teamId] = ['participants'];
+            } elseif ($preset === 'leaders_only') {
+                $teamRecipientTypes[$teamId] = [];
+                $selectedTeamIds = [];
+                $includeLeaders = 1;
+            }
+        }
+    }
 
     $selectedTeams = [];
 
@@ -325,305 +415,337 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    $manualEmails = email_all_valid_emails_from_text($manualEmailsText);
-    $hasAnyTeamSelection = !empty($selectedTeams);
-    $hasManualRecipients = !empty($manualEmails);
-    $hasLeaderSelection = $includeLeaders || !empty($selectedLeaderIds);
+    /**
+     * Team recipients.
+     */
+    if (!empty($selectedTeams)) {
+        $placeholders = implode(',', array_fill(0, count($selectedTeamIds), '?'));
 
-    if (!$hasAnyTeamSelection && !$hasManualRecipients && !$hasLeaderSelection) {
-        $error = 'Choose at least one team, leader group, or manual recipient.';
-    }
+        $participantEmailSelect = email_all_column_exists($pdo, 'young_people', 'participant_email')
+            ? 'yp.participant_email'
+            : 'NULL AS participant_email';
 
-    if ($subject === '') {
-        $error = 'Email subject is required.';
-    }
+        $stmt = $pdo->prepare(
+            'SELECT
+                yp.id,
+                yp.name,
+                yp.team_id,
+                ' . $participantEmailSelect . ',
+                yp.parent_emails_json,
+                yp.emergency_contacts_json,
+                t.name AS team_name,
+                t.parent_token
+             FROM young_people yp
+             INNER JOIN teams t ON t.id = yp.team_id
+             WHERE yp.team_id IN (' . $placeholders . ')
+               AND yp.is_active = 1
+             ORDER BY t.name ASC, yp.name ASC'
+        );
 
-    if ($messageHtml === '') {
-        $error = 'Email message is required.';
-    }
+        $stmt->execute($selectedTeamIds);
 
-    if ($error === '') {
-        try {
-            $mainAppLink = email_all_main_app_link();
-            $recipientMap = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $teamId = (int)$row['team_id'];
 
-            /**
-             * Team recipients.
-             *
-             * Team recipient types:
-             * - participants
-             * - emergency
-             * - updates
-             */
-            if (!empty($selectedTeams)) {
-                $placeholders = implode(',', array_fill(0, count($selectedTeamIds), '?'));
+            if (!isset($selectedTeams[$teamId])) {
+                continue;
+            }
 
-                $participantEmailSelect = email_all_column_exists($pdo, 'young_people', 'participant_email')
-                    ? 'yp.participant_email'
-                    : 'NULL AS participant_email';
+            $selectedTypes = $teamRecipientTypes[$teamId] ?? [];
+            $selectedTypes = is_array($selectedTypes) ? $selectedTypes : [];
 
-                $stmt = $pdo->prepare(
-                    'SELECT
-                        yp.id,
-                        yp.name,
-                        yp.team_id,
-                        ' . $participantEmailSelect . ',
-                        yp.parent_emails_json,
-                        yp.emergency_contacts_json,
-                        t.name AS team_name,
-                        t.parent_token
-                     FROM young_people yp
-                     INNER JOIN teams t ON t.id = yp.team_id
-                     WHERE yp.team_id IN (' . $placeholders . ')
-                       AND yp.is_active = 1
-                     ORDER BY t.name ASC, yp.name ASC'
-                );
+            if (empty($selectedTypes)) {
+                continue;
+            }
 
-                $stmt->execute($selectedTeamIds);
+            $teamLink = !empty($row['parent_token'])
+                ? url('dashboard.php?token=' . $row['parent_token'])
+                : $mainAppLink;
 
-                foreach ($stmt->fetchAll() as $row) {
-                    $teamId = (int)$row['team_id'];
+            $youngPersonName = trim((string)($row['name'] ?? ''));
+            $teamName = trim((string)($row['team_name'] ?? ''));
 
-                    if (!isset($selectedTeams[$teamId])) {
-                        continue;
-                    }
+            $contextBase = [
+                'young_person_name' => $youngPersonName,
+                'team_name' => $teamName,
+                'team_link' => $teamLink,
+                'portal_link' => $mainAppLink,
+            ];
 
-                    $selectedTypes = $teamRecipientTypes[$teamId] ?? [];
-                    $selectedTypes = is_array($selectedTypes) ? $selectedTypes : [];
+            if (in_array('participants', $selectedTypes, true)) {
+                $participantEmail = trim((string)($row['participant_email'] ?? ''));
 
-                    if (empty($selectedTypes)) {
-                        continue;
-                    }
+                if ($participantEmail !== '' && filter_var($participantEmail, FILTER_VALIDATE_EMAIL)) {
+                    $key = 'participant|' . strtolower($participantEmail) . '|person:' . (int)$row['id'];
 
-                    $teamLink = !empty($row['parent_token'])
-                        ? url('dashboard.php?token=' . $row['parent_token'])
-                        : $mainAppLink;
-
-                    $youngPersonName = trim((string)($row['name'] ?? ''));
-                    $teamName = trim((string)($row['team_name'] ?? ''));
-
-                    $contextBase = [
-                        'young_person_name' => $youngPersonName,
-                        'team_name' => $teamName,
-                        'team_link' => $teamLink,
-                        'portal_link' => $mainAppLink,
+                    $recipientMap[$key] = [
+                        'email' => $participantEmail,
+                        'team_id' => $teamId,
+                        'cta_url' => $teamLink,
+                        'cta_label' => 'View the team portal',
+                        'source' => 'participant',
+                        'context' => array_merge($contextBase, [
+                            'recipient_email' => $participantEmail,
+                        ]),
                     ];
-
-                    if (in_array('participants', $selectedTypes, true)) {
-                        $participantEmail = trim((string)($row['participant_email'] ?? ''));
-
-                        if ($participantEmail !== '' && filter_var($participantEmail, FILTER_VALIDATE_EMAIL)) {
-                            $key = 'participant|' . strtolower($participantEmail) . '|person:' . (int)$row['id'];
-
-                            $recipientMap[$key] = [
-                                'email' => $participantEmail,
-                                'team_id' => $teamId,
-                                'cta_url' => $teamLink,
-                                'cta_label' => 'View the team portal',
-                                'source' => 'participant',
-                                'context' => array_merge($contextBase, [
-                                    'recipient_email' => $participantEmail,
-                                ]),
-                            ];
-                        }
-                    }
-
-                    if (in_array('updates', $selectedTypes, true)) {
-                        $updateEmails = email_all_unique_valid_emails(
-                            email_all_decode_json_list($row['parent_emails_json'] ?? null)
-                        );
-
-                        foreach ($updateEmails as $email) {
-                            $key = 'updates|' . strtolower($email) . '|person:' . (int)$row['id'];
-
-                            $recipientMap[$key] = [
-                                'email' => $email,
-                                'team_id' => $teamId,
-                                'cta_url' => $teamLink,
-                                'cta_label' => 'View the team portal',
-                                'source' => 'updates',
-                                'context' => array_merge($contextBase, [
-                                    'recipient_email' => $email,
-                                ]),
-                            ];
-                        }
-                    }
-
-                    if (in_array('emergency', $selectedTypes, true)) {
-                        $emergencyEmails = email_all_unique_valid_emails(
-                            email_all_decode_emergency_contact_emails($row['emergency_contacts_json'] ?? null)
-                        );
-
-                        foreach ($emergencyEmails as $email) {
-                            $key = 'emergency|' . strtolower($email) . '|person:' . (int)$row['id'];
-
-                            $recipientMap[$key] = [
-                                'email' => $email,
-                                'team_id' => $teamId,
-                                'cta_url' => $teamLink,
-                                'cta_label' => 'View the team portal',
-                                'source' => 'emergency',
-                                'context' => array_merge($contextBase, [
-                                    'recipient_email' => $email,
-                                ]),
-                            ];
-                        }
-                    }
                 }
             }
 
-            /**
-             * Manual recipients.
-             * Manual recipients get the main portal URL, not a team link.
-             */
-            foreach ($manualEmails as $email) {
-                $key = 'manual|' . strtolower($email);
+            if (in_array('updates', $selectedTypes, true)) {
+                $updateEmails = email_all_unique_valid_emails(
+                    email_all_decode_json_list($row['parent_emails_json'] ?? null)
+                );
 
-                $recipientMap[$key] = [
-                    'email' => $email,
-                    'team_id' => null,
-                    'cta_url' => $mainAppLink,
-                    'cta_label' => 'Open the portal',
-                    'source' => 'manual',
-                    'context' => [
-                        'young_person_name' => '',
-                        'team_name' => '',
-                        'team_link' => '',
-                        'portal_link' => $mainAppLink,
-                        'recipient_email' => $email,
-                    ],
-                ];
-            }
-
-            /**
-             * Leaders.
-             */
-            if ($includeLeaders) {
-                foreach ($leaders as $leader) {
-                    $email = trim((string)$leader['email']);
-
-                    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                        continue;
-                    }
-
-                    $key = 'leader|' . strtolower($email);
+                foreach ($updateEmails as $email) {
+                    $key = 'updates|' . strtolower($email) . '|person:' . (int)$row['id'];
 
                     $recipientMap[$key] = [
                         'email' => $email,
-                        'team_id' => null,
-                        'cta_url' => $mainAppLink,
-                        'cta_label' => 'Open the portal',
-                        'source' => 'leader',
-                        'context' => [
-                            'young_person_name' => '',
-                            'team_name' => '',
-                            'team_link' => '',
-                            'portal_link' => $mainAppLink,
+                        'team_id' => $teamId,
+                        'cta_url' => $teamLink,
+                        'cta_label' => 'View the team portal',
+                        'source' => 'updates',
+                        'context' => array_merge($contextBase, [
                             'recipient_email' => $email,
-                        ],
+                        ]),
                     ];
                 }
-            } elseif (!empty($selectedLeaderIds)) {
-                $leaderPlaceholders = implode(',', array_fill(0, count($selectedLeaderIds), '?'));
+            }
 
-                $stmt = $pdo->prepare(
-                    'SELECT id, name, email
-                     FROM leaders
-                     WHERE id IN (' . $leaderPlaceholders . ')
-                       AND email IS NOT NULL
-                       AND email <> ""
-                     ORDER BY name ASC'
+            if (in_array('emergency', $selectedTypes, true)) {
+                $emergencyEmails = email_all_unique_valid_emails(
+                    email_all_decode_emergency_contact_emails($row['emergency_contacts_json'] ?? null)
                 );
 
-                $stmt->execute($selectedLeaderIds);
-
-                foreach ($stmt->fetchAll() as $leader) {
-                    $email = trim((string)$leader['email']);
-
-                    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                        continue;
-                    }
-
-                    $key = 'leader|' . strtolower($email);
+                foreach ($emergencyEmails as $email) {
+                    $key = 'emergency|' . strtolower($email) . '|person:' . (int)$row['id'];
 
                     $recipientMap[$key] = [
                         'email' => $email,
-                        'team_id' => null,
-                        'cta_url' => $mainAppLink,
-                        'cta_label' => 'Open the portal',
-                        'source' => 'leader',
-                        'context' => [
-                            'young_person_name' => '',
-                            'team_name' => '',
-                            'team_link' => '',
-                            'portal_link' => $mainAppLink,
+                        'team_id' => $teamId,
+                        'cta_url' => $teamLink,
+                        'cta_label' => 'View the team portal',
+                        'source' => 'emergency',
+                        'context' => array_merge($contextBase, [
                             'recipient_email' => $email,
-                        ],
+                        ]),
                     ];
                 }
             }
+        }
+    }
 
-            /**
-             * Always send a copy to the logged-in leader.
-             */
-            $loggedInLeaderEmail = trim((string)($user['email'] ?? ''));
+    /**
+     * Manual recipients.
+     */
+    $manualEmails = email_all_valid_emails_from_text(trim($post['manual_emails'] ?? ''));
 
-            if ($loggedInLeaderEmail !== '' && filter_var($loggedInLeaderEmail, FILTER_VALIDATE_EMAIL)) {
-                $key = 'sender_copy|' . strtolower($loggedInLeaderEmail);
+    foreach ($manualEmails as $email) {
+        $key = 'manual|' . strtolower($email);
 
-                $recipientMap[$key] = [
-                    'email' => $loggedInLeaderEmail,
-                    'team_id' => null,
-                    'cta_url' => $mainAppLink,
-                    'cta_label' => 'Open the portal',
-                    'source' => 'sender_copy',
-                    'context' => [
-                        'young_person_name' => '',
-                        'team_name' => '',
-                        'team_link' => '',
-                        'portal_link' => $mainAppLink,
-                        'recipient_email' => $loggedInLeaderEmail,
-                    ],
-                ];
+        $recipientMap[$key] = [
+            'email' => $email,
+            'team_id' => null,
+            'cta_url' => $mainAppLink,
+            'cta_label' => 'Open the portal',
+            'source' => 'manual',
+            'context' => [
+                'young_person_name' => '',
+                'team_name' => '',
+                'team_link' => '',
+                'portal_link' => $mainAppLink,
+                'recipient_email' => $email,
+            ],
+        ];
+    }
+
+    /**
+     * Leaders.
+     */
+    if ($includeLeaders) {
+        foreach ($leaders as $leader) {
+            $email = trim((string)$leader['email']);
+
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                continue;
             }
 
-            if (empty($recipientMap)) {
-                throw new RuntimeException('No valid recipient email addresses were found.');
+            $key = 'leader|' . strtolower($email);
+
+            $recipientMap[$key] = [
+                'email' => $email,
+                'team_id' => null,
+                'cta_url' => $mainAppLink,
+                'cta_label' => 'Open the portal',
+                'source' => 'leader',
+                'context' => [
+                    'young_person_name' => '',
+                    'team_name' => '',
+                    'team_link' => '',
+                    'portal_link' => $mainAppLink,
+                    'recipient_email' => $email,
+                ],
+            ];
+        }
+    } elseif (!empty($selectedLeaderIds)) {
+        $leaderPlaceholders = implode(',', array_fill(0, count($selectedLeaderIds), '?'));
+
+        $stmt = $pdo->prepare(
+            'SELECT id, name, email
+             FROM leaders
+             WHERE id IN (' . $leaderPlaceholders . ')
+               AND email IS NOT NULL
+               AND email <> ""
+             ORDER BY name ASC'
+        );
+
+        $stmt->execute($selectedLeaderIds);
+
+        foreach ($stmt->fetchAll() as $leader) {
+            $email = trim((string)$leader['email']);
+
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                continue;
             }
 
-            $pdo->beginTransaction();
+            $key = 'leader|' . strtolower($email);
 
-            $queuedCount = 0;
+            $recipientMap[$key] = [
+                'email' => $email,
+                'team_id' => null,
+                'cta_url' => $mainAppLink,
+                'cta_label' => 'Open the portal',
+                'source' => 'leader',
+                'context' => [
+                    'young_person_name' => '',
+                    'team_name' => '',
+                    'team_link' => '',
+                    'portal_link' => $mainAppLink,
+                    'recipient_email' => $email,
+                ],
+            ];
+        }
+    }
 
-            foreach ($recipientMap as $recipient) {
-                $content = email_all_build_content(
+    /**
+     * Always send a copy to logged-in leader.
+     */
+    $loggedInLeaderEmail = trim((string)($user['email'] ?? ''));
+
+    if ($loggedInLeaderEmail !== '' && filter_var($loggedInLeaderEmail, FILTER_VALIDATE_EMAIL)) {
+        $key = 'sender_copy|' . strtolower($loggedInLeaderEmail);
+
+        $recipientMap[$key] = [
+            'email' => $loggedInLeaderEmail,
+            'team_id' => null,
+            'cta_url' => $mainAppLink,
+            'cta_label' => 'Open the portal',
+            'source' => 'sender_copy',
+            'context' => [
+                'young_person_name' => '',
+                'team_name' => '',
+                'team_link' => '',
+                'portal_link' => $mainAppLink,
+                'recipient_email' => $loggedInLeaderEmail,
+            ],
+        ];
+    }
+
+    return $recipientMap;
+}
+
+/**
+ * Preview / queue actions.
+ */
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = $_POST['action'] ?? '';
+
+    if ($action === 'preview') {
+        $subject = trim($_POST['subject'] ?? '');
+        $messageHtml = email_all_clean_html($_POST['message_html'] ?? '');
+
+        if ($subject === '') {
+            $error = 'Email subject is required.';
+        } elseif ($messageHtml === '') {
+            $error = 'Email message is required.';
+        } else {
+            try {
+                $recipientMap = email_all_build_recipient_map($pdo, $teamsById, $leaders, $user, $_POST);
+
+                if (empty($recipientMap)) {
+                    throw new RuntimeException('No valid recipient email addresses were found.');
+                }
+
+                $firstRecipient = reset($recipientMap);
+
+                $sampleSubject = email_all_apply_placeholders($subject, $firstRecipient['context']);
+                $sampleContent = email_all_build_content(
                     $messageHtml,
-                    $recipient['cta_url'],
-                    $recipient['cta_label'],
-                    $recipient['context']
+                    $firstRecipient['cta_url'],
+                    $firstRecipient['cta_label'],
+                    $firstRecipient['context']
                 );
 
-                email_all_queue_email(
-                    $pdo,
-                    $recipient['email'],
-                    $subject,
-                    $content,
-                    $recipient['team_id']
-                );
+                $_SESSION['email_all_draft'] = [
+                    'subject' => $subject,
+                    'message_html' => $messageHtml,
+                    'recipients' => $recipientMap,
+                ];
 
-                $queuedCount++;
+                $previewCount = count($recipientMap);
+                $previewHtml = email_all_render_template_preview($sampleSubject, $sampleContent);
+                $showPreview = true;
+            } catch (Throwable $exception) {
+                $error = $exception->getMessage();
             }
+        }
+    }
 
-            $pdo->commit();
+    if ($action === 'queue') {
+        $draft = $_SESSION['email_all_draft'] ?? null;
 
-            $success = 'Email queued. '
-                . $queuedCount . ' email' . ($queuedCount === 1 ? '' : 's') . ' added to the queue.';
-        } catch (Throwable $exception) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
+        if (!$draft || empty($draft['recipients']) || empty($draft['subject']) || empty($draft['message_html'])) {
+            $error = 'The email preview has expired. Please build the email again.';
+        } else {
+            try {
+                $pdo->beginTransaction();
+
+                $queuedCount = 0;
+
+                foreach ($draft['recipients'] as $recipient) {
+                    $subject = email_all_apply_placeholders($draft['subject'], $recipient['context']);
+
+                    $content = email_all_build_content(
+                        $draft['message_html'],
+                        $recipient['cta_url'],
+                        $recipient['cta_label'],
+                        $recipient['context']
+                    );
+
+                    email_all_queue_email(
+                        $pdo,
+                        $recipient['email'],
+                        $subject,
+                        $content,
+                        $recipient['team_id']
+                    );
+
+                    $queuedCount++;
+                }
+
+                $pdo->commit();
+
+                unset($_SESSION['email_all_draft']);
+
+                $success = 'Email queued. '
+                    . $queuedCount . ' email' . ($queuedCount === 1 ? '' : 's') . ' added to the queue.';
+            } catch (Throwable $exception) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+
+                $error = 'Could not queue the email. ' . $exception->getMessage();
             }
-
-            $error = 'Could not queue the email. ' . $exception->getMessage();
         }
     }
 }
@@ -680,6 +802,34 @@ include __DIR__ . '/header.php';
         background: #eef7ff;
         padding: 1rem;
         margin-bottom: 1.5rem;
+    }
+
+    .step-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .step-pill {
+        border: 2px solid #d8d8d8;
+        background: #f3f2f1;
+        padding: 0.5rem 0.75rem;
+        font-weight: 900;
+    }
+
+    .step-pill.active {
+        background: #7413dc;
+        border-color: #7413dc;
+        color: #ffffff;
+    }
+
+    .step-section {
+        display: none;
+    }
+
+    .step-section.active {
+        display: block;
     }
 
     .preset-grid {
@@ -860,6 +1010,27 @@ include __DIR__ . '/header.php';
         margin-bottom: 1rem;
     }
 
+    .preview-frame {
+        border: 2px solid #d8d8d8;
+        background: #ffffff;
+        padding: 1rem;
+        max-height: 720px;
+        overflow: auto;
+    }
+
+    .preview-count {
+        font-size: 1.4rem;
+        font-weight: 900;
+        margin-bottom: 1rem;
+    }
+
+    .button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 1rem;
+    }
+
     .muted {
         color: #505a5f;
     }
@@ -894,302 +1065,368 @@ include __DIR__ . '/header.php';
         </a>
     </p>
 
-    <div class="tool-intro">
-        <h2>What this tool does</h2>
-        <p class="mb-0">
-            This queues an email for the selected people. Team recipients receive their team’s private update link.
-            Leaders and manual recipients receive the main portal link. A copy is always queued to you.
-        </p>
-    </div>
+    <?php if ($showPreview): ?>
+        <section class="email-panel">
+            <h2>Preview and confirm</h2>
 
-    <form method="post" id="emailAllForm" novalidate>
-        <input type="hidden" name="preset" id="selectedPreset" value="custom">
+            <p class="preview-count">
+                This will send to <?= (int)$previewCount ?> contact<?= $previewCount === 1 ? '' : 's' ?>.
+            </p>
 
-        <div class="email-layout">
-            <div>
-                <section class="email-panel">
-                    <h2>1. Choose a preset</h2>
-
-                    <div class="preset-grid">
-                        <label class="preset-card">
-                            <input type="radio" name="preset_choice" value="all_contacts_leaders">
-                            <span class="preset-title">Email all contacts and leaders</span>
-                            <span class="preset-text">
-                                Selects every team, update contacts, emergency contacts and all leaders.
-                            </span>
-                        </label>
-
-                        <label class="preset-card">
-                            <input type="radio" name="preset_choice" value="updates_only">
-                            <span class="preset-title">Email update contacts</span>
-                            <span class="preset-text">
-                                Selects every team and sends to parent/update email addresses only.
-                            </span>
-                        </label>
-
-                        <label class="preset-card">
-                            <input type="radio" name="preset_choice" value="emergency_only">
-                            <span class="preset-title">Email emergency contacts</span>
-                            <span class="preset-text">
-                                Selects every team and sends to emergency contact email addresses only.
-                            </span>
-                        </label>
-
-                        <label class="preset-card">
-                            <input type="radio" name="preset_choice" value="participants_only">
-                            <span class="preset-title">Email participants</span>
-                            <span class="preset-text">
-                                Selects every team and sends to participant contact email addresses only.
-                            </span>
-                        </label>
-
-                        <label class="preset-card">
-                            <input type="radio" name="preset_choice" value="leaders_only">
-                            <span class="preset-title">Email leaders only</span>
-                            <span class="preset-text">
-                                Sends to active leaders only. No team contacts are selected.
-                            </span>
-                        </label>
-
-                        <label class="preset-card">
-                            <input type="radio" name="preset_choice" value="custom" checked>
-                            <span class="preset-title">Custom selection</span>
-                            <span class="preset-text">
-                                Choose specific teams and recipient types below.
-                            </span>
-                        </label>
-                    </div>
-                </section>
-
-                <section class="email-panel">
-                    <h2>2. Teams and recipients</h2>
-
-                    <?php if (empty($teams)): ?>
-                        <div class="alert alert-warning">
-                            No teams have been created yet.
-                        </div>
-                    <?php else: ?>
-                        <div class="team-card-grid">
-                            <?php foreach ($teams as $team): ?>
-                                <?php
-                                $teamId = (int)$team['id'];
-                                $counts = $teamCounts[$teamId] ?? [
-                                    'people_count' => 0,
-                                    'participant_email_count' => 0,
-                                ];
-                                ?>
-
-                                <div class="team-card js-team-card">
-                                    <div class="team-card-header">
-                                        <input
-                                            class="js-team-checkbox"
-                                            type="checkbox"
-                                            id="team_<?= $teamId ?>"
-                                            name="team_ids[]"
-                                            value="<?= $teamId ?>"
-                                            <?= empty($team['parent_token']) ? 'disabled' : '' ?>
-                                        >
-
-                                        <label for="team_<?= $teamId ?>" class="team-card-title">
-                                            <?= e($team['name']) ?>
-
-                                            <small>
-                                                <?= (int)$counts['people_count'] ?> participant<?= (int)$counts['people_count'] === 1 ? '' : 's' ?>
-                                                ·
-                                                <?= (int)$counts['participant_email_count'] ?> participant email<?= (int)$counts['participant_email_count'] === 1 ? '' : 's' ?>
-
-                                                <?php if (empty($team['parent_token'])): ?>
-                                                    · no parent link configured
-                                                <?php endif; ?>
-                                            </small>
-                                        </label>
-                                    </div>
-
-                                    <div class="recipient-options">
-                                        <label class="recipient-option">
-                                            <input
-                                                class="js-recipient-type"
-                                                type="checkbox"
-                                                name="team_recipient_types[<?= $teamId ?>][]"
-                                                value="participants"
-                                                <?= empty($team['parent_token']) ? 'disabled' : '' ?>
-                                            >
-                                            <span>
-                                                Participants
-                                                <small>Uses participant contact email.</small>
-                                            </span>
-                                        </label>
-
-                                        <label class="recipient-option">
-                                            <input
-                                                class="js-recipient-type"
-                                                type="checkbox"
-                                                name="team_recipient_types[<?= $teamId ?>][]"
-                                                value="updates"
-                                                <?= empty($team['parent_token']) ? 'disabled' : '' ?>
-                                            >
-                                            <span>
-                                                Update contacts
-                                                <small>Uses the parent/update email list.</small>
-                                            </span>
-                                        </label>
-
-                                        <label class="recipient-option">
-                                            <input
-                                                class="js-recipient-type"
-                                                type="checkbox"
-                                                name="team_recipient_types[<?= $teamId ?>][]"
-                                                value="emergency"
-                                                <?= empty($team['parent_token']) ? 'disabled' : '' ?>
-                                            >
-                                            <span>
-                                                Emergency contacts
-                                                <small>Uses emergency contact email addresses.</small>
-                                            </span>
-                                        </label>
-                                    </div>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                    <?php endif; ?>
-                </section>
-
-                <section class="email-panel">
-                    <h2>3. Message</h2>
-
-                    <div class="form-group">
-                        <label for="subject">Subject</label>
-                        <input
-                            class="form-control"
-                            id="subject"
-                            name="subject"
-                            required
-                        >
-                    </div>
-
-                    <div class="form-group">
-                        <label for="emailEditor">Message</label>
-
-                        <div class="editor-wrap">
-                            <div id="emailEditor"></div>
-                        </div>
-
-                        <textarea id="message_html" name="message_html" hidden></textarea>
-                    </div>
-
-                    <div class="warning-box">
-                        <strong>This will queue the email for sending.</strong>
-                        <p class="mb-0">
-                            A copy will also be sent to you.
-                        </p>
-                    </div>
-
-                    <button class="btn btn-primary" type="submit">
-                        Queue email
-                    </button>
-                </section>
+            <div class="warning-box">
+                <strong>Check the preview carefully.</strong>
+                <p class="mb-0">
+                    The preview uses the first recipient as an example. Personal placeholders will be replaced separately for each queued email.
+                </p>
             </div>
 
-            <aside>
-                <section class="email-panel">
-                    <h2>Leaders</h2>
+            <div class="preview-frame">
+                <?= $previewHtml ?>
+            </div>
 
-                    <div class="form-check mb-3">
-                        <input
-                            class="form-check-input"
-                            type="checkbox"
-                            id="include_leaders"
-                            name="include_leaders"
-                            value="1"
-                        >
-                        <label class="form-check-label" for="include_leaders">
-                            Email all active leaders
-                        </label>
-                    </div>
+            <div class="button-row">
+                <form method="post">
+                    <input type="hidden" name="action" value="queue">
+                    <button class="btn btn-primary btn-lg">
+                        Send to <?= (int)$previewCount ?> contact<?= $previewCount === 1 ? '' : 's' ?>
+                    </button>
+                </form>
 
-                    <?php if (empty($leaders)): ?>
-                        <p class="muted mb-0">
-                            No leader email addresses found.
-                        </p>
-                    <?php else: ?>
-                        <div class="leader-list">
-                            <?php foreach ($leaders as $leader): ?>
-                                <?php
-                                $leaderEmail = trim((string)$leader['email']);
-                                $isCurrentUser = strtolower($leaderEmail) === strtolower((string)($user['email'] ?? ''));
-                                ?>
+                <a class="btn btn-outline-secondary btn-lg" href="<?= e(url('email_all.php')) ?>">
+                    Start again
+                </a>
+            </div>
+        </section>
+    <?php else: ?>
 
-                                <div class="leader-row">
-                                    <label>
-                                        <input
-                                            class="js-leader-checkbox"
-                                            type="checkbox"
-                                            name="leader_ids[]"
-                                            value="<?= (int)$leader['id'] ?>"
-                                            <?= $isCurrentUser ? 'checked disabled' : '' ?>
-                                        >
-
-                                        <?php if ($isCurrentUser): ?>
-                                            <input type="hidden" name="leader_ids[]" value="<?= (int)$leader['id'] ?>">
-                                        <?php endif; ?>
-
-                                        <span>
-                                            <?= e($leader['name']) ?>
-                                            <small>
-                                                <?= e($leaderEmail) ?>
-                                                <?= $isCurrentUser ? ' · copy always sent' : '' ?>
-                                            </small>
-                                        </span>
-                                    </label>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                    <?php endif; ?>
-                </section>
-
-                <section class="email-panel">
-                    <h2>Manual recipients</h2>
-
-                    <p class="muted">
-                        Manual recipients receive the main portal link, not a team link.
-                    </p>
-
-                    <div class="form-group">
-                        <label for="manual_emails">Email addresses</label>
-                        <textarea
-                            class="form-control"
-                            id="manual_emails"
-                            name="manual_emails"
-                            rows="5"
-                            placeholder="Optional. Enter email addresses separated by commas or new lines."
-                        ></textarea>
-                    </div>
-                </section>
-
-                <section class="email-panel">
-                    <h2>Placeholders</h2>
-
-                    <p class="muted">
-                        Add these to the subject or message. They are replaced for each queued email.
-                    </p>
-
-                    <ul class="placeholder-list">
-                        <li><code>{{young_person_name}}</code> participant name</li>
-                        <li><code>{{team_name}}</code> team name</li>
-                        <li><code>{{team_link}}</code> private team link</li>
-                        <li><code>{{portal_link}}</code> main portal link</li>
-                        <li><code>{{recipient_email}}</code> recipient email</li>
-                    </ul>
-
-                    <hr>
-
-                    <p class="muted mb-0">
-                        Leader and manual emails may not have a young person or team name, so those placeholders will be blank.
-                    </p>
-                </section>
-            </aside>
+        <div class="tool-intro">
+            <h2>What this tool does</h2>
+            <p class="mb-0">
+                This queues an email for selected recipients. Team recipients receive their team’s private update link.
+                Leaders and manual recipients receive the main portal link. A copy is always queued to you.
+            </p>
         </div>
-    </form>
+
+        <form method="post" id="emailAllForm" novalidate>
+            <input type="hidden" name="action" value="preview">
+            <input type="hidden" name="preset" id="selectedPreset" value="custom">
+
+            <div class="step-bar">
+                <span class="step-pill active" data-step-pill="1">1. Preset</span>
+                <span class="step-pill" data-step-pill="2">2. Recipients</span>
+                <span class="step-pill" data-step-pill="3">3. Message</span>
+            </div>
+
+            <section class="email-panel step-section active" data-step="1">
+                <h2>1. Choose who this is for</h2>
+
+                <div class="preset-grid">
+                    <label class="preset-card">
+                        <input type="radio" name="preset_choice" value="all_contacts_participants_leaders">
+                        <span class="preset-title">Email all contacts, participants and leaders</span>
+                        <span class="preset-text">
+                            Sends to participants, update contacts, emergency contacts and leaders.
+                        </span>
+                    </label>
+
+                    <label class="preset-card">
+                        <input type="radio" name="preset_choice" value="emergency_only">
+                        <span class="preset-title">Email emergency contacts</span>
+                        <span class="preset-text">
+                            Sends to emergency contact email addresses for all teams.
+                        </span>
+                    </label>
+
+                    <label class="preset-card">
+                        <input type="radio" name="preset_choice" value="participants_only">
+                        <span class="preset-title">Email participants</span>
+                        <span class="preset-text">
+                            Sends to participant contact email addresses for all teams.
+                        </span>
+                    </label>
+
+                    <label class="preset-card">
+                        <input type="radio" name="preset_choice" value="leaders_only">
+                        <span class="preset-title">Email leaders only</span>
+                        <span class="preset-text">
+                            Sends to active leaders only.
+                        </span>
+                    </label>
+
+                    <label class="preset-card">
+                        <input type="radio" name="preset_choice" value="custom" checked>
+                        <span class="preset-title">Custom selection</span>
+                        <span class="preset-text">
+                            Choose specific teams and recipient types.
+                        </span>
+                    </label>
+                </div>
+
+                <div class="button-row">
+                    <button type="button" class="btn btn-primary" id="presetNextButton">
+                        Continue
+                    </button>
+                </div>
+            </section>
+
+            <section class="step-section" data-step="2">
+                <div class="email-layout">
+                    <div>
+                        <section class="email-panel">
+                            <h2>2. Custom teams and recipients</h2>
+
+                            <?php if (empty($teams)): ?>
+                                <div class="alert alert-warning">
+                                    No teams have been created yet.
+                                </div>
+                            <?php else: ?>
+                                <div class="team-card-grid">
+                                    <?php foreach ($teams as $team): ?>
+                                        <?php
+                                        $teamId = (int)$team['id'];
+                                        $counts = $teamCounts[$teamId] ?? [
+                                            'people_count' => 0,
+                                            'participant_email_count' => 0,
+                                        ];
+                                        ?>
+
+                                        <div class="team-card js-team-card">
+                                            <div class="team-card-header">
+                                                <input
+                                                    class="js-team-checkbox"
+                                                    type="checkbox"
+                                                    id="team_<?= $teamId ?>"
+                                                    name="team_ids[]"
+                                                    value="<?= $teamId ?>"
+                                                    <?= empty($team['parent_token']) ? 'disabled' : '' ?>
+                                                >
+
+                                                <label for="team_<?= $teamId ?>" class="team-card-title">
+                                                    <?= e($team['name']) ?>
+
+                                                    <small>
+                                                        <?= (int)$counts['people_count'] ?> participant<?= (int)$counts['people_count'] === 1 ? '' : 's' ?>
+                                                        ·
+                                                        <?= (int)$counts['participant_email_count'] ?> participant email<?= (int)$counts['participant_email_count'] === 1 ? '' : 's' ?>
+
+                                                        <?php if (empty($team['parent_token'])): ?>
+                                                            · no parent link configured
+                                                        <?php endif; ?>
+                                                    </small>
+                                                </label>
+                                            </div>
+
+                                            <div class="recipient-options">
+                                                <label class="recipient-option">
+                                                    <input
+                                                        class="js-recipient-type"
+                                                        type="checkbox"
+                                                        name="team_recipient_types[<?= $teamId ?>][]"
+                                                        value="participants"
+                                                        <?= empty($team['parent_token']) ? 'disabled' : '' ?>
+                                                    >
+                                                    <span>
+                                                        Participants
+                                                        <small>Uses participant contact email.</small>
+                                                    </span>
+                                                </label>
+
+                                                <label class="recipient-option">
+                                                    <input
+                                                        class="js-recipient-type"
+                                                        type="checkbox"
+                                                        name="team_recipient_types[<?= $teamId ?>][]"
+                                                        value="updates"
+                                                        <?= empty($team['parent_token']) ? 'disabled' : '' ?>
+                                                    >
+                                                    <span>
+                                                        Update contacts
+                                                        <small>Uses the parent/update email list.</small>
+                                                    </span>
+                                                </label>
+
+                                                <label class="recipient-option">
+                                                    <input
+                                                        class="js-recipient-type"
+                                                        type="checkbox"
+                                                        name="team_recipient_types[<?= $teamId ?>][]"
+                                                        value="emergency"
+                                                        <?= empty($team['parent_token']) ? 'disabled' : '' ?>
+                                                    >
+                                                    <span>
+                                                        Emergency contacts
+                                                        <small>Uses emergency contact email addresses.</small>
+                                                    </span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php endif; ?>
+                        </section>
+                    </div>
+
+                    <aside>
+                        <section class="email-panel">
+                            <h2>Leaders</h2>
+
+                            <div class="form-check mb-3">
+                                <input
+                                    class="form-check-input"
+                                    type="checkbox"
+                                    id="include_leaders"
+                                    name="include_leaders"
+                                    value="1"
+                                >
+                                <label class="form-check-label" for="include_leaders">
+                                    Email all active leaders
+                                </label>
+                            </div>
+
+                            <?php if (empty($leaders)): ?>
+                                <p class="muted mb-0">
+                                    No leader email addresses found.
+                                </p>
+                            <?php else: ?>
+                                <div class="leader-list">
+                                    <?php foreach ($leaders as $leader): ?>
+                                        <?php
+                                        $leaderEmail = trim((string)$leader['email']);
+                                        $isCurrentUser = strtolower($leaderEmail) === strtolower((string)($user['email'] ?? ''));
+                                        ?>
+
+                                        <div class="leader-row">
+                                            <label>
+                                                <input
+                                                    class="js-leader-checkbox"
+                                                    type="checkbox"
+                                                    name="leader_ids[]"
+                                                    value="<?= (int)$leader['id'] ?>"
+                                                    <?= $isCurrentUser ? 'checked disabled' : '' ?>
+                                                >
+
+                                                <?php if ($isCurrentUser): ?>
+                                                    <input type="hidden" name="leader_ids[]" value="<?= (int)$leader['id'] ?>">
+                                                <?php endif; ?>
+
+                                                <span>
+                                                    <?= e($leader['name']) ?>
+                                                    <small>
+                                                        <?= e($leaderEmail) ?>
+                                                        <?= $isCurrentUser ? ' · copy always sent' : '' ?>
+                                                    </small>
+                                                </span>
+                                            </label>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php endif; ?>
+                        </section>
+
+                        <section class="email-panel">
+                            <h2>Manual recipients</h2>
+
+                            <p class="muted">
+                                Manual recipients receive the main portal link, not a team link.
+                            </p>
+
+                            <div class="form-group">
+                                <label for="manual_emails">Email addresses</label>
+                                <textarea
+                                    class="form-control"
+                                    id="manual_emails"
+                                    name="manual_emails"
+                                    rows="5"
+                                    placeholder="Optional. Enter email addresses separated by commas or new lines."
+                                ></textarea>
+                            </div>
+                        </section>
+                    </aside>
+                </div>
+
+                <div class="button-row">
+                    <button type="button" class="btn btn-outline-secondary" data-back-step="1">
+                        Back
+                    </button>
+
+                    <button type="button" class="btn btn-primary" data-next-step="3">
+                        Continue to message
+                    </button>
+                </div>
+            </section>
+
+            <section class="step-section" data-step="3">
+                <div class="email-layout">
+                    <div>
+                        <section class="email-panel">
+                            <h2>3. Write the message</h2>
+
+                            <div class="form-group">
+                                <label for="subject">Subject</label>
+                                <input
+                                    class="form-control"
+                                    id="subject"
+                                    name="subject"
+                                    required
+                                >
+                            </div>
+
+                            <div class="form-group">
+                                <label for="emailEditor">Message</label>
+
+                                <div class="editor-wrap">
+                                    <div id="emailEditor"></div>
+                                </div>
+
+                                <textarea id="message_html" name="message_html" hidden></textarea>
+                            </div>
+
+                            <div class="warning-box">
+                                <strong>Next step:</strong>
+                                <p class="mb-0">
+                                    You will see a preview of the email template before anything is added to the queue.
+                                </p>
+                            </div>
+
+                            <div class="button-row">
+                                <button type="button" class="btn btn-outline-secondary" id="messageBackButton">
+                                    Back
+                                </button>
+
+                                <button class="btn btn-primary" type="submit">
+                                    Preview email
+                                </button>
+                            </div>
+                        </section>
+                    </div>
+
+                    <aside>
+                        <section class="email-panel">
+                            <h2>Placeholders</h2>
+
+                            <p class="muted">
+                                Add these to the subject or message. They are replaced for each queued email.
+                            </p>
+
+                            <ul class="placeholder-list">
+                                <li><code>{{young_person_name}}</code> participant name</li>
+                                <li><code>{{team_name}}</code> team name</li>
+                                <li><code>{{team_link}}</code> private team link</li>
+                                <li><code>{{portal_link}}</code> main portal link</li>
+                                <li><code>{{recipient_email}}</code> recipient email</li>
+                            </ul>
+
+                            <hr>
+
+                            <p class="muted mb-0">
+                                Leader and manual emails may not have a young person or team name, so those placeholders will be blank.
+                            </p>
+                        </section>
+                    </aside>
+                </div>
+            </section>
+        </form>
+    <?php endif; ?>
 
 </main>
 
@@ -1218,6 +1455,18 @@ include __DIR__ . '/header.php';
         var selectedPreset = document.getElementById('selectedPreset');
         var includeLeaders = document.getElementById('include_leaders');
 
+        function setStep(step) {
+            document.querySelectorAll('.step-section').forEach(function (section) {
+                section.classList.toggle('active', section.dataset.step === String(step));
+            });
+
+            document.querySelectorAll('.step-pill').forEach(function (pill) {
+                pill.classList.toggle('active', pill.dataset.stepPill === String(step));
+            });
+
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
         function allTeamCheckboxes() {
             return Array.prototype.slice.call(document.querySelectorAll('.js-team-checkbox:not(:disabled)'));
         }
@@ -1234,6 +1483,10 @@ include __DIR__ . '/header.php';
             allRecipientCheckboxes().forEach(function (box) {
                 box.checked = false;
             });
+
+            if (includeLeaders) {
+                includeLeaders.checked = false;
+            }
 
             updateTeamCards();
         }
@@ -1279,26 +1532,17 @@ include __DIR__ . '/header.php';
 
         function applyPreset(preset) {
             selectedPreset.value = preset;
-
             clearTeamSelections();
 
-            if (includeLeaders) {
-                includeLeaders.checked = false;
-            }
-
-            if (preset === 'all_contacts_leaders') {
+            if (preset === 'all_contacts_participants_leaders') {
                 selectAllTeams();
+                setRecipientType('participants', true);
                 setRecipientType('updates', true);
                 setRecipientType('emergency', true);
 
                 if (includeLeaders) {
                     includeLeaders.checked = true;
                 }
-            }
-
-            if (preset === 'updates_only') {
-                selectAllTeams();
-                setRecipientType('updates', true);
             }
 
             if (preset === 'emergency_only') {
@@ -1320,12 +1564,64 @@ include __DIR__ . '/header.php';
             updateTeamCards();
         }
 
+        function customSelectionHasRecipients() {
+            var checkedTeams = document.querySelectorAll('.js-team-checkbox:checked');
+            var checkedRecipients = document.querySelectorAll('.js-recipient-type:checked');
+            var manualEmails = document.getElementById('manual_emails');
+            var leadersChecked = includeLeaders && includeLeaders.checked;
+
+            return checkedTeams.length > 0 || checkedRecipients.length > 0 || leadersChecked || (manualEmails && manualEmails.value.trim() !== '');
+        }
+
         document.querySelectorAll('input[name="preset_choice"]').forEach(function (radio) {
             radio.addEventListener('change', function () {
                 if (radio.checked) {
-                    applyPreset(radio.value);
+                    selectedPreset.value = radio.value;
+
+                    if (radio.value !== 'custom') {
+                        applyPreset(radio.value);
+                    } else {
+                        clearTeamSelections();
+                    }
                 }
             });
+        });
+
+        document.getElementById('presetNextButton').addEventListener('click', function () {
+            var preset = selectedPreset.value || 'custom';
+
+            if (preset === 'custom') {
+                setStep(2);
+                return;
+            }
+
+            applyPreset(preset);
+            setStep(3);
+        });
+
+        document.querySelectorAll('[data-next-step]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                if (selectedPreset.value === 'custom' && !customSelectionHasRecipients()) {
+                    alert('Please select at least one team, leader group, or manual recipient.');
+                    return;
+                }
+
+                setStep(button.dataset.nextStep);
+            });
+        });
+
+        document.querySelectorAll('[data-back-step]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                setStep(button.dataset.backStep);
+            });
+        });
+
+        document.getElementById('messageBackButton').addEventListener('click', function () {
+            if (selectedPreset.value === 'custom') {
+                setStep(2);
+            } else {
+                setStep(1);
+            }
         });
 
         document.addEventListener('change', function (event) {
@@ -1335,15 +1631,9 @@ include __DIR__ . '/header.php';
                 event.target.classList.contains('js-leader-checkbox') ||
                 event.target.id === 'include_leaders'
             ) {
-                selectedPreset.value = 'custom';
-
-                var customRadio = document.querySelector('input[name="preset_choice"][value="custom"]');
-
-                if (customRadio) {
-                    customRadio.checked = true;
+                if (selectedPreset.value === 'custom') {
+                    updateTeamCards();
                 }
-
-                updateTeamCards();
             }
         });
 
@@ -1371,25 +1661,10 @@ include __DIR__ . '/header.php';
                 return;
             }
 
-            var checkedTeams = document.querySelectorAll('.js-team-checkbox:checked');
-            var checkedRecipients = document.querySelectorAll('.js-recipient-type:checked');
-            var manualEmails = document.getElementById('manual_emails');
-            var leadersChecked = includeLeaders && includeLeaders.checked;
-
-            if (
-                checkedTeams.length === 0 &&
-                checkedRecipients.length === 0 &&
-                !leadersChecked &&
-                (!manualEmails || manualEmails.value.trim() === '')
-            ) {
+            if (selectedPreset.value === 'custom' && !customSelectionHasRecipients()) {
                 event.preventDefault();
-                alert('Please choose a preset, select recipients, or add manual recipients.');
-                return;
-            }
-
-            if (checkedTeams.length > 0 && checkedRecipients.length === 0 && !leadersChecked) {
-                event.preventDefault();
-                alert('Please choose at least one recipient type for the selected teams.');
+                alert('Please choose recipients before previewing the email.');
+                setStep(2);
                 return;
             }
         });
