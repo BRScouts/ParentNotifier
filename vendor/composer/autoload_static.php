@@ -21,6 +21,7 @@ class ComposerStaticInit70087ffa336f39bcfc8ee8ecf1d8eab8
         array (
             'Psr\\Http\\Message\\' => 17,
             'Psr\\Http\\Client\\' => 16,
+            'PHPMailer\\PHPMailer\\' => 20,
         ),
         'L' =>
         array (
@@ -51,6 +52,10 @@ class ComposerStaticInit70087ffa336f39bcfc8ee8ecf1d8eab8
         'Psr\\Http\\Client\\' =>
         array (
             0 => __DIR__ . '/..' . '/psr/http-client/src',
+        ),
+        'PHPMailer\\PHPMailer\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/phpmailer/phpmailer/src',
         ),
         'League\\OAuth2\\Client\\' =>
         array (
