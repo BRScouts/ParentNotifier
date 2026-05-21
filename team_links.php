@@ -1387,7 +1387,7 @@ include __DIR__ . '/header.php';
             >
                 <input type="hidden" name="action" value="regenerate_explorer_token">
                 <input type="hidden" name="team_id" value="<?= (int)$currentTeam['id'] ?>">
-                <button class="btn btn-outline-danger btn-sm">Regenerate Explorer check-in link</button>
+                <button class="btn btn-outline-danger btn-sm">Regenerate Explorer check-in link - be careful</button>
             </form>
         </section>
 
