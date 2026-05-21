@@ -938,6 +938,9 @@ include __DIR__ . '/header.php';
             <a class="btn btn-outline-primary" href="<?= e(url('leaders.php')) ?>">
                 Manage leaders
             </a>
+            <a class="btn btn-primary" href="<?= e(url('email_all.php')) ?>">
+                Email to all
+            </a>
         </div>
     <?php endif; ?>
 

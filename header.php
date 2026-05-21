@@ -255,6 +255,11 @@ function header_nav_active(string $filename): string
                                 Locations
                             </a>
                         </li>
+                        <li class="nav-item<?= header_nav_active('email_all.php') ?>">
+    <a class="nav-link" href="<?= e(url('email_all.php')) ?>">
+        Email
+    </a>
+</li>
 
                         <li class="nav-item<?= header_nav_active('people.php') ?>">
                             <a class="nav-link" href="<?= e(url('people.php')) ?>">
