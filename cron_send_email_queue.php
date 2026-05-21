@@ -228,7 +228,7 @@ function make_placeholder_replacements(string $subject, string $content): array
     $ctaUrl = $firstUrl !== '' ? $firstUrl : (string)mail_constant('BASE_URL', '');
     $ctaText = $firstUrl !== '' ? 'View update' : 'Open portal';
 
-    $introText = 'There is a new update from the Explorer Belt Live portal.';
+    $introText = 'There is a new update from the Explorer Belt portal.';
 
     return [
         '{{APP_NAME}}' => htmlspecialchars($appName, ENT_QUOTES, 'UTF-8'),
@@ -266,7 +266,7 @@ function build_email_template(string $subject, string $content): string
 
 function build_plain_text_email(string $subject, string $content): string
 {
-    $appName = (string)mail_constant('APP_NAME', 'Explorer Belt Live');
+    $appName = (string)mail_constant('APP_NAME', 'Explorer Belt Portal');
 
     return $subject . "\n\n" .
         content_to_plain_text($content) .
