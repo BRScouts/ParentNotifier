@@ -922,12 +922,12 @@ $leaderBio = $leaderBioColumn ? (string)($currentLeader[$leaderBioColumn] ?? '')
 
                             <div class="form-group col-md-6">
                                 <label for="profile_email">Email address</label>
-                                <input
+                                <input 
                                     class="form-control"
                                     id="profile_email"
                                     name="profile_email"
                                     type="email"
-                                    value="<?= e($leaderEmail) ?>"
+                                    value="<?= e($leaderEmail) ?>" disabled
                                 >
                             </div>
                         </div>
