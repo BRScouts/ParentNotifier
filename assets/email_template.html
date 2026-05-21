@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>{{EMAIL_TITLE}}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+
+<body style="margin:0;padding:0;background:#f3f2f1;color:#1d1d1d;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.5;">
+
+    <!-- Preheader text -->
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
+        {{PREHEADER_TEXT}}
+    </div>
+
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#f3f2f1;margin:0;padding:0;">
+        <tr>
+            <td align="center" style="padding:24px 12px;">
+
+                <table role="presentation" width="640" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:640px;background:#ffffff;border-collapse:collapse;">
+
+                    <!-- Header -->
+                    <tr>
+                        <td style="background:#7413dc;padding:20px 24px;color:#ffffff;">
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                                <tr>
+                                    <td align="left" style="vertical-align:middle;">
+                                        <img
+                                            src="{{LOGO_URL}}"
+                                            alt="{{APP_NAME}}"
+                                            width="180"
+                                            style="display:block;width:180px;max-width:180px;height:auto;border:0;background:transparent;"
+                                        >
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- Main title -->
+                    <tr>
+                        <td style="padding:28px 24px 12px 24px;">
+                            <h1 style="margin:0;color:#1d1d1d;font-size:28px;line-height:1.2;font-weight:900;">
+                                {{EMAIL_HEADING}}
+                            </h1>
+                        </td>
+                    </tr>
+
+                    <!-- Intro / alert block -->
+                    <tr>
+                        <td style="padding:0 24px 16px 24px;">
+                            <div style="border-left:8px solid #1d70b8;background:#eef7ff;padding:14px 16px;">
+                                <p style="margin:0;color:#1d1d1d;font-size:16px;line-height:1.5;">
+                                    {{INTRO_TEXT}}
+                                </p>
+                            </div>
+                        </td>
+                    </tr>
+
+                    <!-- Content -->
+                    <tr>
+                        <td style="padding:8px 24px 8px 24px;">
+                            <div style="color:#1d1d1d;font-size:16px;line-height:1.6;">
+                                {{CONTENT_HTML}}
+                            </div>
+                        </td>
+                    </tr>
+
+                    <!-- Optional call to action -->
+                    <tr>
+                        <td style="padding:20px 24px 24px 24px;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                                <tr>
+                                    <td style="background:#1d70b8;border:2px solid #1d70b8;">
+                                        <a
+                                            href="{{CTA_URL}}"
+                                            style="display:inline-block;padding:12px 18px;color:#ffffff;text-decoration:none;font-weight:900;font-size:16px;"
+                                        >
+                                            {{CTA_TEXT}}
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- Reassurance note -->
+                    <tr>
+                        <td style="padding:0 24px 24px 24px;">
+                            <div style="border-left:8px solid #ffdd00;background:#fff7bf;padding:14px 16px;">
+                                <p style="margin:0 0 8px 0;color:#1d1d1d;font-weight:900;">
+                                    No news is not bad news.
+                                </p>
+                                <p style="margin:0;color:#1d1d1d;font-size:15px;line-height:1.5;">
+                                    Updates and check-ins are added manually by leaders. They may not appear straight away,
+                                    and may be delayed until all groups are confirmed settled for the night.
+                                </p>
+                            </div>
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background:#4d0b95;padding:18px 24px;color:#ffffff;">
+                            <p style="margin:0 0 8px 0;color:#ffffff;font-size:14px;line-height:1.5;">
+                                <strong>{{APP_NAME}}</strong><br>
+                                Explorer Belt trip portal
+                            </p>
+
+                            <p style="margin:0 0 8px 0;color:#ffffff;font-size:13px;line-height:1.5;">
+                                You are receiving this email because your address is listed for trip updates.
+                            </p>
+
+                            <p style="margin:0;color:#ffffff;font-size:13px;line-height:1.5;">
+                                Provided by
+                                <a href="https://ckenterprises.co.uk" style="color:#ffffff;font-weight:900;text-decoration:underline;">
+                                    CK Enterprises UK
+                                </a>
+                            </p>
+                        </td>
+                    </tr>
+
+                </table>
+
+            </td>
+        </tr>
+    </table>
+
+</body>
+</html>
