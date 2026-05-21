@@ -394,10 +394,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $team) {
         }
 
         $locationName = explorer_clean_text($_POST['location_name'] ?? '', 255);
-        $accommodationType = explorer_clean_text($_POST['accommodation_type'] ?? '', 100);
-        $accommodationNotes = explorer_clean_text($_POST['accommodation_notes'] ?? '', 3000);
-        $submittedBy = explorer_clean_text($_POST['submitted_by'] ?? '', 150);
-        $welfareNotes = explorer_clean_text($_POST['welfare_notes'] ?? '', 5000);
+$accommodationType = explorer_clean_text($_POST['accommodation_type'] ?? '', 100);
+$accommodationNotes = explorer_clean_text($_POST['accommodation_notes'] ?? '', 3000);
+$submittedBy = explorer_clean_text($_POST['submitted_by'] ?? '', 150);
+$welfareNotes = explorer_clean_text($_POST['welfare_notes'] ?? '', 5000);
+
+if ($locationName === '') {
+    throw new RuntimeException('Please enter your nearest place or location name.');
+}
+
+if ($accommodationType === '') {
+    throw new RuntimeException('Please tell us where you are staying tonight.');
+}
+
+if ($submittedBy === '') {
+    throw new RuntimeException('Please enter the name of the person completing this form.');
+}
 
         if ($accommodationType === '') {
             throw new RuntimeException('Please tell us where you are staying tonight.');
@@ -760,12 +772,13 @@ if ($submittedSuccess) {
 
                 <div class="form-group">
                     <label for="location_name">Nearest place / location name</label>
-                    <input required
-                        class="form-control"
-                        id="location_name"
-                        name="location_name"
-                        placeholder="Example: Helsinki centre, campsite name, village name"
-                    >
+                    <input 
+    class="form-control"
+    id="location_name"
+    name="location_name"
+    placeholder="Example: Helsinki centre, campsite name, village name"
+    required
+>
                 </div>
 
                 <div class="form-check">
@@ -813,12 +826,12 @@ if ($submittedSuccess) {
                 <div class="form-group">
                     <label for="submitted_by">Submitted by</label>
                     <input
-                        class="form-control"
-                        id="submitted_by"
-                        name="submitted_by"
-                        placeholder="Name of person completing this form"
-                    >
-                </div>
+    class="form-control"
+    id="submitted_by"
+    name="submitted_by"
+    placeholder="Name of person completing this form"
+    required
+>
             </section>
 
             <section class="checkin-panel">

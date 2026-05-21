@@ -318,7 +318,7 @@ function build_parent_checkin_body(
         $body .= "\n\nThey are staying: " . $accommodationType . '.';
     }
 
-    $body .= "\n\nLocations are manually reviewed by leaders before being shared. No news is not bad news.";
+    $body .= "\n\n";
 
     return $body;
 }
