@@ -513,10 +513,10 @@ function queue_onboarding_confirmation_email(
 
     $content =
         '<p>Thank you. The Explorer Belt onboarding details for <strong>' . e($person['name'] ?? 'your participant') . '</strong> have been submitted.</p>' .
-        '<p>Your private team page is:</p>' .
+        '<p>Your private teams update page is:</p>' .
         '<p><a href="' . e($privateTeamLink) . '">' . e($privateTeamLink) . '</a></p>' .
-        '<p>Please save this link. This is where updates, photos and evening check-in locations will be provided during the event for ' . e($teamName) . '.</p>' .
-        '<p>We will send include this link with every update you recieve via these emails so do not worry if you loose it. You will also receive an email when a new photo, update or evening location has been confirmed in the system.</p>' .
+        '<p>This is where updates, photos and evening check-in locations will be provided during the event for ' . e($teamName) . '.</p>' .
+        '<p>We will include the above link with every update you recieve via these emails so do not worry if you loose it. You will also receive an email when a new photo, update or evening location has been confirmed in the system.</p>' .
         '<p><strong>No news is not bad news.</strong> Due to signal, time to process updates, and the need to ensure all teams have checked in, updates may not appear immediately.</p>' .
         '<p>During the event, please contact the Home Contact shown on the contact page rather than contacting the team in Finland directly.</p>' .
         '<hr>' .

@@ -764,10 +764,14 @@ $leaderBio = $leaderBioColumn ? (string)($currentLeader[$leaderBioColumn] ?? '')
                                 Email
                             </a>
                         </li>
-
-                        <li class="nav-item<?= header_nav_active('people.php') ?>">
+                        <li class="nav-item<?= header_nav_active('people.php') ?>">     
                             <a class="nav-link" href="<?= e(url('people.php')) ?>">
                                 People
+                            </a>
+                        </li>
+                        <li class="nav-item<?= header_nav_active('analytics.php') ?>">
+                            <a class="nav-link" href="<?= e(url('analytics.php')) ?>">
+                                Analytics
                             </a>
                         </li>
                     <?php endif; ?>

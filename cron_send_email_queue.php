@@ -55,14 +55,46 @@ if (!flock($lockHandle, LOCK_EX | LOCK_NB)) {
  * Helpers
  */
 
+function cron_now_for_database(): string
+{
+    $timezone = defined('APP_TIMEZONE') ? APP_TIMEZONE : 'Europe/Helsinki';
+
+    return (new DateTime('now', new DateTimeZone($timezone)))->format('Y-m-d H:i:s');
+}
+
 function mail_constant(string $name, $default = null)
 {
     return defined($name) ? constant($name) : $default;
 }
 
+function app_base_url(): string
+{
+    $baseUrl = (string)mail_constant('BASE_URL', 'https://exbelt2026.irvalscouts.org.uk');
+
+    return rtrim($baseUrl, '/');
+}
+
 function email_template_path(): string
 {
     return __DIR__ . '/assets/email_template.html';
+}
+
+function table_exists(PDO $pdo, string $table): bool
+{
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT COUNT(*)
+             FROM information_schema.tables
+             WHERE table_schema = DATABASE()
+               AND table_name = ?'
+        );
+
+        $stmt->execute([$table]);
+
+        return (int)$stmt->fetchColumn() > 0;
+    } catch (Throwable $exception) {
+        return false;
+    }
 }
 
 function safe_email_html(string $html): string
@@ -201,12 +233,160 @@ function extract_first_url(string $content): string
     return '';
 }
 
+function append_tracking_to_url(string $url, string $trackingToken): string
+{
+    $url = trim($url);
+
+    if ($url === '' || $trackingToken === '') {
+        return $url;
+    }
+
+    if (!preg_match('/^https?:\/\//i', $url)) {
+        return $url;
+    }
+
+    /**
+     * Do not duplicate if already tracked.
+     */
+    if (preg_match('/[?&]trk=/i', $url)) {
+        return $url;
+    }
+
+    $fragment = '';
+    $base = $url;
+
+    if (strpos($url, '#') !== false) {
+        [$base, $fragmentPart] = explode('#', $url, 2);
+        $fragment = '#' . $fragmentPart;
+    }
+
+    $separator = strpos($base, '?') === false ? '?' : '&';
+
+    return $base . $separator . 'trk=' . rawurlencode($trackingToken) . $fragment;
+}
+
+function track_html_links(string $html, string $trackingToken): string
+{
+    if ($trackingToken === '') {
+        return $html;
+    }
+
+    return preg_replace_callback('/href\s*=\s*([\'"])(.*?)\1/i', function ($matches) use ($trackingToken) {
+        $quote = $matches[1];
+        $href = html_entity_decode(trim((string)$matches[2]), ENT_QUOTES, 'UTF-8');
+
+        $trackedHref = append_tracking_to_url($href, $trackingToken);
+
+        return 'href=' . $quote . htmlspecialchars($trackedHref, ENT_QUOTES, 'UTF-8') . $quote;
+    }, $html);
+}
+
+function track_plain_text_links(string $text, string $trackingToken): string
+{
+    if ($trackingToken === '') {
+        return $text;
+    }
+
+    return preg_replace_callback('/https?:\/\/[^\s<>"\']+/i', function ($matches) use ($trackingToken) {
+        $url = rtrim($matches[0], '.,)');
+
+        return append_tracking_to_url($url, $trackingToken);
+    }, $text);
+}
+
+function add_open_tracking_pixel(string $html, string $openToken): string
+{
+    if ($openToken === '') {
+        return $html;
+    }
+
+    $pixelUrl = app_base_url()
+        . '/email_open.php?ot='
+        . rawurlencode($openToken)
+        . '&r='
+        . rawurlencode(bin2hex(random_bytes(4)));
+
+    $pixel = '<img src="' . htmlspecialchars($pixelUrl, ENT_QUOTES, 'UTF-8') . '" width="1" height="1" alt="" style="display:none;width:1px;height:1px;border:0;line-height:0;font-size:0;" />';
+
+    if (stripos($html, '</body>') !== false) {
+        return preg_replace('/<\/body>/i', $pixel . '</body>', $html, 1);
+    }
+
+    return $html . $pixel;
+}
+
+function ensure_email_tracking_token(PDO $pdo, array $email): array
+{
+    if (!table_exists($pdo, 'email_tracking_tokens')) {
+        return [
+            'id' => null,
+            'token' => '',
+            'open_token' => '',
+        ];
+    }
+
+    $emailQueueId = (int)$email['id'];
+
+    $stmt = $pdo->prepare(
+        'SELECT *
+         FROM email_tracking_tokens
+         WHERE email_queue_id = ?
+         LIMIT 1'
+    );
+
+    $stmt->execute([$emailQueueId]);
+    $existing = $stmt->fetch();
+
+    if ($existing) {
+        return [
+            'id' => (int)$existing['id'],
+            'token' => (string)$existing['token'],
+            'open_token' => (string)$existing['open_token'],
+        ];
+    }
+
+    $token = bin2hex(random_bytes(32));
+    $openToken = bin2hex(random_bytes(32));
+    $now = cron_now_for_database();
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO email_tracking_tokens
+            (
+                email_queue_id,
+                token,
+                open_token,
+                recipient_email,
+                related_team_id,
+                related_post_id,
+                created_at
+            )
+         VALUES
+            (?, ?, ?, ?, ?, ?, ?)'
+    );
+
+    $stmt->execute([
+        $emailQueueId,
+        $token,
+        $openToken,
+        $email['to_email'] ?? null,
+        $email['related_team_id'] ?? null,
+        $email['related_post_id'] ?? null,
+        $now,
+    ]);
+
+    return [
+        'id' => (int)$pdo->lastInsertId(),
+        'token' => $token,
+        'open_token' => $openToken,
+    ];
+}
+
 function make_placeholder_replacements(string $subject, string $content): array
 {
     $appName = (string)mail_constant('APP_NAME', 'Explorer Belt Live');
     $logoUrl = (string)mail_constant(
         'MAIL_LOGO_URL',
-        'https://exbelt2026.irvalscouts.org.uk/assets/logo.png'
+        app_base_url() . '/assets/logo.png'
     );
 
     $ckUrl = (string)mail_constant('MAIL_CK_URL', 'https://ckenterprises.co.uk');
@@ -225,7 +405,7 @@ function make_placeholder_replacements(string $subject, string $content): array
         $preheader = $subject;
     }
 
-    $ctaUrl = $firstUrl !== '' ? $firstUrl : (string)mail_constant('BASE_URL', '');
+    $ctaUrl = $firstUrl !== '' ? $firstUrl : app_base_url();
     $ctaText = $firstUrl !== '' ? 'View update' : 'Open portal';
 
     $introText = 'There is a new update from the Explorer Belt portal.';
@@ -322,14 +502,21 @@ function make_mailer(): PHPMailer
 
 function reset_stale_processing_emails(PDO $pdo): void
 {
-    $pdo->exec(
+    $now = cron_now_for_database();
+
+    $stmt = $pdo->prepare(
         'UPDATE email_queue
          SET status = "pending",
              last_error = "Reset from stale processing state",
-             updated_at = NOW()
+             updated_at = ?
          WHERE status = "processing"
-           AND updated_at < DATE_SUB(NOW(), INTERVAL 30 MINUTE)'
+           AND updated_at < DATE_SUB(?, INTERVAL 30 MINUTE)'
     );
+
+    $stmt->execute([
+        $now,
+        $now,
+    ]);
 }
 
 function fetch_pending_emails(PDO $pdo): array
@@ -353,46 +540,60 @@ function fetch_pending_emails(PDO $pdo): array
 
 function mark_email_processing(PDO $pdo, int $id): bool
 {
+    $now = cron_now_for_database();
+
     $stmt = $pdo->prepare(
         'UPDATE email_queue
          SET status = "processing",
              attempts = attempts + 1,
-             updated_at = NOW()
+             updated_at = ?
          WHERE id = ?
            AND status = "pending"'
     );
 
-    $stmt->execute([$id]);
+    $stmt->execute([
+        $now,
+        $id,
+    ]);
 
     return $stmt->rowCount() === 1;
 }
 
 function mark_email_sent(PDO $pdo, int $id): void
 {
+    $now = cron_now_for_database();
+
     $stmt = $pdo->prepare(
         'UPDATE email_queue
          SET status = "sent",
-             sent_at = NOW(),
+             sent_at = ?,
              last_error = NULL,
-             updated_at = NOW()
+             updated_at = ?
          WHERE id = ?'
     );
 
-    $stmt->execute([$id]);
+    $stmt->execute([
+        $now,
+        $now,
+        $id,
+    ]);
 }
 
 function mark_email_failed(PDO $pdo, int $id, string $error): void
 {
+    $now = cron_now_for_database();
+
     $stmt = $pdo->prepare(
         'UPDATE email_queue
          SET status = IF(attempts >= 5, "failed", "pending"),
              last_error = ?,
-             updated_at = NOW()
+             updated_at = ?
          WHERE id = ?'
     );
 
     $stmt->execute([
         mb_substr($error, 0, 2000),
+        $now,
         $id,
     ]);
 }
@@ -435,6 +636,10 @@ try {
                 throw new RuntimeException('Email content is empty.');
             }
 
+            $tracking = ensure_email_tracking_token($pdo, $email);
+            $trackingToken = (string)($tracking['token'] ?? '');
+            $openToken = (string)($tracking['open_token'] ?? '');
+
             $mail = make_mailer();
 
             $mail->addAddress($toEmail);
@@ -442,11 +647,19 @@ try {
             $mail->isHTML(true);
 
             /**
-             * This now loads /assets/email_template.html
-             * and replaces placeholders before sending.
+             * Build the email from /assets/email_template.html,
+             * append tracking to every http(s) link,
+             * then add the open tracking pixel.
              */
-            $mail->Body = build_email_template($subject, $content);
-            $mail->AltBody = build_plain_text_email($subject, $content);
+            $htmlBody = build_email_template($subject, $content);
+            $htmlBody = track_html_links($htmlBody, $trackingToken);
+            $htmlBody = add_open_tracking_pixel($htmlBody, $openToken);
+
+            $plainBody = build_plain_text_email($subject, $content);
+            $plainBody = track_plain_text_links($plainBody, $trackingToken);
+
+            $mail->Body = $htmlBody;
+            $mail->AltBody = $plainBody;
 
             $mail->send();
 
@@ -460,7 +673,7 @@ try {
 
     cron_log(sprintf(
         '[%s] Email queue processed. Sent: %d. Failed/requeued: %d. Skipped: %d. Checked: %d.',
-        date('Y-m-d H:i:s'),
+        cron_now_for_database(),
         $sent,
         $failed,
         $skipped,
