@@ -305,7 +305,8 @@ function build_update_email_content(
         $bodyText . "\n\n" .
         "View the update here:\n" .
         $postUrl . "\n\n" .
-        "This is an automated notification from the Explorer Belt Live portal.";
+        "This is an notification that a new update has been posted on the Explorer Belt parent portal. " .
+        "If you have any questions about the update, please contact the home contact or organisers who will be able to assist you. Details for them can be found in the link under Contacts on the portal.";
 }
 
 /**

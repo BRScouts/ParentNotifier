@@ -71,8 +71,8 @@ function build_location_email_content(
         $feedBody . "\n\n" .
         "View the update here:\n" .
         $parentUrl . "\n\n" .
-        "Please note: locations are manually entered by leaders and may be approximate. " .
-        "A delay in entering a location does not necessarily indicate an issue.";
+        "Please note: that the exact location of participants on the map is not directly shown but Leaders have confirmed their location for the evening. " .
+        "For more information, please click the link below to see the update.";
 }
 
 function queue_email(
