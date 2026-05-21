@@ -733,3 +733,129 @@ footer a {
     box-shadow: none !important;
     padding: 0 !important;
 }
+
+/* Enhanced footer */
+
+.enhanced-footer {
+    background: #4d0b95;
+    color: #ffffff;
+    margin-top: 3rem;
+    padding: 1.4rem 0 1rem;
+    border-top: 6px solid #7413dc;
+}
+
+.footer-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
+    gap: 1.25rem;
+    align-items: center;
+    padding-bottom: 1.1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.22);
+}
+
+.footer-brand-block {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+}
+
+.footer-brand-mark {
+    width: 52px;
+    height: 52px;
+    min-width: 52px;
+    border: 2px solid #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+    font-size: 1.1rem;
+    line-height: 1;
+}
+
+.footer-title {
+    color: #ffffff;
+    font-size: 1.25rem;
+    line-height: 1.15;
+    margin: 0;
+    font-weight: 900;
+}
+
+.footer-subtitle {
+    color: rgba(255, 255, 255, 0.86);
+    margin: 0.2rem 0 0;
+    font-size: 0.95rem;
+}
+
+.footer-message {
+    border-left: 6px solid #ffdd00;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 0.85rem 1rem;
+    color: #ffffff;
+}
+
+.footer-message strong {
+    display: block;
+    color: #ffffff;
+    margin-bottom: 0.2rem;
+    font-weight: 900;
+}
+
+.footer-message span {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.footer-lower {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-top: 0.85rem;
+    font-size: 0.9rem;
+}
+
+.footer-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    color: rgba(255, 255, 255, 0.82);
+}
+
+.footer-dot {
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.footer-credit {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: rgba(255, 255, 255, 0.86);
+    white-space: nowrap;
+}
+
+.footer-credit a {
+    color: #ffffff;
+    font-weight: 900;
+    text-decoration: underline;
+}
+
+.footer-credit a:hover,
+.footer-credit a:focus {
+    color: #ffffff;
+    text-decoration-thickness: 2px;
+}
+
+@media (max-width: 800px) {
+    .footer-main {
+        grid-template-columns: 1fr;
+    }
+
+    .footer-lower {
+        display: block;
+    }
+
+    .footer-credit {
+        margin-top: 0.55rem;
+        white-space: normal;
+    }
+}

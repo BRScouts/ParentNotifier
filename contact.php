@@ -261,24 +261,7 @@ include __DIR__ . '/header.php';
                 </p>
             </section>
 
-            <section class="contact-panel urgent-panel">
-                <h2>Emergency guidance</h2>
-                <p>
-                    This section is placeholder information. Replace it with your agreed emergency procedure before the trip.
-                </p>
-
-                <ol class="contact-steps">
-                    <li>
-                        In a life-threatening emergency, contact the relevant emergency services first.
-                    </li>
-                    <li>
-                        Contact the current home contact using the details provided by the trip team.
-                    </li>
-                    <li>
-                        If you cannot reach the home contact, use the backup contact process agreed before departure.
-                    </li>
-                </ol>
-            </section>
+           
 
             <section class="contact-panel">
                 <h2>General enquiries</h2>
@@ -286,17 +269,12 @@ include __DIR__ . '/header.php';
                 <div class="placeholder-box">
                     <p>
                         <strong>Placeholder group contact:</strong>
-                        contact@example.org
+                        rammyexplorers@gmail.com
                     </p>
 
-                    <p>
-                        <strong>Placeholder phone:</strong>
-                        01234 567890
-                    </p>
+                    
 
-                    <p class="mb-0">
-                        Replace these details with the correct group, district, or trip contact information.
-                    </p>
+                    
                 </div>
             </section>
 
