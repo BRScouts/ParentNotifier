@@ -9,12 +9,8 @@ $pdo = db();
 
 const PEOPLE_UPLOAD_DIR = '/home/brscouts/exbelt2026.irvalscouts.org.uk/assets/people/';
 const PEOPLE_UPLOAD_PUBLIC_PATH = 'assets/people/';
-
-/**
- * This is the address parents are told to look out for.
- * Your cron/template sender should use the same From address.
- */
 const ONBOARDING_CONFIRMATION_FROM_EMAIL = 'noreply@app.irvalscouts.org.uk';
+const DATA_PROTECTION_EMAIL = 'rammyexplorers@gmail.com';
 
 $error = '';
 $success = '';
@@ -22,12 +18,53 @@ $matchedPerson = null;
 $submittedPerson = null;
 $submittedEmails = [];
 $confirmationQueued = false;
+$isLocked = false;
+$lockedPerson = null;
 
 $verifiedPersonId = (int)($_SESSION['parent_onboarding_person_id'] ?? 0);
 
 /**
- * Basic helpers
+ * General helpers
  */
+
+function column_exists(PDO $pdo, string $table, string $column): bool
+{
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT COUNT(*)
+             FROM information_schema.columns
+             WHERE table_schema = DATABASE()
+               AND table_name = ?
+               AND column_name = ?'
+        );
+
+        $stmt->execute([$table, $column]);
+
+        return (int)$stmt->fetchColumn() > 0;
+    } catch (Throwable $exception) {
+        return false;
+    }
+}
+
+function completion_column(PDO $pdo): ?string
+{
+    if (column_exists($pdo, 'young_people', 'parent_form_completed_at')) {
+        return 'parent_form_completed_at';
+    }
+
+    if (column_exists($pdo, 'young_people', 'parent_onboarding_completed_at')) {
+        return 'parent_onboarding_completed_at';
+    }
+
+    return null;
+}
+
+function person_has_completed_onboarding(PDO $pdo, array $person): bool
+{
+    $column = completion_column($pdo);
+
+    return $column !== null && !empty($person[$column]);
+}
 
 function json_items(?string $json): array
 {
@@ -45,6 +82,10 @@ function json_list_from_array(array $items): ?string
     $clean = [];
 
     foreach ($items as $item) {
+        if (is_array($item)) {
+            $item = implode(' | ', array_filter(array_map('trim', array_map('strval', $item))));
+        }
+
         $item = trim((string)$item);
 
         if ($item !== '') {
@@ -137,6 +178,43 @@ function valid_unique_emails(array $emails): array
     return array_values($clean);
 }
 
+function media_url(?string $path): string
+{
+    $path = trim((string)$path);
+
+    if ($path === '') {
+        return '';
+    }
+
+    if (preg_match('/^https?:\/\//i', $path)) {
+        return $path;
+    }
+
+    return url($path);
+}
+
+function initials(string $name): string
+{
+    $parts = preg_split('/\s+/', trim($name));
+    $letters = '';
+
+    foreach ($parts as $part) {
+        if ($part !== '') {
+            $letters .= strtoupper(substr($part, 0, 1));
+        }
+
+        if (strlen($letters) >= 2) {
+            break;
+        }
+    }
+
+    return $letters !== '' ? $letters : '?';
+}
+
+/**
+ * Form extraction helpers
+ */
+
 function emergency_contacts_from_post(): array
 {
     $names = $_POST['contact_name'] ?? [];
@@ -169,13 +247,6 @@ function emergency_contacts_from_post(): array
     }
 
     return $contacts;
-}
-
-function emergency_contacts_json_from_post(): ?string
-{
-    $contacts = emergency_contacts_from_post();
-
-    return empty($contacts) ? null : json_encode($contacts, JSON_UNESCAPED_UNICODE);
 }
 
 function emergency_contact_emails(array $contacts): array
@@ -213,16 +284,97 @@ function merged_parent_update_emails(array $contacts, array $additionalEmails): 
     ));
 }
 
+function medications_from_post(): array
+{
+    $names = $_POST['medication_name'] ?? [];
+    $types = $_POST['medication_type'] ?? [];
+    $dosages = $_POST['medication_dosage'] ?? [];
+    $frequencies = $_POST['medication_frequency'] ?? [];
+    $frequencyOther = $_POST['medication_frequency_other'] ?? [];
+    $notes = $_POST['medication_notes'] ?? [];
+
+    $items = [];
+
+    foreach ($names as $index => $name) {
+        $name = trim((string)$name);
+        $type = trim((string)($types[$index] ?? ''));
+        $dosage = trim((string)($dosages[$index] ?? ''));
+        $frequency = trim((string)($frequencies[$index] ?? ''));
+        $other = trim((string)($frequencyOther[$index] ?? ''));
+        $note = trim((string)($notes[$index] ?? ''));
+
+        if ($name === '' && $type === '' && $dosage === '' && $frequency === '' && $other === '' && $note === '') {
+            continue;
+        }
+
+        if ($frequency === 'Other' && $other !== '') {
+            $frequency = 'Other - ' . $other;
+        }
+
+        $items[] = trim(
+            'Medication: ' . $name .
+            ' | Type: ' . ($type !== '' ? $type : 'Not specified') .
+            ' | Dosage: ' . ($dosage !== '' ? $dosage : 'Not specified') .
+            ' | Frequency: ' . ($frequency !== '' ? $frequency : 'Not specified') .
+            ($note !== '' ? ' | Notes: ' . $note : '')
+        );
+    }
+
+    return $items;
+}
+
+function allergies_from_post(): array
+{
+    $types = $_POST['allergy_type'] ?? [];
+    $details = $_POST['allergy_detail'] ?? [];
+    $severities = $_POST['allergy_severity'] ?? [];
+    $notes = $_POST['allergy_notes'] ?? [];
+
+    $items = [];
+
+    foreach ($details as $index => $detail) {
+        $type = trim((string)($types[$index] ?? ''));
+        $detail = trim((string)$detail);
+        $severity = trim((string)($severities[$index] ?? ''));
+        $note = trim((string)($notes[$index] ?? ''));
+
+        if ($type === '' && $detail === '' && $severity === '' && $note === '') {
+            continue;
+        }
+
+        $items[] = trim(
+            'Type: ' . ($type !== '' ? $type : 'Not specified') .
+            ' | Detail: ' . ($detail !== '' ? $detail : 'Not specified') .
+            ' | Severity: ' . ($severity !== '' ? $severity : 'Not specified') .
+            ($note !== '' ? ' | Notes: ' . $note : '')
+        );
+    }
+
+    return $items;
+}
+
 /**
  * Data helpers
  */
 
 function fetch_person(PDO $pdo, int $personId): ?array
 {
+    $completionSelect = '';
+
+    if (column_exists($pdo, 'young_people', 'parent_form_completed_at')) {
+        $completionSelect .= ', yp.parent_form_completed_at';
+    }
+
+    if (column_exists($pdo, 'young_people', 'parent_onboarding_completed_at')) {
+        $completionSelect .= ', yp.parent_onboarding_completed_at';
+    }
+
     $stmt = $pdo->prepare(
         'SELECT 
             yp.*,
-            t.name AS team_name
+            t.name AS team_name,
+            t.parent_token
+            ' . $completionSelect . '
          FROM young_people yp
          LEFT JOIN teams t ON t.id = yp.team_id
          WHERE yp.id = ?
@@ -242,7 +394,8 @@ function find_person_by_last_name_and_dob(PDO $pdo, string $lastName, string $do
     $stmt = $pdo->prepare(
         'SELECT 
             yp.*,
-            t.name AS team_name
+            t.name AS team_name,
+            t.parent_token
          FROM young_people yp
          LEFT JOIN teams t ON t.id = yp.team_id
          WHERE yp.dob = ?
@@ -265,7 +418,16 @@ function find_person_by_last_name_and_dob(PDO $pdo, string $lastName, string $do
         return null;
     }
 
-    return $matches[0];
+    return fetch_person($pdo, (int)$matches[0]['id']);
+}
+
+function team_parent_link(array $person): string
+{
+    if (empty($person['parent_token'])) {
+        return url('dashboard.php');
+    }
+
+    return url('dashboard.php?token=' . $person['parent_token']);
 }
 
 /**
@@ -335,7 +497,7 @@ function handle_parent_profile_upload(string $fieldName): string
 }
 
 /**
- * Confirmation email queue
+ * Email queue
  */
 
 function queue_onboarding_confirmation_email(
@@ -344,21 +506,29 @@ function queue_onboarding_confirmation_email(
     array $person,
     array $allUpdateEmails
 ): void {
-    $subject = 'Explorer Belt details submitted';
+    $teamName = $person['team_name'] ?? 'your participant’s team';
+    $privateTeamLink = team_parent_link($person);
 
-    $teamName = $person['team_name'] ?? 'your team';
+    $subject = 'Explorer Belt onboarding completed';
 
     $content =
-        "Thank you. The Explorer Belt onboarding details for " . ($person['name'] ?? 'your participant') . " have been submitted.\n\n" .
-        "What happens next:\n" .
-        "- This email contains a unique link to your participant’s team page.\n" .
-        "- That link will let you see updates, photos and manually entered check-ins for " . $teamName . ".\n" .
-        "- Daily Evening Check-ins are manually added by leaders and may not appear straight away and you will be notified.\n" .
-        "- No news is not bad news. Updates may be delayed until all groups are confirmed settled for the night.\n\n" .
-        "Emails currently listed for trip updates:\n" .
-        implode("\n", $allUpdateEmails) . "\n\n" .
-        "Please look out for and consider adding to your safe senders list emails from " . ONBOARDING_CONFIRMATION_FROM_EMAIL . ". " .
-        "If you do not receive this confirmation within the next hour, please check your junk/spam folder or contact the trip team.Please also consider adding the above email to your safe senders list.";
+        '<p>Thank you. The Explorer Belt onboarding details for <strong>' . e($person['name'] ?? 'your participant') . '</strong> have been submitted.</p>' .
+        '<p>Your private team page is:</p>' .
+        '<p><a href="' . e($privateTeamLink) . '">' . e($privateTeamLink) . '</a></p>' .
+        '<p>Please save this link. This is where updates, photos and evening check-in locations will be provided during the event for ' . e($teamName) . '.</p>' .
+        '<p>You will also receive an email when a new photo, update or evening location has been confirmed.</p>' .
+        '<p><strong>No news is not bad news.</strong> Due to signal, time to process updates, and the need to ensure all teams have checked in, updates may not appear immediately.</p>' .
+        '<p>During the event, please contact the Home Contact shown on the contact page rather than contacting the team in Finland directly.</p>' .
+        '<hr>' .
+        '<p><strong>Email addresses listed for updates:</strong></p>' .
+        '<ul>';
+
+    foreach ($allUpdateEmails as $email) {
+        $content .= '<li>' . e($email) . '</li>';
+    }
+
+    $content .= '</ul>' .
+        '<p>Please look out for emails from <strong>' . e(ONBOARDING_CONFIRMATION_FROM_EMAIL) . '</strong>. If you do not receive this confirmation within the next hour, please check your junk/spam folder or contact the trip team.</p>';
 
     $stmt = $pdo->prepare(
         'INSERT INTO email_queue
@@ -385,7 +555,7 @@ function queue_onboarding_confirmation_emails(PDO $pdo, array $person, array $em
             $queuedAny = true;
         } catch (Throwable $exception) {
             /**
-             * Do not block the parent submission if email_queue is temporarily unavailable.
+             * Do not block the form if the email queue is temporarily unavailable.
              */
         }
     }
@@ -436,7 +606,7 @@ function insert_parent_audit_log(
         ]);
     } catch (Throwable $exception) {
         /**
-         * Do not block the parent if person_logs does not exist yet.
+         * Do not block the form if person_logs is unavailable.
          */
     }
 }
@@ -455,20 +625,34 @@ function validate_parent_form(): array
         $errors[] = 'You can add a maximum of 5 emergency contacts.';
     }
 
+    if (empty($contacts)) {
+        $errors[] = 'Please provide at least one emergency contact.';
+    }
+
+    foreach ($contacts as $contact) {
+        $name = trim((string)($contact['name'] ?? ''));
+        $phone = trim((string)($contact['phone'] ?? ''));
+        $email = trim((string)($contact['email'] ?? ''));
+
+        if ($name === '') {
+            $errors[] = 'Each emergency contact must have a name.';
+        }
+
+        if ($phone === '' && $email === '') {
+            $errors[] = 'Each emergency contact must have at least a phone number or email address.';
+        }
+
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $errors[] = 'One of the emergency contact email addresses is not valid.';
+        }
+    }
+
     $additionalEmails = $_POST['parent_emails'] ?? [];
 
     if (is_array($additionalEmails) && count(array_filter($additionalEmails, static function ($value) {
         return trim((string)$value) !== '';
     })) > 5) {
         $errors[] = 'You can add a maximum of 5 additional update email addresses.';
-    }
-
-    foreach ($contacts as $contact) {
-        $email = trim((string)($contact['email'] ?? ''));
-
-        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $errors[] = 'One of the emergency contact email addresses is not valid.';
-        }
     }
 
     foreach ((array)$additionalEmails as $email) {
@@ -479,15 +663,35 @@ function validate_parent_form(): array
         }
     }
 
-    return $errors;
+    $participantEmail = trim($_POST['participant_email'] ?? '');
+
+    if ($participantEmail !== '' && !filter_var($participantEmail, FILTER_VALIDATE_EMAIL)) {
+        $errors[] = 'The participant contact email address is not valid.';
+    }
+
+    if (empty($_POST['privacy_acknowledgement'])) {
+        $errors[] = 'Please confirm that you have read the privacy notice.';
+    }
+
+    return array_values(array_unique($errors));
 }
 
 /**
- * Demo helpers
+ * Leader preview
  */
 
 function fetch_demo_leaders(PDO $pdo): array
 {
+    $bioSelect = 'NULL AS bio';
+
+    if (column_exists($pdo, 'leaders', 'bio')) {
+        $bioSelect = 'l.bio AS bio';
+    } elseif (column_exists($pdo, 'leaders', 'blurb')) {
+        $bioSelect = 'l.blurb AS bio';
+    } elseif (column_exists($pdo, 'leaders', 'profile')) {
+        $bioSelect = 'l.profile AS bio';
+    }
+
     try {
         $hasSchedule = false;
 
@@ -502,14 +706,18 @@ function fetch_demo_leaders(PDO $pdo): array
 
         if ($hasSchedule) {
             $stmt = $pdo->query(
-                'SELECT DISTINCT l.id, l.name, l.photo_url
+                'SELECT DISTINCT
+                    l.id,
+                    l.name,
+                    l.photo_url,
+                    ' . $bioSelect . '
                  FROM leaders l
                  INNER JOIN leader_schedules ls ON ls.leader_id = l.id
                  WHERE (l.is_active = 1 OR l.is_active IS NULL)
-                   AND ls.schedule_type = "in_country"
                    AND (
-                        ls.schedule_end IS NULL
-                        OR ls.schedule_end >= NOW()
+                        ls.schedule_type = "in_country"
+                        OR ls.schedule_type = "home_contact"
+                        OR ls.schedule_type IS NULL
                    )
                  ORDER BY l.name ASC'
             );
@@ -524,31 +732,20 @@ function fetch_demo_leaders(PDO $pdo): array
 
     try {
         $stmt = $pdo->query(
-            'SELECT id, name, photo_url
-             FROM leaders
-             WHERE is_active = 1
-             ORDER BY name ASC'
+            'SELECT
+                l.id,
+                l.name,
+                l.photo_url,
+                ' . $bioSelect . '
+             FROM leaders l
+             WHERE l.is_active = 1
+             ORDER BY l.name ASC'
         );
 
         return $stmt->fetchAll();
     } catch (Throwable $exception) {
         return [];
     }
-}
-
-function media_url(?string $path): string
-{
-    $path = trim((string)$path);
-
-    if ($path === '') {
-        return '';
-    }
-
-    if (preg_match('/^https?:\/\//i', $path)) {
-        return $path;
-    }
-
-    return url($path);
 }
 
 /**
@@ -576,6 +773,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'looku
 
         if (!$person) {
             $error = 'We could not match those details. Please check the spelling and date of birth, or contact the trip team.';
+        } elseif (person_has_completed_onboarding($pdo, $person)) {
+            $isLocked = true;
+            $lockedPerson = $person;
+            unset($_SESSION['parent_onboarding_person_id']);
         } else {
             $_SESSION['parent_onboarding_person_id'] = (int)$person['id'];
             redirect('parent_onboarding.php?step=form');
@@ -584,13 +785,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'looku
 }
 
 /**
- * Load matched person from session before rendering or saving.
+ * Load matched person from session.
  */
 
 if ($verifiedPersonId > 0) {
     $matchedPerson = fetch_person($pdo, $verifiedPersonId);
 
     if (!$matchedPerson) {
+        unset($_SESSION['parent_onboarding_person_id']);
+        $verifiedPersonId = 0;
+        $matchedPerson = null;
+    } elseif (person_has_completed_onboarding($pdo, $matchedPerson)) {
+        $isLocked = true;
+        $lockedPerson = $matchedPerson;
         unset($_SESSION['parent_onboarding_person_id']);
         $verifiedPersonId = 0;
         $matchedPerson = null;
@@ -608,6 +815,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
         $error = 'Your session has expired. Please start again.';
         unset($_SESSION['parent_onboarding_person_id']);
         $matchedPerson = null;
+    } elseif (person_has_completed_onboarding($pdo, $matchedPerson)) {
+        $isLocked = true;
+        $lockedPerson = $matchedPerson;
+        $error = 'This onboarding form has already been completed.';
+        unset($_SESSION['parent_onboarding_person_id']);
+        $matchedPerson = null;
     } else {
         $formErrors = validate_parent_form();
 
@@ -621,63 +834,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
                 $additionalEmails = additional_update_emails_from_post();
                 $mergedParentEmails = merged_parent_update_emails($contactsArray, $additionalEmails);
 
-                $phonesJson = null;
-                $medicationsJson = json_list_from_array($_POST['medications'] ?? []);
-                $allergiesJson = json_list_from_array($_POST['allergies'] ?? []);
+                $medicationsJson = json_list_from_array(medications_from_post());
+                $allergiesJson = json_list_from_array(allergies_from_post());
+
                 $additionalInformation = trim($_POST['additional_information'] ?? '');
+                $participantEmail = trim($_POST['participant_email'] ?? '');
+                $participantPhone = trim($_POST['participant_phone'] ?? '');
+                $homeAddress = trim($_POST['home_address'] ?? '');
+                $gender = trim($_POST['gender'] ?? '');
 
                 $photoPath = handle_parent_profile_upload('profile_image');
                 $photoUpdated = true;
 
                 $pdo->beginTransaction();
 
-                try {
-                    $stmt = $pdo->prepare(
-                        'UPDATE young_people
-                         SET photo_url = ?,
-                             emergency_contacts_json = ?,
-                             parent_emails_json = ?,
-                             phones_json = ?,
-                             medications_json = ?,
-                             allergies_json = ?,
-                             parent_onboarding_completed_at = NOW()
-                         WHERE id = ?'
-                    );
+                $completionColumn = completion_column($pdo);
+                $completionSql = $completionColumn ? ', ' . $completionColumn . ' = NOW()' : '';
 
-                    $stmt->execute([
-                        $photoPath,
-                        $contactsJson,
-                        json_list_from_array($mergedParentEmails),
-                        $phonesJson,
-                        $medicationsJson,
-                        $allergiesJson,
-                        $personId,
-                    ]);
-                } catch (Throwable $exception) {
-                    /**
-                     * Fallback if parent_onboarding_completed_at has not been added.
-                     */
-                    $stmt = $pdo->prepare(
-                        'UPDATE young_people
-                         SET photo_url = ?,
-                             emergency_contacts_json = ?,
-                             parent_emails_json = ?,
-                             phones_json = ?,
-                             medications_json = ?,
-                             allergies_json = ?
-                         WHERE id = ?'
-                    );
+                $stmt = $pdo->prepare(
+                    'UPDATE young_people
+                     SET participant_email = ?,
+                         participant_phone = ?,
+                         home_address = ?,
+                         gender = ?,
+                         photo_url = ?,
+                         emergency_contacts_json = ?,
+                         parent_emails_json = ?,
+                         medications_json = ?,
+                         allergies_json = ?
+                         ' . $completionSql . '
+                     WHERE id = ?'
+                );
 
-                    $stmt->execute([
-                        $photoPath,
-                        $contactsJson,
-                        json_list_from_array($mergedParentEmails),
-                        $phonesJson,
-                        $medicationsJson,
-                        $allergiesJson,
-                        $personId,
-                    ]);
-                }
+                $stmt->execute([
+                    $participantEmail !== '' ? $participantEmail : null,
+                    $participantPhone !== '' ? $participantPhone : null,
+                    $homeAddress !== '' ? $homeAddress : null,
+                    $gender !== '' ? $gender : null,
+                    $photoPath,
+                    $contactsJson,
+                    json_list_from_array($mergedParentEmails),
+                    $medicationsJson,
+                    $allergiesJson,
+                    $personId,
+                ]);
 
                 insert_parent_audit_log(
                     $pdo,
@@ -719,7 +919,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
 
 $contacts = [];
 $parentEmails = [];
-$phones = [];
 $medications = [];
 $allergies = [];
 
@@ -748,12 +947,12 @@ if ($matchedPerson) {
     }
 
     $parentEmails = ensure_rows(array_slice($additionalOnlyEmails, 0, 5), 1, '');
-    $phones = [];
     $medications = ensure_rows(json_items($matchedPerson['medications_json'] ?? null), 1, '');
     $allergies = ensure_rows(json_items($matchedPerson['allergies_json'] ?? null), 1, '');
 }
 
 $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
+$privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
 ?>
 <!doctype html>
 <html lang="en">
@@ -788,75 +987,10 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
             padding: 1.5rem;
             margin-bottom: 1.5rem;
         }
-        
-        .demo-feed-card {
-    border: 2px solid #d8d8d8;
-    background: #ffffff;
-    margin-bottom: 1rem;
-}
-
-.demo-feed-card-header {
-    padding: 1rem 1rem 0.75rem;
-    border-bottom: 1px solid #d8d8d8;
-}
-
-.demo-feed-card-header h3 {
-    margin: 0;
-    font-size: 1.25rem;
-    font-weight: 900;
-}
-
-.demo-feed-card-body {
-    padding: 1rem;
-}
-
-.demo-meta {
-    color: #505a5f;
-    font-size: 0.95rem;
-    margin: 0.35rem 0 0;
-}
-
-.demo-meta span {
-    padding: 0 0.35rem;
-}
-
-.demo-badge-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-    margin-top: 0.75rem;
-}
-
-.demo-badge {
-    display: inline-block;
-    border: 2px solid #1d1d1d;
-    background: #f3f2f1;
-    padding: 0.2rem 0.45rem;
-    font-weight: 800;
-    font-size: 0.85rem;
-}
-
-.demo-badge-location {
-    background: #00703c;
-    color: #ffffff;
-    border-color: #00703c;
-}
-
-.demo-real-map {
-    height: 240px;
-    border: 2px solid #1d1d1d;
-    background: #f3f2f1;
-    margin-top: 1rem;
-}
-
-.demo-sidebar {
-    border: 2px solid #d8d8d8;
-    background: #ffffff;
-    padding: 1rem;
-}
 
         .onboarding-panel h2,
-        .onboarding-panel h3 {
+        .onboarding-panel h3,
+        .onboarding-panel h4 {
             margin-top: 0;
             font-weight: 900;
         }
@@ -882,6 +1016,13 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
         .success-box {
             border-left: 8px solid #00703c;
             background: #e9f8ef;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .locked-box {
+            border-left: 8px solid #d4351c;
+            background: #fff1f0;
             padding: 1rem;
             margin-bottom: 1.5rem;
         }
@@ -916,9 +1057,19 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
             grid-template-columns: minmax(0, 1fr) auto;
         }
 
-        @media (max-width: 900px) {
+        .dynamic-row-grid.medication {
+            grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
+        }
+
+        .dynamic-row-grid.allergy {
+            grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+        }
+
+        @media (max-width: 1100px) {
             .dynamic-row-grid,
-            .dynamic-row-grid.simple {
+            .dynamic-row-grid.simple,
+            .dynamic-row-grid.medication,
+            .dynamic-row-grid.allergy {
                 grid-template-columns: 1fr;
             }
         }
@@ -959,85 +1110,60 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
             margin-top: 0.25rem;
         }
 
-        .demo-layout {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) 320px;
-            gap: 1rem;
-            align-items: start;
+        .private-link-box {
+            border: 2px solid #00703c;
+            background: #e9f8ef;
+            padding: 1rem;
+            word-break: break-all;
+            margin: 1rem 0;
         }
 
-        @media (max-width: 900px) {
-            .demo-layout {
+        .leaders-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1rem;
+        }
+
+        @media (max-width: 800px) {
+            .leaders-grid {
                 grid-template-columns: 1fr;
             }
         }
 
-        .demo-post {
-            border: 2px solid #d8d8d8;
-            background: #ffffff;
-            padding: 1rem;
-            margin-bottom: 1rem;
-        }
-
-        .demo-post h3 {
-            margin-top: 0;
-            font-weight: 900;
-        }
-
-        .demo-meta {
-            color: #505a5f;
-            font-size: 0.95rem;
-            margin-bottom: 0.75rem;
-        }
-
-        .demo-map {
-            height: 180px;
-            border: 2px solid #1d1d1d;
-            background:
-                radial-gradient(circle at center, rgba(29,112,184,0.28) 0, rgba(29,112,184,0.28) 34%, transparent 35%),
-                linear-gradient(45deg, #e9f8ef 25%, transparent 25%),
-                linear-gradient(-45deg, #e9f8ef 25%, transparent 25%),
-                #f3f2f1;
-            background-size: auto, 28px 28px, 28px 28px, auto;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 900;
-            color: #1d1d1d;
-            text-align: center;
-            padding: 1rem;
-        }
-
-        .demo-leader-grid {
+        .leader-card {
             display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 0.75rem;
-        }
-
-        .demo-leader {
+            grid-template-columns: 96px minmax(0, 1fr);
+            gap: 1rem;
             border: 2px solid #d8d8d8;
             background: #ffffff;
-            padding: 0.75rem;
-            text-align: center;
+            padding: 1rem;
+            align-items: start;
         }
 
-        .demo-leader img,
-        .demo-leader-placeholder {
-            width: 76px;
-            height: 76px;
-            object-fit: cover;
+        @media (max-width: 520px) {
+            .leader-card {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .leader-photo,
+        .leader-placeholder {
+            width: 96px;
+            height: 96px;
             border: 2px solid #1d1d1d;
-            background: #f3f2f1;
-            margin: 0 auto 0.5rem;
+            background: #7413dc;
+            color: #ffffff;
             display: flex;
             align-items: center;
             justify-content: center;
             font-weight: 900;
+            font-size: 2rem;
+            object-fit: cover;
         }
 
-        .demo-leader-name {
-            font-weight: 900;
-            margin-bottom: 0;
+        .leader-card h3 {
+            margin: 0 0 0.35rem;
+            font-size: 1.2rem;
         }
 
         .muted {
@@ -1061,7 +1187,7 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
 
     <div class="info-box">
         <strong>Privacy note:</strong>
-        This form is for trip administration only. Information submitted here will be available to authorised leaders supporting the trip.
+        This form is used to safely run Explorer Belt 2026. Information submitted here will be available to authorised leaders supporting the trip.
     </div>
 
     <?php if ($error): ?>
@@ -1070,9 +1196,32 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
         </div>
     <?php endif; ?>
 
-    <?php if ($success && $submittedPerson): ?>
+    <?php if ($isLocked && $lockedPerson): ?>
 
-        <div class="success-box">
+        <section class="locked-box">
+            <h2>Form already completed</h2>
+
+            <p>
+                The onboarding form for <strong><?= e($lockedPerson['name']) ?></strong> has already been submitted.
+            </p>
+
+            <p class="mb-0">
+                For security and data protection reasons, this form cannot be viewed again once submitted.
+                If you need to change anything, please email
+                <a href="mailto:<?= e(DATA_PROTECTION_EMAIL) ?>"><?= e(DATA_PROTECTION_EMAIL) ?></a>
+                and ask for the form to be unlocked.
+            </p>
+        </section>
+
+        <p>
+            <a class="btn btn-outline-primary" href="<?= e(url('parent_onboarding.php?reset=1')) ?>">
+                Start again
+            </a>
+        </p>
+
+    <?php elseif ($success && $submittedPerson): ?>
+
+        <section class="success-box">
             <h2>Details submitted</h2>
 
             <p>
@@ -1089,174 +1238,77 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
                 If you do not receive an email within the next hour, please check your junk or spam folder.
                 If it still has not arrived, please contact the trip team.
             </p>
-        </div>
+        </section>
 
         <section class="onboarding-panel">
-    <h2>Example of the updates page</h2>
+            <h2>Your private team page</h2>
 
-    <p>
-        You should have now recieved a private link to your participant’s team page.
-        The page will show leader updates, photos, and approximate manually entered check-in locations each evening.
-    </p>
+            <p>
+                Please save this link. This is where updates, photos and evening location check-ins will be provided during the event.
+            </p>
 
-    <div class="warning-box">
-        <strong>No news is not bad news.</strong>
-        Check-ins are added manually and may not appear straight away. Updates may be delayed until all groups are confirmed settled for the night.
-    </div>
+            <div class="private-link-box">
+                <strong><?= e($submittedPerson['team_name'] ?: 'Team page') ?></strong><br>
+                <a href="<?= e($privateTeamLink) ?>"><?= e($privateTeamLink) ?></a>
+            </div>
 
-    <div class="demo-layout">
-        <div>
-            <article class="demo-feed-card">
-                <div class="demo-feed-card-header">
-                    <h3>Evening update</h3>
-                    <p class="demo-meta">
-                        Example only
-                        <span>|</span>
-                        <?= e($submittedPerson['team_name'] ?: 'Team page') ?>
-                        <span>|</span>
-                        Leader update
-                    </p>
+            <p>
+                You will receive an email when a new photo, update or evening location has been confirmed.
+            </p>
 
-                    <div class="demo-badge-row">
-                        <span class="demo-badge">Team update</span>
-                        <span class="demo-badge">Visible to your team link</span>
-                    </div>
-                </div>
+            <div class="warning-box">
+                <strong>No news is not bad news.</strong>
+                <p class="mb-0">
+                    Due to signal, time to process updates, and the need to ensure all teams have checked in safely,
+                    updates may not happen immediately. During the event, please contact the Home Contact listed on
+                    the contact page, not the team in Finland.
+                </p>
+            </div>
+        </section>
 
-                <div class="demo-feed-card-body">
-                    <p>
-                        The team have completed their route for today and are settled for the evening.
-                        They were in good spirits when the leaders checked in.
-                    </p>
+        <section class="onboarding-panel">
+            <h2>Leadership team</h2>
 
-                    <p class="mb-0">
-                        A short update like this may appear alongside photos or notes from the leadership team.
-                    </p>
-                </div>
-            </article>
-
-            <article class="demo-feed-card">
-                <div class="demo-feed-card-header">
-                    <h3>Location check-in</h3>
-                    <p class="demo-meta">
-                        Example only
-                        <span>|</span>
-                        <?= e($submittedPerson['team_name'] ?: 'Team page') ?>
-                        <span>|</span>
-                        Approximate location
-                    </p>
-
-                    <div class="demo-badge-row">
-                        <span class="demo-badge demo-badge-location">Location check-in</span>
-                        <span class="demo-badge">Approximate area</span>
-                    </div>
-                </div>
-
-                <div class="demo-feed-card-body">
-                    <p>
-                        This is an example of how a manually entered check-in may appear on the team page.
-                    </p>
-
-                    <div
-                        id="demo-helsinki-map"
-                        class="demo-real-map"
-                        data-lat="60.1699"
-                        data-lng="24.9384"
-                    ></div>
-
-                    <p class="muted mt-2 mb-0">
-                        The blue circle shows an approximate 1 mile area around the entered location.
-                        The actual trip check-ins will be entered manually by leaders.
-                    </p>
-                </div>
-            </article>
-        </div>
-
-        <aside class="demo-sidebar">
-            <h3>Leadership team preview</h3>
             <p class="muted">
-                The team page may also show leaders supporting the trip. This preview only shows names and photos.
+                These are leaders involved in supporting the event. The team page may show leader details and updates during the trip.
             </p>
 
             <?php if (!empty($demoLeaders)): ?>
-                <div class="demo-leader-grid">
+                <div class="leaders-grid">
                     <?php foreach ($demoLeaders as $leader): ?>
-                        <div class="demo-leader">
-                            <?php $leaderPhoto = media_url($leader['photo_url'] ?? ''); ?>
+                        <?php $leaderPhoto = media_url($leader['photo_url'] ?? ''); ?>
 
-                            <?php if ($leaderPhoto !== ''): ?>
-                                <img src="<?= e($leaderPhoto) ?>" alt="Photo of <?= e($leader['name']) ?>">
-                            <?php else: ?>
-                                <div class="demo-leader-placeholder" aria-hidden="true">
-                                    <?= e(strtoupper(substr((string)$leader['name'], 0, 1))) ?>
-                                </div>
-                            <?php endif; ?>
+                        <article class="leader-card">
+                            <div>
+                                <?php if ($leaderPhoto !== ''): ?>
+                                    <img class="leader-photo" src="<?= e($leaderPhoto) ?>" alt="Photo of <?= e($leader['name']) ?>">
+                                <?php else: ?>
+                                    <div class="leader-placeholder" aria-hidden="true">
+                                        <?= e(initials((string)$leader['name'])) ?>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
 
-                            <p class="demo-leader-name">
-                                <?= e($leader['name']) ?>
-                            </p>
-                        </div>
+                            <div>
+                                <h3><?= e($leader['name']) ?></h3>
+
+                                <?php if (!empty($leader['bio'])): ?>
+                                    <p><?= nl2br(e($leader['bio'])) ?></p>
+                                <?php else: ?>
+                                    <p class="muted mb-0">
+                                        Supporting Explorer Belt 2026.
+                                    </p>
+                                <?php endif; ?>
+                            </div>
+                        </article>
                     <?php endforeach; ?>
                 </div>
             <?php else: ?>
                 <p class="muted mb-0">
-                    Leadership team preview will appear once leaders are scheduled.
+                    Leadership team details will appear once leaders are scheduled.
                 </p>
             <?php endif; ?>
-        </aside>
-    </div>
-</section>
-
-<link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
->
-
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-<script>
-    (function () {
-        var mapElement = document.getElementById('demo-helsinki-map');
-
-        if (!mapElement || typeof L === 'undefined') {
-            return;
-        }
-
-        var lat = parseFloat(mapElement.dataset.lat);
-        var lng = parseFloat(mapElement.dataset.lng);
-
-        if (Number.isNaN(lat) || Number.isNaN(lng)) {
-            return;
-        }
-
-        var map = L.map(mapElement, {
-            scrollWheelZoom: false,
-            dragging: false,
-            touchZoom: false,
-            doubleClickZoom: false,
-            boxZoom: false,
-            keyboard: false,
-            zoomControl: false,
-            attributionControl: false
-        }).setView([lat, lng], 12);
-
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19
-        }).addTo(map);
-
-        L.circle([lat, lng], {
-            radius: 1609.34,
-            color: '#1d70b8',
-            fillColor: '#1d70b8',
-            weight: 2,
-            fillOpacity: 0.16
-        }).addTo(map);
-
-        setTimeout(function () {
-            map.invalidateSize();
-        }, 250);
-    })();
-</script>
+        </section>
 
     <?php elseif (!$matchedPerson): ?>
 
@@ -1321,6 +1373,65 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
         <form method="post" enctype="multipart/form-data">
             <input type="hidden" name="action" value="save_details">
             <input type="hidden" name="person_id" value="<?= (int)$matchedPerson['id'] ?>">
+
+            <section class="dynamic-section">
+                <h3>Participant contact details</h3>
+
+                <div class="form-group">
+                    <label for="gender">Gender</label>
+                    <select class="form-control" id="gender" name="gender">
+                        <?php
+                        $genderValue = $matchedPerson['gender'] ?? '';
+                        $genderOptions = [
+                            '' => 'Prefer not to say / not recorded',
+                            'Female' => 'Female',
+                            'Male' => 'Male',
+                            'Non-binary' => 'Non-binary',
+                            'Other' => 'Other',
+                        ];
+                        ?>
+
+                        <?php foreach ($genderOptions as $value => $label): ?>
+                            <option value="<?= e($value) ?>" <?= $genderValue === $value ? 'selected' : '' ?>>
+                                <?= e($label) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group col-md-6">
+                        <label for="participant_email">Participant contact email</label>
+                        <input
+                            class="form-control"
+                            id="participant_email"
+                            name="participant_email"
+                            type="email"
+                            value="<?= e($matchedPerson['participant_email'] ?? '') ?>"
+                        >
+                    </div>
+
+                    <div class="form-group col-md-6">
+                        <label for="participant_phone">Participant phone number</label>
+                        <input
+                            class="form-control"
+                            id="participant_phone"
+                            name="participant_phone"
+                            value="<?= e($matchedPerson['participant_phone'] ?? '') ?>"
+                        >
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="home_address">Home address</label>
+                    <textarea
+                        class="form-control"
+                        id="home_address"
+                        name="home_address"
+                        rows="3"
+                    ><?= e($matchedPerson['home_address'] ?? '') ?></textarea>
+                </div>
+            </section>
 
             <section class="dynamic-section">
                 <h3>Photo of your participant</h3>
@@ -1417,10 +1528,14 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
             <section class="dynamic-section">
                 <h3>Email updates</h3>
 
-                <p class="muted">
-                    Emergency contact emails are automatically included below and cannot be edited here.
-                    You can add up to 5 additional email addresses to receive progress updates and photos.
+                <p>
+                    Anyone listed for Explorer update emails will receive emails about the participant’s team progress, photos and confirmed evening check-ins.
                 </p>
+
+                <div class="warning-box">
+                    <strong>Important:</strong>
+                    Please make sure you have permission from each person before adding their email address for updates.
+                </div>
 
                 <h4>Automatically included from emergency contacts</h4>
                 <div id="autoEmailRows"></div>
@@ -1428,6 +1543,11 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
                 <hr>
 
                 <h4>Additional update emails</h4>
+
+                <p class="muted">
+                    You can add up to 5 additional email addresses.
+                </p>
+
                 <div id="parentEmailRows">
                     <?php foreach ($parentEmails as $email): ?>
                         <div class="dynamic-row additional-email-row">
@@ -1454,19 +1574,52 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
             </section>
 
             <section class="dynamic-section">
-                <h3>Medications</h3>
+                <h3>Medication</h3>
 
                 <p class="muted">
-                    Add medication name, dose, frequency, and any important instructions.
+                    Add any prescribed or non-prescribed medication. Include dosage and how often it is taken.
                 </p>
 
                 <div id="medicationRows">
                     <?php foreach ($medications as $medication): ?>
-                        <div class="dynamic-row">
-                            <div class="dynamic-row-grid simple">
+                        <div class="dynamic-row medication-row">
+                            <div class="dynamic-row-grid medication">
                                 <div class="form-group mb-0">
-                                    <label>Medication</label>
-                                    <input class="form-control" name="medications[]" value="<?= e((string)$medication) ?>">
+                                    <label>Medication name</label>
+                                    <input class="form-control" name="medication_name[]" value="<?= e((string)$medication) ?>">
+                                </div>
+
+                                <div class="form-group mb-0">
+                                    <label>Type</label>
+                                    <select class="form-control" name="medication_type[]">
+                                        <option value="">Select</option>
+                                        <option value="Prescribed">Prescribed</option>
+                                        <option value="Non-prescribed">Non-prescribed</option>
+                                        <option value="Over the counter">Over the counter</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+
+                                <div class="form-group mb-0">
+                                    <label>Dosage</label>
+                                    <input class="form-control" name="medication_dosage[]" placeholder="Example: 10mg">
+                                </div>
+
+                                <div class="form-group mb-0">
+                                    <label>How often?</label>
+                                    <select class="form-control medication-frequency" name="medication_frequency[]">
+                                        <option value="">Select</option>
+                                        <option value="As and when">As and when</option>
+                                        <option value="Daily">Daily</option>
+                                        <option value="Twice a day">Twice a day</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+
+                                <div class="form-group mb-0">
+                                    <label>Other / notes</label>
+                                    <input class="form-control" name="medication_frequency_other[]" placeholder="If other, explain">
+                                    <input class="form-control mt-1" name="medication_notes[]" placeholder="Additional instructions">
                                 </div>
 
                                 <button type="button" class="btn btn-outline-danger" data-remove-row>
@@ -1485,19 +1638,49 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
             </section>
 
             <section class="dynamic-section">
-                <h3>Allergies</h3>
+                <h3>Allergies, intolerances and dietary needs</h3>
 
                 <p class="muted">
-                    Add food, medication, environmental or other allergies. Include severity where relevant.
+                    Add allergies, intolerances and dietary needs. These will be stored against the participant’s allergy record so leaders can see them clearly.
                 </p>
 
                 <div id="allergyRows">
                     <?php foreach ($allergies as $allergy): ?>
-                        <div class="dynamic-row">
-                            <div class="dynamic-row-grid simple">
+                        <div class="dynamic-row allergy-row">
+                            <div class="dynamic-row-grid allergy">
                                 <div class="form-group mb-0">
-                                    <label>Allergy</label>
-                                    <input class="form-control" name="allergies[]" value="<?= e((string)$allergy) ?>">
+                                    <label>Type</label>
+                                    <select class="form-control" name="allergy_type[]">
+                                        <option value="">Select</option>
+                                        <option value="Allergy">Allergy</option>
+                                        <option value="Intolerance">Intolerance</option>
+                                        <option value="Dietary need">Dietary need</option>
+                                        <option value="Medication allergy">Medication allergy</option>
+                                        <option value="Environmental allergy">Environmental allergy</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+
+                                <div class="form-group mb-0">
+                                    <label>Details</label>
+                                    <input class="form-control" name="allergy_detail[]" value="<?= e((string)$allergy) ?>">
+                                </div>
+
+                                <div class="form-group mb-0">
+                                    <label>Severity</label>
+                                    <select class="form-control" name="allergy_severity[]">
+                                        <option value="">Select</option>
+                                        <option value="Mild">Mild</option>
+                                        <option value="Moderate">Moderate</option>
+                                        <option value="Severe">Severe</option>
+                                        <option value="Anaphylaxis risk">Anaphylaxis risk</option>
+                                        <option value="Not sure">Not sure</option>
+                                    </select>
+                                </div>
+
+                                <div class="form-group mb-0">
+                                    <label>Notes</label>
+                                    <input class="form-control" name="allergy_notes[]" placeholder="Reaction, treatment or dietary instruction">
                                 </div>
 
                                 <button type="button" class="btn btn-outline-danger" data-remove-row>
@@ -1510,7 +1693,7 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
 
                 <div class="dynamic-actions">
                     <button type="button" class="btn btn-outline-primary" id="addAllergyRow">
-                        Add allergy
+                        Add allergy / intolerance / dietary need
                     </button>
                 </div>
             </section>
@@ -1529,9 +1712,38 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
                 </div>
             </section>
 
+            <section class="dynamic-section">
+                <h3>Privacy acknowledgement</h3>
+
+                <p>
+                    Please read the privacy notice before submitting this form.
+                    It explains how personal information is processed for Explorer Belt 2026.
+                </p>
+
+                <p>
+                    <a href="<?= e(url('privacy.php')) ?>" target="_blank" rel="noopener">
+                        Open privacy notice in a new tab
+                    </a>
+                </p>
+
+                <div class="form-check">
+                    <input
+                        class="form-check-input"
+                        type="checkbox"
+                        id="privacy_acknowledgement"
+                        name="privacy_acknowledgement"
+                        value="1"
+                        required
+                    >
+                    <label class="form-check-label" for="privacy_acknowledgement">
+                        I confirm that I have read the privacy notice.
+                    </label>
+                </div>
+            </section>
+
             <section class="warning-box">
                 <strong>Before submitting:</strong>
-                Please check the information carefully. This will be used by the leadership team to support the young people safely during the trip.
+                Please check the information carefully. Once submitted, this form cannot be viewed again unless the trip team unlocks it.
             </section>
 
             <button class="btn btn-primary btn-lg">
@@ -1593,11 +1805,44 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
 </template>
 
 <template id="medicationRowTemplate">
-    <div class="dynamic-row">
-        <div class="dynamic-row-grid simple">
+    <div class="dynamic-row medication-row">
+        <div class="dynamic-row-grid medication">
             <div class="form-group mb-0">
-                <label>Medication</label>
-                <input class="form-control" name="medications[]">
+                <label>Medication name</label>
+                <input class="form-control" name="medication_name[]">
+            </div>
+
+            <div class="form-group mb-0">
+                <label>Type</label>
+                <select class="form-control" name="medication_type[]">
+                    <option value="">Select</option>
+                    <option value="Prescribed">Prescribed</option>
+                    <option value="Non-prescribed">Non-prescribed</option>
+                    <option value="Over the counter">Over the counter</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+
+            <div class="form-group mb-0">
+                <label>Dosage</label>
+                <input class="form-control" name="medication_dosage[]" placeholder="Example: 10mg">
+            </div>
+
+            <div class="form-group mb-0">
+                <label>How often?</label>
+                <select class="form-control medication-frequency" name="medication_frequency[]">
+                    <option value="">Select</option>
+                    <option value="As and when">As and when</option>
+                    <option value="Daily">Daily</option>
+                    <option value="Twice a day">Twice a day</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+
+            <div class="form-group mb-0">
+                <label>Other / notes</label>
+                <input class="form-control" name="medication_frequency_other[]" placeholder="If other, explain">
+                <input class="form-control mt-1" name="medication_notes[]" placeholder="Additional instructions">
             </div>
 
             <button type="button" class="btn btn-outline-danger" data-remove-row>
@@ -1608,11 +1853,41 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
 </template>
 
 <template id="allergyRowTemplate">
-    <div class="dynamic-row">
-        <div class="dynamic-row-grid simple">
+    <div class="dynamic-row allergy-row">
+        <div class="dynamic-row-grid allergy">
             <div class="form-group mb-0">
-                <label>Allergy</label>
-                <input class="form-control" name="allergies[]">
+                <label>Type</label>
+                <select class="form-control" name="allergy_type[]">
+                    <option value="">Select</option>
+                    <option value="Allergy">Allergy</option>
+                    <option value="Intolerance">Intolerance</option>
+                    <option value="Dietary need">Dietary need</option>
+                    <option value="Medication allergy">Medication allergy</option>
+                    <option value="Environmental allergy">Environmental allergy</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+
+            <div class="form-group mb-0">
+                <label>Details</label>
+                <input class="form-control" name="allergy_detail[]">
+            </div>
+
+            <div class="form-group mb-0">
+                <label>Severity</label>
+                <select class="form-control" name="allergy_severity[]">
+                    <option value="">Select</option>
+                    <option value="Mild">Mild</option>
+                    <option value="Moderate">Moderate</option>
+                    <option value="Severe">Severe</option>
+                    <option value="Anaphylaxis risk">Anaphylaxis risk</option>
+                    <option value="Not sure">Not sure</option>
+                </select>
+            </div>
+
+            <div class="form-group mb-0">
+                <label>Notes</label>
+                <input class="form-control" name="allergy_notes[]" placeholder="Reaction, treatment or dietary instruction">
             </div>
 
             <button type="button" class="btn btn-outline-danger" data-remove-row>
