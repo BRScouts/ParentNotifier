@@ -647,7 +647,7 @@ if ($submittedSuccess) {
 
         .member-placeholder {
             background: #7413dc;
-            color: #ffffff;
+            color: #ffffff;ƒ
         }
 
         .member-fields {
@@ -760,7 +760,7 @@ if ($submittedSuccess) {
 
                 <div class="form-group">
                     <label for="location_name">Nearest place / location name</label>
-                    <input
+                    <input required
                         class="form-control"
                         id="location_name"
                         name="location_name"
