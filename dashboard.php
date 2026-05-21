@@ -1064,7 +1064,7 @@ include __DIR__ . '/header.php';
                                         <?php if ($isLeader): ?>
                                             <a
                                                 class="team-face-link"
-                                                href="<?= e(url('people.php?person=' . (int)$member['id'])) ?>"
+                                                href="<?= e(url('people.php?person_id=' . (int)$member['id'])) ?>"
                                                 title="<?= e($memberName) ?>"
                                             >
                                                 <?php if ($memberPhoto !== ''): ?>
