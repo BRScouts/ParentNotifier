@@ -76,6 +76,11 @@ function person_has_allergies(array $person): bool
     return count(json_items($person['allergies_json'] ?? null)) > 0;
 }
 
+function parent_form_completed(array $person): bool
+{
+    return !empty($person['parent_form_completed_at']);
+}
+
 function person_age(?string $dob): string
 {
     if (!$dob) {
@@ -246,18 +251,330 @@ function get_person_logs(PDO $pdo, int $personId): array
 function render_person_photo(array $person, string $className): void
 {
     $name = $person['name'] ?? 'Young person';
+    $completionClass = parent_form_completed($person)
+        ? ' parent-form-complete'
+        : ' parent-form-incomplete';
+
+    $classes = trim($className . $completionClass);
 
     if (!empty($person['photo_url'])) {
         ?>
-        <img class="<?= e($className) ?>" src="<?= e(url($person['photo_url'])) ?>" alt="Photo of <?= e($name) ?>">
+        <img class="<?= e($classes) ?>" src="<?= e(url($person['photo_url'])) ?>" alt="Photo of <?= e($name) ?>">
         <?php
     } else {
         ?>
-        <div class="<?= e($className) ?>" aria-hidden="true">
+        <div class="<?= e($classes) ?>" aria-hidden="true">
             <?= e(person_initials($name)) ?>
         </div>
         <?php
     }
+}
+
+function render_repeat_inputs(string $name, array $values, string $placeholder): void
+{
+    $values = !empty($values) ? $values : [''];
+
+    foreach ($values as $value) {
+        ?>
+        <div class="repeat-row">
+            <input
+                class="form-control"
+                name="<?= e($name) ?>[]"
+                value="<?= e((string)$value) ?>"
+                placeholder="<?= e($placeholder) ?>"
+            >
+            <button type="button" class="btn btn-outline-danger btn-sm js-remove-row">Remove</button>
+        </div>
+        <?php
+    }
+}
+
+function render_people_form(array $teams, ?array $formPerson = null): void
+{
+    $isEdit = $formPerson !== null;
+
+    $emergencyContacts = json_items($formPerson['emergency_contacts_json'] ?? null);
+    $parentEmails = json_items($formPerson['parent_emails_json'] ?? null);
+    $phones = json_items($formPerson['phones_json'] ?? null);
+    $medications = json_items($formPerson['medications_json'] ?? null);
+    $allergies = json_items($formPerson['allergies_json'] ?? null);
+
+    if (empty($emergencyContacts)) {
+        $emergencyContacts = [
+            [
+                'name' => '',
+                'relationship' => '',
+                'phone' => '',
+                'email' => '',
+            ],
+        ];
+    }
+    ?>
+
+    <form method="post" enctype="multipart/form-data">
+        <input type="hidden" name="action" value="<?= $isEdit ? 'update_person' : 'add_person' ?>">
+
+        <?php if ($isEdit): ?>
+            <input type="hidden" name="person_id" value="<?= (int)$formPerson['id'] ?>">
+        <?php endif; ?>
+
+        <div class="form-section">
+            <h3>Core details</h3>
+
+            <div class="simple-grid">
+                <div class="form-group">
+                    <label for="name">Name</label>
+                    <input
+                        class="form-control"
+                        id="name"
+                        name="name"
+                        value="<?= e($formPerson['name'] ?? '') ?>"
+                        required
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="team_id">Team</label>
+                    <select class="form-control" id="team_id" name="team_id">
+                        <option value="">Not assigned</option>
+                        <?php foreach ($teams as $team): ?>
+                            <option
+                                value="<?= (int)$team['id'] ?>"
+                                <?= (int)($formPerson['team_id'] ?? 0) === (int)$team['id'] ? 'selected' : '' ?>
+                            >
+                                <?= e($team['name']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="dob">Date of birth</label>
+                    <input
+                        class="form-control"
+                        id="dob"
+                        name="dob"
+                        type="date"
+                        value="<?= e($formPerson['dob'] ?? '') ?>"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="gender">Gender</label>
+                    <select class="form-control" id="gender" name="gender">
+                        <?php
+                        $genderValue = $formPerson['gender'] ?? '';
+                        $genderOptions = [
+                            '' => 'Not recorded',
+                            'Female' => 'Female',
+                            'Male' => 'Male',
+                            'Non-binary' => 'Non-binary',
+                            'Prefer not to say' => 'Prefer not to say',
+                            'Other' => 'Other',
+                        ];
+                        ?>
+
+                        <?php foreach ($genderOptions as $value => $label): ?>
+                            <option value="<?= e($value) ?>" <?= $genderValue === $value ? 'selected' : '' ?>>
+                                <?= e($label) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="participant_email">Participant contact email</label>
+                    <input
+                        class="form-control"
+                        id="participant_email"
+                        name="participant_email"
+                        type="email"
+                        value="<?= e($formPerson['participant_email'] ?? '') ?>"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="participant_phone">Participant phone number</label>
+                    <input
+                        class="form-control"
+                        id="participant_phone"
+                        name="participant_phone"
+                        value="<?= e($formPerson['participant_phone'] ?? '') ?>"
+                    >
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="home_address">Home address</label>
+                <textarea
+                    class="form-control"
+                    id="home_address"
+                    name="home_address"
+                    rows="3"
+                ><?= e($formPerson['home_address'] ?? '') ?></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="profile_image">Profile photo</label>
+                <input
+                    class="form-control"
+                    id="profile_image"
+                    name="profile_image"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                >
+
+                <?php if ($isEdit && !empty($formPerson['photo_url'])): ?>
+                    <small class="form-text text-muted">
+                        Current photo is kept unless a new one is uploaded.
+                    </small>
+                <?php endif; ?>
+            </div>
+
+            <div class="form-check mb-3">
+                <input
+                    class="form-check-input"
+                    type="checkbox"
+                    id="is_active"
+                    name="is_active"
+                    <?= !$isEdit || (int)($formPerson['is_active'] ?? 1) === 1 ? 'checked' : '' ?>
+                >
+                <label class="form-check-label" for="is_active">
+                    Active participant
+                </label>
+            </div>
+        </div>
+
+        <div class="form-section">
+            <h3>Parent onboarding status</h3>
+
+            <div class="form-check mb-3">
+                <input
+                    class="form-check-input"
+                    type="checkbox"
+                    id="parent_form_complete"
+                    name="parent_form_complete"
+                    <?= $isEdit && parent_form_completed($formPerson) ? 'checked' : '' ?>
+                >
+                <label class="form-check-label" for="parent_form_complete">
+                    Parent form completed
+                </label>
+            </div>
+
+            <p class="muted">
+                If unchecked, their photo border shows red on the main people list. If checked, the border shows black.
+            </p>
+        </div>
+
+        <div class="form-section">
+            <h3>Emergency contacts</h3>
+
+            <div id="contactRows">
+                <?php foreach ($emergencyContacts as $contact): ?>
+                    <div class="repeat-box contact-row">
+                        <div class="simple-grid">
+                            <div class="form-group">
+                                <label>Name</label>
+                                <input class="form-control" name="contact_name[]" value="<?= e($contact['name'] ?? '') ?>">
+                            </div>
+
+                            <div class="form-group">
+                                <label>Relationship</label>
+                                <input class="form-control" name="contact_relationship[]" value="<?= e($contact['relationship'] ?? '') ?>">
+                            </div>
+
+                            <div class="form-group">
+                                <label>Phone</label>
+                                <input class="form-control" name="contact_phone[]" value="<?= e($contact['phone'] ?? '') ?>">
+                            </div>
+
+                            <div class="form-group">
+                                <label>Email</label>
+                                <input class="form-control" type="email" name="contact_email[]" value="<?= e($contact['email'] ?? '') ?>">
+                            </div>
+                        </div>
+
+                        <button type="button" class="btn btn-outline-danger btn-sm js-remove-contact">
+                            Remove contact
+                        </button>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+
+            <button type="button" class="btn btn-outline-primary btn-sm" id="addContactRow">
+                Add another contact
+            </button>
+        </div>
+
+        <div class="form-section">
+            <h3>Parent update emails</h3>
+
+            <div data-repeat-group="parent_emails">
+                <?php render_repeat_inputs('parent_emails', $parentEmails, 'parent@example.com'); ?>
+            </div>
+
+            <button type="button" class="btn btn-outline-primary btn-sm js-add-repeat" data-repeat-name="parent_emails" data-placeholder="parent@example.com">
+                Add email
+            </button>
+        </div>
+
+        <div class="form-section">
+            <h3>Phone numbers</h3>
+
+            <div data-repeat-group="phones">
+                <?php render_repeat_inputs('phones', $phones, 'Phone number'); ?>
+            </div>
+
+            <button type="button" class="btn btn-outline-primary btn-sm js-add-repeat" data-repeat-name="phones" data-placeholder="Phone number">
+                Add phone
+            </button>
+        </div>
+
+        <div class="form-section">
+            <h3>Medical information</h3>
+
+            <div class="simple-grid">
+                <div>
+                    <label>Medications</label>
+                    <div data-repeat-group="medications">
+                        <?php render_repeat_inputs('medications', $medications, 'Medication'); ?>
+                    </div>
+                    <button type="button" class="btn btn-outline-primary btn-sm js-add-repeat" data-repeat-name="medications" data-placeholder="Medication">
+                        Add medication
+                    </button>
+                </div>
+
+                <div>
+                    <label>Allergies</label>
+                    <div data-repeat-group="allergies">
+                        <?php render_repeat_inputs('allergies', $allergies, 'Allergy'); ?>
+                    </div>
+                    <button type="button" class="btn btn-outline-primary btn-sm js-add-repeat" data-repeat-name="allergies" data-placeholder="Allergy">
+                        Add allergy
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-section">
+            <h3>Notes</h3>
+
+            <div class="form-group">
+                <label for="notes">Internal notes</label>
+                <textarea
+                    class="form-control"
+                    id="notes"
+                    name="notes"
+                    rows="5"
+                ><?= e($formPerson['notes'] ?? '') ?></textarea>
+            </div>
+        </div>
+
+        <button class="btn btn-primary" type="submit">
+            <?= $isEdit ? 'Save person' : 'Add person' ?>
+        </button>
+    </form>
+    <?php
 }
 
 /**
@@ -279,11 +596,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $teamId = (int)($_POST['team_id'] ?? 0);
         $name = trim($_POST['name'] ?? '');
         $dob = trim($_POST['dob'] ?? '');
+        $participantEmail = trim($_POST['participant_email'] ?? '');
+        $participantPhone = trim($_POST['participant_phone'] ?? '');
+        $homeAddress = trim($_POST['home_address'] ?? '');
+        $gender = trim($_POST['gender'] ?? '');
         $notes = trim($_POST['notes'] ?? '');
         $isActive = isset($_POST['is_active']) ? 1 : 0;
+        $parentFormCompletedAt = isset($_POST['parent_form_complete']) ? date('Y-m-d H:i:s') : null;
 
         if ($name === '') {
             $error = 'Name is required.';
+        } elseif ($participantEmail !== '' && !filter_var($participantEmail, FILTER_VALIDATE_EMAIL)) {
+            $error = 'Participant email address is not valid.';
         } else {
             try {
                 $photoPath = handle_profile_upload('profile_image', null);
@@ -294,6 +618,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             team_id,
                             name,
                             dob,
+                            participant_email,
+                            participant_phone,
+                            home_address,
+                            gender,
+                            parent_form_completed_at,
                             photo_url,
                             emergency_contacts_json,
                             parent_emails_json,
@@ -304,13 +633,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             is_active
                         )
                      VALUES
-                        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
                 );
 
                 $stmt->execute([
                     $teamId > 0 ? $teamId : null,
                     $name,
                     $dob !== '' ? $dob : null,
+                    $participantEmail !== '' ? $participantEmail : null,
+                    $participantPhone !== '' ? $participantPhone : null,
+                    $homeAddress !== '' ? $homeAddress : null,
+                    $gender !== '' ? $gender : null,
+                    $parentFormCompletedAt,
                     $photoPath,
                     emergency_contacts_from_post(),
                     json_list_from_array($_POST['parent_emails'] ?? []),
@@ -335,6 +669,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $teamId = (int)($_POST['team_id'] ?? 0);
         $name = trim($_POST['name'] ?? '');
         $dob = trim($_POST['dob'] ?? '');
+        $participantEmail = trim($_POST['participant_email'] ?? '');
+        $participantPhone = trim($_POST['participant_phone'] ?? '');
+        $homeAddress = trim($_POST['home_address'] ?? '');
+        $gender = trim($_POST['gender'] ?? '');
         $notes = trim($_POST['notes'] ?? '');
         $isActive = isset($_POST['is_active']) ? 1 : 0;
 
@@ -344,15 +682,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Person not found.';
         } elseif ($name === '') {
             $error = 'Name is required.';
+        } elseif ($participantEmail !== '' && !filter_var($participantEmail, FILTER_VALIDATE_EMAIL)) {
+            $error = 'Participant email address is not valid.';
         } else {
             try {
                 $photoPath = handle_profile_upload('profile_image', $existing['photo_url'] ?? null);
+
+                if (isset($_POST['parent_form_complete'])) {
+                    $parentFormCompletedAt = !empty($existing['parent_form_completed_at'])
+                        ? $existing['parent_form_completed_at']
+                        : date('Y-m-d H:i:s');
+                } else {
+                    $parentFormCompletedAt = null;
+                }
 
                 $stmt = $pdo->prepare(
                     'UPDATE young_people
                      SET team_id = ?,
                          name = ?,
                          dob = ?,
+                         participant_email = ?,
+                         participant_phone = ?,
+                         home_address = ?,
+                         gender = ?,
+                         parent_form_completed_at = ?,
                          photo_url = ?,
                          emergency_contacts_json = ?,
                          parent_emails_json = ?,
@@ -368,6 +721,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $teamId > 0 ? $teamId : null,
                     $name,
                     $dob !== '' ? $dob : null,
+                    $participantEmail !== '' ? $participantEmail : null,
+                    $participantPhone !== '' ? $participantPhone : null,
+                    $homeAddress !== '' ? $homeAddress : null,
+                    $gender !== '' ? $gender : null,
+                    $parentFormCompletedAt,
                     $photoPath,
                     emergency_contacts_from_post(),
                     json_list_from_array($_POST['parent_emails'] ?? []),
@@ -481,6 +839,11 @@ if ($personId > 0) {
 }
 
 if ($view === 'print' && $currentPerson) {
+    $allergies = json_items($currentPerson['allergies_json'] ?? null);
+    $medications = json_items($currentPerson['medications_json'] ?? null);
+    $phones = json_items($currentPerson['phones_json'] ?? null);
+    $parentEmails = json_items($currentPerson['parent_emails_json'] ?? null);
+    $emergencyContacts = json_items($currentPerson['emergency_contacts_json'] ?? null);
     ?>
     <!doctype html>
     <html lang="en">
@@ -543,19 +906,31 @@ if ($view === 'print' && $currentPerson) {
         </p>
 
         <div class="section">
-            <h2>Medical and welfare information</h2>
+            <h2>Participant details</h2>
+            <p><strong>Gender:</strong> <?= e($currentPerson['gender'] ?: 'Not recorded') ?></p>
+            <p><strong>Participant email:</strong> <?= e($currentPerson['participant_email'] ?: 'Not recorded') ?></p>
+            <p><strong>Participant phone:</strong> <?= e($currentPerson['participant_phone'] ?: 'Not recorded') ?></p>
+            <p><strong>Home address:</strong><br><?= nl2br(e($currentPerson['home_address'] ?: 'Not recorded')) ?></p>
+            <p><strong>Parent form:</strong> <?= parent_form_completed($currentPerson) ? 'Completed' : 'Not completed' ?></p>
+        </div>
 
-            <p><strong>Allergies:</strong> <?= e(implode(', ', array_map('strval', json_items($currentPerson['allergies_json'] ?? null))) ?: 'None recorded') ?></p>
-            <p><strong>Medications:</strong> <?= e(implode(', ', array_map('strval', json_items($currentPerson['medications_json'] ?? null))) ?: 'None recorded') ?></p>
+        <div class="section">
+            <h2>Medical and welfare information</h2>
+            <p><strong>Allergies:</strong> <?= e(implode(', ', array_map('strval', $allergies)) ?: 'None recorded') ?></p>
+            <p><strong>Medications:</strong> <?= e(implode(', ', array_map('strval', $medications)) ?: 'None recorded') ?></p>
             <p><strong>Notes:</strong><br><?= nl2br(e($currentPerson['notes'] ?? '')) ?></p>
+        </div>
+
+        <div class="section">
+            <h2>Contact details</h2>
+            <p><strong>Phone numbers:</strong> <?= e(implode(', ', array_map('strval', $phones)) ?: 'None recorded') ?></p>
+            <p><strong>Parent emails:</strong> <?= e(implode(', ', array_map('strval', $parentEmails)) ?: 'None recorded') ?></p>
         </div>
 
         <div class="section">
             <h2>Emergency contacts</h2>
 
-            <?php $contacts = json_items($currentPerson['emergency_contacts_json'] ?? null); ?>
-
-            <?php if (empty($contacts)): ?>
+            <?php if (empty($emergencyContacts)): ?>
                 <p>No emergency contacts recorded.</p>
             <?php else: ?>
                 <table>
@@ -568,7 +943,7 @@ if ($view === 'print' && $currentPerson) {
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($contacts as $contact): ?>
+                        <?php foreach ($emergencyContacts as $contact): ?>
                             <tr>
                                 <td><?= e($contact['name'] ?? '') ?></td>
                                 <td><?= e($contact['relationship'] ?? '') ?></td>
@@ -712,7 +1087,7 @@ include __DIR__ . '/header.php';
         min-height: 44px !important;
         max-width: 44px !important;
         max-height: 44px !important;
-        border: 2px solid #1d1d1d;
+        border: 3px solid #1d1d1d;
         object-fit: cover;
         background: #7413dc;
         color: #ffffff;
@@ -723,6 +1098,15 @@ include __DIR__ . '/header.php';
         font-weight: 900;
         text-decoration: none;
         overflow: hidden;
+        border-radius: 50%;
+    }
+
+    .parent-form-complete {
+        border-color: #1d1d1d !important;
+    }
+
+    .parent-form-incomplete {
+        border-color: #d4351c !important;
     }
 
     .person-face img {
@@ -753,7 +1137,7 @@ include __DIR__ . '/header.php';
         max-width: 110px !important;
         max-height: 110px !important;
         object-fit: cover;
-        border: 2px solid #1d1d1d;
+        border: 3px solid #1d1d1d;
         background: #7413dc;
         color: #ffffff;
         display: flex;
@@ -761,6 +1145,7 @@ include __DIR__ . '/header.php';
         justify-content: center;
         font-weight: 900;
         font-size: 2.5rem;
+        border-radius: 50%;
     }
 
     @media (max-width: 600px) {
@@ -888,6 +1273,50 @@ include __DIR__ . '/header.php';
         margin-bottom: 0.75rem;
     }
 
+    .repeat-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+
+    @media (max-width: 600px) {
+        .repeat-row {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .form-section {
+        border-top: 2px solid #d8d8d8;
+        padding-top: 1rem;
+        margin-top: 1rem;
+    }
+
+    .form-section:first-of-type {
+        border-top: 0;
+        padding-top: 0;
+        margin-top: 0;
+    }
+
+    .completion-pill {
+        display: inline-block;
+        border: 2px solid #1d1d1d;
+        font-weight: 900;
+        padding: 0.25rem 0.45rem;
+    }
+
+    .completion-complete {
+        background: #00703c;
+        color: #ffffff;
+        border-color: #00703c;
+    }
+
+    .completion-incomplete {
+        background: #d4351c;
+        color: #ffffff;
+        border-color: #d4351c;
+    }
+
     .muted {
         color: #505a5f;
     }
@@ -932,14 +1361,14 @@ include __DIR__ . '/header.php';
 
         <section class="people-panel">
             <h2>Add young person</h2>
-            <?php include __DIR__ . '/people_form_partial.php'; ?>
+            <?php render_people_form($teams, null); ?>
         </section>
 
     <?php elseif ($view === 'edit' && $currentPerson): ?>
 
         <section class="people-panel">
             <h2>Edit <?= e($currentPerson['name']) ?></h2>
-            <?php $formPerson = $currentPerson; include __DIR__ . '/people_form_partial.php'; ?>
+            <?php render_people_form($teams, $currentPerson); ?>
         </section>
 
     <?php elseif ($currentPerson): ?>
@@ -976,6 +1405,14 @@ include __DIR__ . '/header.php';
                         <?= e(person_age($currentPerson['dob'] ?? null)) ?>
                     </p>
 
+                    <p>
+                        <?php if (parent_form_completed($currentPerson)): ?>
+                            <span class="completion-pill completion-complete">Parent form completed</span>
+                        <?php else: ?>
+                            <span class="completion-pill completion-incomplete">Parent form not completed</span>
+                        <?php endif; ?>
+                    </p>
+
                     <?php if ((int)$currentPerson['is_active'] !== 1): ?>
                         <p>
                             <span class="status-pill status-delayed">Inactive</span>
@@ -1000,6 +1437,36 @@ include __DIR__ . '/header.php';
             <h2>Person record</h2>
 
             <div class="record-grid">
+                <div class="record-box">
+                    <h3>Participant details</h3>
+
+                    <p>
+                        <strong>Gender:</strong><br>
+                        <?= e($currentPerson['gender'] ?: 'Not recorded') ?>
+                    </p>
+
+                    <p>
+                        <strong>Contact email:</strong><br>
+                        <?php if (!empty($currentPerson['participant_email'])): ?>
+                            <a href="mailto:<?= e($currentPerson['participant_email']) ?>">
+                                <?= e($currentPerson['participant_email']) ?>
+                            </a>
+                        <?php else: ?>
+                            <span class="muted">Not recorded</span>
+                        <?php endif; ?>
+                    </p>
+
+                    <p>
+                        <strong>Phone number:</strong><br>
+                        <?= e($currentPerson['participant_phone'] ?: 'Not recorded') ?>
+                    </p>
+
+                    <p class="mb-0">
+                        <strong>Home address:</strong><br>
+                        <?= nl2br(e($currentPerson['home_address'] ?: 'Not recorded')) ?>
+                    </p>
+                </div>
+
                 <div class="record-box">
                     <h3>Emergency contacts</h3>
 
@@ -1096,7 +1563,7 @@ include __DIR__ . '/header.php';
 
                     <div class="form-group">
                         <label>Date/time</label>
-                        <input disabled
+                        <input
                             class="form-control"
                             type="datetime-local"
                             name="occurred_at"
@@ -1158,6 +1625,10 @@ include __DIR__ . '/header.php';
         <section class="people-panel">
             <h2>Young people</h2>
 
+            <p class="muted">
+                Red photo border means the parent onboarding form has not been completed. Black photo border means it has been completed.
+            </p>
+
             <?php if (empty($people)): ?>
                 <div class="empty-box">No young people have been added yet.</div>
             <?php else: ?>
@@ -1168,6 +1639,8 @@ include __DIR__ . '/header.php';
                             <th>Name</th>
                             <th>Team</th>
                             <th>Date of birth</th>
+                            <th>Participant contact</th>
+                            <th>Parent form</th>
                             <th>Alerts</th>
                             <th>Status</th>
                         </tr>
@@ -1181,7 +1654,7 @@ include __DIR__ . '/header.php';
 
                             <tr>
                                 <td>
-                                    <a class="person-face" href="<?= e($profileUrl) ?>">
+                                    <a href="<?= e($profileUrl) ?>">
                                         <?php render_person_photo($person, 'person-face'); ?>
                                     </a>
                                 </td>
@@ -1195,6 +1668,28 @@ include __DIR__ . '/header.php';
                                 <td><?= e($person['team_name'] ?: 'Not assigned') ?></td>
 
                                 <td><?= e(person_age($person['dob'] ?? null)) ?></td>
+
+                                <td>
+                                    <?php if (!empty($person['participant_email'])): ?>
+                                        <a href="mailto:<?= e($person['participant_email']) ?>">
+                                            <?= e($person['participant_email']) ?>
+                                        </a>
+                                    <?php else: ?>
+                                        <span class="muted">No email</span>
+                                    <?php endif; ?>
+
+                                    <?php if (!empty($person['participant_phone'])): ?>
+                                        <br><?= e($person['participant_phone']) ?>
+                                    <?php endif; ?>
+                                </td>
+
+                                <td>
+                                    <?php if (parent_form_completed($person)): ?>
+                                        <span class="completion-pill completion-complete">Complete</span>
+                                    <?php else: ?>
+                                        <span class="completion-pill completion-incomplete">Missing</span>
+                                    <?php endif; ?>
+                                </td>
 
                                 <td>
                                     <?php if (person_has_allergies($person)): ?>
@@ -1221,5 +1716,85 @@ include __DIR__ . '/header.php';
     <?php endif; ?>
 
 </main>
+
+<script>
+    (function () {
+        function createRepeatRow(name, placeholder) {
+            var row = document.createElement('div');
+            row.className = 'repeat-row';
+
+            row.innerHTML =
+                '<input class="form-control" name="' + name + '[]" placeholder="' + placeholder.replace(/"/g, '&quot;') + '">' +
+                '<button type="button" class="btn btn-outline-danger btn-sm js-remove-row">Remove</button>';
+
+            return row;
+        }
+
+        document.querySelectorAll('.js-add-repeat').forEach(function (button) {
+            button.addEventListener('click', function () {
+                var name = button.dataset.repeatName;
+                var placeholder = button.dataset.placeholder || '';
+                var group = document.querySelector('[data-repeat-group="' + name + '"]');
+
+                if (!group) {
+                    return;
+                }
+
+                group.appendChild(createRepeatRow(name, placeholder));
+            });
+        });
+
+        document.addEventListener('click', function (event) {
+            if (event.target.classList.contains('js-remove-row')) {
+                var row = event.target.closest('.repeat-row');
+
+                if (row) {
+                    row.remove();
+                }
+            }
+
+            if (event.target.classList.contains('js-remove-contact')) {
+                var contact = event.target.closest('.contact-row');
+
+                if (contact) {
+                    contact.remove();
+                }
+            }
+        });
+
+        var addContactButton = document.getElementById('addContactRow');
+        var contactRows = document.getElementById('contactRows');
+
+        if (addContactButton && contactRows) {
+            addContactButton.addEventListener('click', function () {
+                var div = document.createElement('div');
+                div.className = 'repeat-box contact-row';
+
+                div.innerHTML =
+                    '<div class="simple-grid">' +
+                        '<div class="form-group">' +
+                            '<label>Name</label>' +
+                            '<input class="form-control" name="contact_name[]">' +
+                        '</div>' +
+                        '<div class="form-group">' +
+                            '<label>Relationship</label>' +
+                            '<input class="form-control" name="contact_relationship[]">' +
+                        '</div>' +
+                        '<div class="form-group">' +
+                            '<label>Phone</label>' +
+                            '<input class="form-control" name="contact_phone[]">' +
+                        '</div>' +
+                        '<div class="form-group">' +
+                            '<label>Email</label>' +
+                            '<input class="form-control" type="email" name="contact_email[]">' +
+                        '</div>' +
+                    '</div>' +
+                    '<button type="button" class="btn btn-outline-danger btn-sm js-remove-contact">Remove contact</button>';
+
+                contactRows.appendChild(div);
+            });
+        }
+    })();
+</script>
 
 <?php include __DIR__ . '/footer.php'; ?>
