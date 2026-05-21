@@ -97,25 +97,44 @@ function table_exists(PDO $pdo, string $table): bool
     }
 }
 
+function append_tracking_to_url(string $url, string $trackingToken): string
+{
+    $url = trim($url);
+
+    if ($url === '' || $trackingToken === '') {
+        return $url;
+    }
+
+    if (!preg_match('/^https?:\/\//i', $url)) {
+        return $url;
+    }
+
+    if (preg_match('/[?&]trk=/i', $url)) {
+        return $url;
+    }
+
+    $fragment = '';
+    $base = $url;
+
+    if (strpos($url, '#') !== false) {
+        [$base, $fragmentPart] = explode('#', $url, 2);
+        $fragment = '#' . $fragmentPart;
+    }
+
+    $separator = strpos($base, '?') === false ? '?' : '&';
+
+    return $base . $separator . 'trk=' . rawurlencode($trackingToken) . $fragment;
+}
+
 function safe_email_html(string $html): string
 {
-    $allowedTags = '<p><br><strong><b><em><i><u><a><ol><ul><li><span><blockquote><h1><h2><h3><h4><table><thead><tbody><tr><td><th>';
+    $allowedTags = '<p><br><strong><b><em><i><u><a><ol><ul><li><span><blockquote><h1><h2><h3><h4><table><thead><tbody><tr><td><th><hr>';
 
     $html = strip_tags($html, $allowedTags);
 
-    /**
-     * Remove inline JS/event handlers.
-     */
     $html = preg_replace('/\son[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html);
-
-    /**
-     * Remove javascript: links.
-     */
     $html = preg_replace('/href\s*=\s*([\'"])\s*javascript:[^\'"]*\1/i', 'href="#"', $html);
 
-    /**
-     * Permit basic inline styles for email formatting.
-     */
     $html = preg_replace_callback('/style\s*=\s*([\'"])(.*?)\1/i', function ($matches) {
         $style = $matches[2];
         $safeRules = [];
@@ -139,9 +158,6 @@ function safe_email_html(string $html): string
         return ' style="' . htmlspecialchars(implode('; ', $safeRules), ENT_QUOTES, 'UTF-8') . '"';
     }, $html);
 
-    /**
-     * Permit safe link targets only.
-     */
     $html = preg_replace_callback('/href\s*=\s*([\'"])(.*?)\1/i', function ($matches) {
         $quote = $matches[1];
         $href = trim(html_entity_decode($matches[2], ENT_QUOTES, 'UTF-8'));
@@ -156,6 +172,42 @@ function safe_email_html(string $html): string
 
         return 'href="#"';
     }, $html);
+
+    return $html;
+}
+
+function auto_link_plain_urls_in_html(string $html): string
+{
+    if (trim($html) === '') {
+        return $html;
+    }
+
+    /**
+     * Protect existing href values so URLs inside <a href=""> are not double-linked.
+     */
+    $placeholders = [];
+
+    $html = preg_replace_callback('/<a\b[^>]*>.*?<\/a>/is', function ($matches) use (&$placeholders) {
+        $key = '%%EXISTING_LINK_' . count($placeholders) . '%%';
+        $placeholders[$key] = $matches[0];
+
+        return $key;
+    }, $html);
+
+    $html = preg_replace_callback('/(?<!["\'])\bhttps?:\/\/[^\s<]+/i', function ($matches) {
+        $url = rtrim($matches[0], '.,);');
+
+        $trailing = substr($matches[0], strlen($url));
+
+        return '<a href="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '">' .
+            htmlspecialchars($url, ENT_QUOTES, 'UTF-8') .
+            '</a>' .
+            $trailing;
+    }, $html);
+
+    foreach ($placeholders as $key => $linkHtml) {
+        $html = str_replace($key, $linkHtml, $html);
+    }
 
     return $html;
 }
@@ -179,6 +231,16 @@ function plain_text_to_html(string $text): string
             continue;
         }
 
+        $paragraph = preg_replace_callback('/\bhttps?:\/\/[^\s<]+/i', function ($matches) {
+            $url = rtrim($matches[0], '.,);');
+            $trailing = substr($matches[0], strlen($url));
+
+            return '<a href="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '">' .
+                htmlspecialchars($url, ENT_QUOTES, 'UTF-8') .
+                '</a>' .
+                $trailing;
+        }, $paragraph);
+
         $html .= '<p style="margin:0 0 14px 0;color:#1d1d1d;font-size:16px;line-height:1.6;">'
             . nl2br($paragraph)
             . '</p>';
@@ -196,7 +258,7 @@ function content_to_html(string $content): string
     }
 
     if ($content !== strip_tags($content)) {
-        return safe_email_html($content);
+        return auto_link_plain_urls_in_html(safe_email_html($content));
     }
 
     return plain_text_to_html($content);
@@ -222,47 +284,15 @@ function content_to_plain_text(string $content): string
 
 function extract_first_url(string $content): string
 {
-    if (preg_match('/https?:\/\/[^\s<>"\']+/i', $content, $matches)) {
-        return rtrim($matches[0], '.,)');
-    }
-
     if (preg_match('/href\s*=\s*([\'"])(https?:\/\/.*?)\1/i', $content, $matches)) {
         return trim((string)$matches[2]);
     }
 
+    if (preg_match('/https?:\/\/[^\s<>"\']+/i', $content, $matches)) {
+        return rtrim($matches[0], '.,)');
+    }
+
     return '';
-}
-
-function append_tracking_to_url(string $url, string $trackingToken): string
-{
-    $url = trim($url);
-
-    if ($url === '' || $trackingToken === '') {
-        return $url;
-    }
-
-    if (!preg_match('/^https?:\/\//i', $url)) {
-        return $url;
-    }
-
-    /**
-     * Do not duplicate if already tracked.
-     */
-    if (preg_match('/[?&]trk=/i', $url)) {
-        return $url;
-    }
-
-    $fragment = '';
-    $base = $url;
-
-    if (strpos($url, '#') !== false) {
-        [$base, $fragmentPart] = explode('#', $url, 2);
-        $fragment = '#' . $fragmentPart;
-    }
-
-    $separator = strpos($base, '?') === false ? '?' : '&';
-
-    return $base . $separator . 'trk=' . rawurlencode($trackingToken) . $fragment;
 }
 
 function track_html_links(string $html, string $trackingToken): string
@@ -384,6 +414,7 @@ function ensure_email_tracking_token(PDO $pdo, array $email): array
 function make_placeholder_replacements(string $subject, string $content): array
 {
     $appName = (string)mail_constant('APP_NAME', 'Explorer Belt Live');
+
     $logoUrl = (string)mail_constant(
         'MAIL_LOGO_URL',
         app_base_url() . '/assets/logo.png'
@@ -647,9 +678,18 @@ try {
             $mail->isHTML(true);
 
             /**
-             * Build the email from /assets/email_template.html,
-             * append tracking to every http(s) link,
-             * then add the open tracking pixel.
+             * This order matters:
+             *
+             * 1. Build the email template, replacing shortcodes such as {{CTA_URL}}.
+             * 2. Scan the final HTML for all href links.
+             * 3. Append &trk=... or ?trk=... to each http/https link.
+             * 4. Add the open tracking pixel.
+             *
+             * This tracks:
+             * - links added in the GUI editor;
+             * - plain pasted URLs converted into links;
+             * - template/shortcode CTA links;
+             * - the plain text fallback links.
              */
             $htmlBody = build_email_template($subject, $content);
             $htmlBody = track_html_links($htmlBody, $trackingToken);
