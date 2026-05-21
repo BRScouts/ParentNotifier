@@ -275,13 +275,13 @@ function find_person_by_last_name_and_dob(PDO $pdo, string $lastName, string $do
 function handle_parent_profile_upload(string $fieldName): string
 {
     if (empty($_FILES[$fieldName]) || !is_array($_FILES[$fieldName])) {
-        throw new RuntimeException('Please upload a clear photo of your child.');
+        throw new RuntimeException('Please upload a clear photo of the participant.');
     }
 
     $file = $_FILES[$fieldName];
 
     if (($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
-        throw new RuntimeException('Please upload a clear photo of your child.');
+        throw new RuntimeException('Please upload a clear photo of the participant.');
     }
 
     if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
@@ -349,7 +349,7 @@ function queue_onboarding_confirmation_email(
     $teamName = $person['team_name'] ?? 'your team';
 
     $content =
-        "Thank you. The Explorer Belt onboarding details for " . ($person['name'] ?? 'your child') . " have been submitted.\n\n" .
+        "Thank you. The Explorer Belt onboarding details for " . ($person['name'] ?? 'your participant') . " have been submitted.\n\n" .
         "What happens next:\n" .
         "- Prior to the event, you will be emailed a private team link.\n" .
         "- That link will let you see updates, photos and manually entered check-ins for " . $teamName . ".\n" .
@@ -570,7 +570,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'looku
     $dob = parse_dob_for_lookup($dobRaw);
 
     if ($lastName === '' || !$dob) {
-        $error = 'Please enter the child’s last name and date of birth.';
+        $error = 'Please enter the participant’s last name and date of birth.';
     } else {
         $person = find_person_by_last_name_and_dob($pdo, $lastName, $dob);
 
@@ -1095,7 +1095,7 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
     <h2>Example of the updates page</h2>
 
     <p>
-        Before the event, you will be emailed a private link to your child’s team page.
+        Before the event, you will be emailed a private link to your participant’s team page.
         The page will show leader updates, photos, and approximate manually entered check-in locations.
     </p>
 
@@ -1261,17 +1261,17 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
     <?php elseif (!$matchedPerson): ?>
 
         <section class="onboarding-panel">
-            <h2>Find your child’s record</h2>
+            <h2>Find your participant’s record</h2>
 
             <p>
-                Please enter your child’s last name and date of birth to open the confirmation form.
+                Please enter your participant’s last name and date of birth to open the confirmation form.
             </p>
 
             <form method="post">
                 <input type="hidden" name="action" value="lookup">
 
                 <div class="form-group">
-                    <label for="last_name">Child’s last name</label>
+                    <label for="last_name">Participant’s last name</label>
                     <input
                         class="form-control"
                         id="last_name"
@@ -1282,7 +1282,7 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
                 </div>
 
                 <div class="form-group">
-                    <label for="dob">Child’s date of birth</label>
+                    <label for="dob">Participant’s date of birth</label>
                     <input
                         class="form-control"
                         id="dob"
@@ -1323,15 +1323,15 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
             <input type="hidden" name="person_id" value="<?= (int)$matchedPerson['id'] ?>">
 
             <section class="dynamic-section">
-                <h3>Photo of your child</h3>
+                <h3>Photo of your participant</h3>
 
                 <p>
-                    Please upload a clear, recent photo of your child’s face. This is mandatory and helps the leadership team identify young people quickly during the event.
+                    Please upload a clear, recent photo of your participant’s face. This is mandatory and helps the leadership team identify young people.
                 </p>
 
                 <div class="warning-box">
                     <strong>Photo guidance:</strong>
-                    The photo should be of your child only, ideally a clear head-and-shoulders photo. Please do not upload group photos.
+                    The photo should be of your participant only, ideally a clear head-and-shoulders photo. Please do not upload group photos.
                     This photo will be deleted following the event.
                 </div>
 
