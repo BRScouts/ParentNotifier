@@ -20,6 +20,9 @@ $isParentView = !$user && $parentTeam;
 
 const DASHBOARD_FINLAND_TIMEZONE = 'Europe/Helsinki';
 const DASHBOARD_CHECKIN_OVERDUE_HOUR_FINLAND = 19;
+const DASHBOARD_POSTS_PER_PAGE = 10;
+const DASHBOARD_POST_UPLOAD_DIR = '/home/brscouts/exbelt2026.irvalscouts.org.uk/assets/posts/';
+const DASHBOARD_POST_UPLOAD_PUBLIC_PATH = 'assets/posts/';
 
 /**
  * CSRF helper
@@ -39,7 +42,6 @@ function dashboard_csrf_valid(): bool
 /**
  * Database helpers
  */
-
 function dashboard_column_exists(PDO $pdo, string $table, string $column): bool
 {
     try {
@@ -80,7 +82,6 @@ function dashboard_table_exists(PDO $pdo, string $table): bool
 /**
  * Content helpers
  */
-
 function safe_post_html(string $html): string
 {
     $html = trim($html);
@@ -214,10 +215,133 @@ function is_location_post(array $post): bool
     return ($post['post_type'] ?? '') === 'check_in';
 }
 
+function dashboard_pagination_url(int $page): string
+{
+    $params = $_GET;
+    $params['page'] = max(1, $page);
+
+    return url('dashboard.php?' . http_build_query($params));
+}
+
+/**
+ * Upload helpers
+ */
+function dashboard_ensure_post_upload_dir(): void
+{
+    if (!is_dir(DASHBOARD_POST_UPLOAD_DIR)) {
+        if (!mkdir(DASHBOARD_POST_UPLOAD_DIR, 0755, true) && !is_dir(DASHBOARD_POST_UPLOAD_DIR)) {
+            throw new RuntimeException('Could not create post upload directory.');
+        }
+    }
+}
+
+function dashboard_upload_post_photos(PDO $pdo, int $postId, string $fieldName = 'photos'): array
+{
+    if (empty($_FILES[$fieldName]) || !is_array($_FILES[$fieldName])) {
+        return [];
+    }
+
+    $files = $_FILES[$fieldName];
+
+    if (!isset($files['name']) || !is_array($files['name'])) {
+        return [];
+    }
+
+    dashboard_ensure_post_upload_dir();
+
+    $allowedMimeTypes = [
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/webp' => 'webp',
+        'image/gif' => 'gif',
+    ];
+
+    $uploadedPaths = [];
+
+    $stmt = $pdo->prepare(
+        'SELECT COALESCE(MAX(sort_order), -1)
+         FROM post_photos
+         WHERE post_id = ?'
+    );
+
+    try {
+        $stmt->execute([$postId]);
+        $sortOrder = (int)$stmt->fetchColumn() + 1;
+    } catch (Throwable $exception) {
+        $sortOrder = 0;
+    }
+
+    $count = count($files['name']);
+
+    for ($i = 0; $i < $count; $i++) {
+        $error = $files['error'][$i] ?? UPLOAD_ERR_NO_FILE;
+
+        if ($error === UPLOAD_ERR_NO_FILE) {
+            continue;
+        }
+
+        if ($error !== UPLOAD_ERR_OK) {
+            throw new RuntimeException('One of the uploaded photos failed.');
+        }
+
+        $tmpName = $files['tmp_name'][$i] ?? '';
+        $size = (int)($files['size'][$i] ?? 0);
+        $originalName = (string)($files['name'][$i] ?? '');
+
+        if ($size > 8 * 1024 * 1024) {
+            throw new RuntimeException('Each photo must be smaller than 8MB.');
+        }
+
+        if (!is_uploaded_file($tmpName)) {
+            throw new RuntimeException('One of the uploaded photos was invalid.');
+        }
+
+        $imageInfo = getimagesize($tmpName);
+
+        if ($imageInfo === false) {
+            throw new RuntimeException('Please upload image files only.');
+        }
+
+        $mimeType = $imageInfo['mime'] ?? '';
+
+        if (!isset($allowedMimeTypes[$mimeType])) {
+            throw new RuntimeException('Photos must be JPG, PNG, WEBP or GIF.');
+        }
+
+        $extension = $allowedMimeTypes[$mimeType];
+        $filename = 'post-' . $postId . '-' . bin2hex(random_bytes(10)) . '.' . $extension;
+        $destination = rtrim(DASHBOARD_POST_UPLOAD_DIR, '/') . '/' . $filename;
+
+        if (!move_uploaded_file($tmpName, $destination)) {
+            throw new RuntimeException('Could not save one of the uploaded photos.');
+        }
+
+        $publicPath = DASHBOARD_POST_UPLOAD_PUBLIC_PATH . $filename;
+
+        $stmt = $pdo->prepare(
+            'INSERT INTO post_photos
+                (post_id, photo_url, original_filename, sort_order)
+             VALUES
+                (?, ?, ?, ?)'
+        );
+
+        $stmt->execute([
+            $postId,
+            $publicPath,
+            $originalName,
+            $sortOrder,
+        ]);
+
+        $uploadedPaths[] = $publicPath;
+        $sortOrder++;
+    }
+
+    return $uploadedPaths;
+}
+
 /**
  * Finland/check-in helpers
  */
-
 function dashboard_finland_now(): DateTime
 {
     return new DateTime('now', new DateTimeZone(DASHBOARD_FINLAND_TIMEZONE));
@@ -294,7 +418,6 @@ function dashboard_checkin_state(array $team, ?array $latestLocation, bool $hasP
 
 /**
  * Leader-only post actions.
- * Location/check-in posts cannot be edited/deleted from here.
  */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isLeader) {
     $action = $_POST['action'] ?? '';
@@ -327,7 +450,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isLeader) {
 
             if ($newPinnedState === 1) {
                 $pdo->beginTransaction();
-
                 $pdo->exec('UPDATE posts SET is_pinned = 0');
 
                 $stmt = $pdo->prepare('UPDATE posts SET is_pinned = 1 WHERE id = ?');
@@ -346,11 +468,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isLeader) {
             $pdo->beginTransaction();
 
             try {
-                try {
+                if (dashboard_table_exists($pdo, 'post_photos')) {
                     $stmt = $pdo->prepare('DELETE FROM post_photos WHERE post_id = ?');
                     $stmt->execute([$postId]);
-                } catch (Throwable $ignored) {
-                    // post_photos may not exist on older installs.
                 }
 
                 $stmt = $pdo->prepare('DELETE FROM posts WHERE id = ?');
@@ -373,6 +493,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isLeader) {
             $postType = $_POST['post_type'] ?? 'general';
             $photoUrl = trim($_POST['photo_url'] ?? '');
             $isPinned = isset($_POST['is_pinned']) ? 1 : 0;
+            $clearMainPhoto = isset($_POST['clear_main_photo']) ? 1 : 0;
+            $removePhotoIds = $_POST['remove_photo_ids'] ?? [];
+
+            if (!is_array($removePhotoIds)) {
+                $removePhotoIds = [];
+            }
+
+            $removePhotoIds = array_values(array_filter(array_map('intval', $removePhotoIds)));
 
             if ($title === '') {
                 throw new RuntimeException('Post title is required.');
@@ -392,6 +520,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isLeader) {
 
             if (!in_array($postType, ['general', 'team_update', 'photo', 'important'], true)) {
                 $postType = 'general';
+            }
+
+            if ($clearMainPhoto === 1) {
+                $photoUrl = '';
             }
 
             $pdo->beginTransaction();
@@ -426,6 +558,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isLeader) {
                     (int)$user['id'],
                     $postId,
                 ]);
+
+                if (dashboard_table_exists($pdo, 'post_photos') && !empty($removePhotoIds)) {
+                    $placeholders = implode(',', array_fill(0, count($removePhotoIds), '?'));
+                    $params = array_merge([$postId], $removePhotoIds);
+
+                    $stmt = $pdo->prepare(
+                        'DELETE FROM post_photos
+                         WHERE post_id = ?
+                           AND id IN (' . $placeholders . ')'
+                    );
+
+                    $stmt->execute($params);
+                }
+
+                $uploadedPhotos = [];
+
+                if (dashboard_table_exists($pdo, 'post_photos')) {
+                    $uploadedPhotos = dashboard_upload_post_photos($pdo, $postId, 'photos');
+                }
+
+                /**
+                 * If the legacy posts.photo_url is empty and new photos were uploaded,
+                 * store the first uploaded photo there for backwards compatibility.
+                 */
+                if ($photoUrl === '' && !empty($uploadedPhotos)) {
+                    $stmt = $pdo->prepare('UPDATE posts SET photo_url = ? WHERE id = ?');
+                    $stmt->execute([$uploadedPhotos[0], $postId]);
+                }
 
                 $pdo->commit();
 
@@ -462,6 +622,13 @@ foreach ($teams as $team) {
 }
 
 /**
+ * Pagination.
+ */
+$page = max(1, (int)($_GET['page'] ?? 1));
+$postsPerPage = DASHBOARD_POSTS_PER_PAGE;
+$offset = ($page - 1) * $postsPerPage;
+
+/**
  * Dynamic leader profile column.
  */
 $leaderBioSelect = 'NULL AS leader_bio';
@@ -475,10 +642,18 @@ if (dashboard_column_exists($pdo, 'leaders', 'bio')) {
 }
 
 /**
- * Fetch feed.
+ * Fetch feed with pagination.
  */
+$totalPosts = 0;
+
 if ($isLeader) {
-    $stmt = $pdo->query(
+    $totalPosts = (int)$pdo->query(
+        'SELECT COUNT(*)
+         FROM posts p
+         WHERE p.is_published = 1'
+    )->fetchColumn();
+
+    $stmt = $pdo->prepare(
         'SELECT 
             p.*, 
             t.name AS team_name, 
@@ -492,9 +667,12 @@ if ($isLeader) {
          LEFT JOIN leaders eb ON eb.id = p.edited_by
          WHERE p.is_published = 1
          ORDER BY p.is_pinned DESC, p.published_at DESC 
-         LIMIT 50'
+         LIMIT ? OFFSET ?'
     );
 
+    $stmt->bindValue(1, $postsPerPage, PDO::PARAM_INT);
+    $stmt->bindValue(2, $offset, PDO::PARAM_INT);
+    $stmt->execute();
     $feedPosts = $stmt->fetchAll();
 
     $stmt = $pdo->query(
@@ -513,6 +691,19 @@ if ($isLeader) {
     $recentLocations = $stmt->fetchAll();
 } else {
     $stmt = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM posts p
+         WHERE p.is_published = 1
+           AND (
+                p.visibility = "public"
+                OR p.team_id = ?
+           )'
+    );
+
+    $stmt->execute([(int)$parentTeam['id']]);
+    $totalPosts = (int)$stmt->fetchColumn();
+
+    $stmt = $pdo->prepare(
         'SELECT 
             p.*, 
             t.name AS team_name, 
@@ -530,10 +721,13 @@ if ($isLeader) {
                 OR p.team_id = ?
            )
          ORDER BY p.is_pinned DESC, p.published_at DESC 
-         LIMIT 50'
+         LIMIT ? OFFSET ?'
     );
 
-    $stmt->execute([(int)$parentTeam['id']]);
+    $stmt->bindValue(1, (int)$parentTeam['id'], PDO::PARAM_INT);
+    $stmt->bindValue(2, $postsPerPage, PDO::PARAM_INT);
+    $stmt->bindValue(3, $offset, PDO::PARAM_INT);
+    $stmt->execute();
     $feedPosts = $stmt->fetchAll();
 
     $stmt = $pdo->prepare(
@@ -554,6 +748,12 @@ if ($isLeader) {
     $recentLocations = $stmt->fetchAll();
 }
 
+$totalPages = max(1, (int)ceil($totalPosts / $postsPerPage));
+
+if ($page > $totalPages && $totalPages > 0) {
+    redirect('dashboard.php?page=' . $totalPages);
+}
+
 /**
  * Fetch multiple photos for posts.
  */
@@ -562,7 +762,7 @@ $postIds = array_map(static function ($post) {
     return (int)$post['id'];
 }, $feedPosts);
 
-if (!empty($postIds)) {
+if (!empty($postIds) && dashboard_table_exists($pdo, 'post_photos')) {
     try {
         $placeholders = implode(',', array_fill(0, count($postIds), '?'));
 
@@ -630,7 +830,7 @@ foreach ($recentLocations as $location) {
 }
 
 /**
- * Locations grouped by team, newest first.
+ * Locations grouped by team.
  */
 $locationsByTeam = [];
 
@@ -645,7 +845,7 @@ foreach ($recentLocations as $location) {
 }
 
 /**
- * Pending Explorer check-ins today, for leader check-in state panel.
+ * Pending Explorer check-ins today.
  */
 $pendingCheckinTodayByTeam = [];
 
@@ -674,7 +874,7 @@ if (dashboard_table_exists($pdo, 'explorer_checkins') && !empty($visibleTeamIds)
 }
 
 /**
- * Match check-in posts to closest location record for that team.
+ * Match check-in posts to closest location record.
  */
 $postLocationByPostId = [];
 
@@ -750,7 +950,7 @@ include __DIR__ . '/header.php';
 
     .dashboard-layout {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 380px;
+        grid-template-columns: minmax(0, 1fr) 390px;
         gap: 1.5rem;
         align-items: start;
     }
@@ -1033,12 +1233,6 @@ include __DIR__ . '/header.php';
         text-decoration: none;
     }
 
-    .team-face-link:hover,
-    .team-face-link:focus {
-        transform: translateY(-1px);
-        text-decoration: none;
-    }
-
     .feed-map {
         height: 230px;
         border: 2px solid #1d1d1d;
@@ -1064,6 +1258,122 @@ include __DIR__ . '/header.php';
     .sidebar-panel h2 {
         margin-top: 0;
         font-weight: 900;
+    }
+
+    .checkin-state-list {
+        display: grid;
+        gap: 0.75rem;
+    }
+
+    .checkin-state-card {
+        display: block;
+        width: 100%;
+        border: 4px solid #b1b4b6;
+        background: #ffffff;
+        padding: 0.85rem;
+        color: #1d1d1d;
+        text-decoration: none;
+        margin: 0;
+    }
+
+    .checkin-state-card:hover,
+    .checkin-state-card:focus {
+        color: #1d1d1d;
+        text-decoration: none;
+        box-shadow: 0 0 0 3px #ffdd00;
+    }
+
+    .checkin-state-card h3 {
+        font-size: 1.05rem;
+        margin: 0 0 0.45rem;
+        font-weight: 900;
+        color: #1d1d1d;
+    }
+
+    .checkin-state-label {
+        display: inline-block;
+        font-weight: 900;
+        margin-bottom: 0.35rem;
+        border: 2px solid #1d1d1d;
+        padding: 0.15rem 0.35rem;
+        background: #ffffff;
+    }
+
+    .checkin-state-detail {
+        color: #505a5f;
+        margin-bottom: 0;
+        font-size: 0.9rem;
+        line-height: 1.35;
+    }
+
+    .checkin-team-faces {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.2rem;
+        margin: 0.55rem 0 0;
+    }
+
+    .checkin-team-face,
+    .checkin-team-face-placeholder {
+        width: 26px;
+        height: 26px;
+        max-width: 26px;
+        max-height: 26px;
+        border-radius: 50%;
+        border: 2px solid #ffffff;
+        box-shadow: 0 0 0 1px #1d1d1d;
+        object-fit: cover;
+        background: #f3f2f1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.65rem;
+        font-weight: 900;
+        color: #1d1d1d;
+    }
+
+    .checkin-state-approved {
+        border-color: #00703c;
+    }
+
+    .checkin-state-approved .checkin-state-label {
+        background: #00703c;
+        border-color: #00703c;
+        color: #ffffff;
+    }
+
+    .checkin-state-overdue {
+        border-color: #ffdd00;
+        background: #fff7bf;
+    }
+
+    .checkin-state-overdue .checkin-state-label {
+        background: #ffdd00;
+        border-color: #1d1d1d;
+        color: #1d1d1d;
+    }
+
+    .checkin-state-pending {
+        border: 4px solid transparent;
+        background:
+            linear-gradient(#ffffff, #ffffff) padding-box,
+            repeating-linear-gradient(
+                45deg,
+                #00703c 0,
+                #00703c 10px,
+                #ffdd00 10px,
+                #ffdd00 20px
+            ) border-box;
+    }
+
+    .checkin-state-pending .checkin-state-label {
+        background: #ffdd00;
+        color: #1d1d1d;
+    }
+
+    .checkin-state-normal {
+        border-color: #b1b4b6;
+        background: #f8f8f8;
     }
 
     .location-summary {
@@ -1108,57 +1418,6 @@ include __DIR__ . '/header.php';
         font-size: 0.95rem;
         margin-top: 0.5rem;
         margin-bottom: 0;
-    }
-
-    .checkin-state-card {
-        border: 4px solid #b1b4b6;
-        background: #ffffff;
-        padding: 0.85rem;
-        margin-bottom: 0.75rem;
-    }
-
-    .checkin-state-card h3 {
-        font-size: 1rem;
-        margin: 0 0 0.35rem;
-        font-weight: 900;
-    }
-
-    .checkin-state-label {
-        font-weight: 900;
-        margin-bottom: 0.25rem;
-    }
-
-    .checkin-state-detail {
-        color: #505a5f;
-        margin-bottom: 0;
-        font-size: 0.9rem;
-    }
-
-    .checkin-state-approved {
-        border-color: #00703c;
-    }
-
-    .checkin-state-overdue {
-        border-color: #ffdd00;
-        background: #fff7bf;
-    }
-
-    .checkin-state-pending {
-        border: 4px solid transparent;
-        background:
-            linear-gradient(#ffffff, #ffffff) padding-box,
-            repeating-linear-gradient(
-                45deg,
-                #00703c 0,
-                #00703c 10px,
-                #ffdd00 10px,
-                #ffdd00 20px
-            ) border-box;
-    }
-
-    .checkin-state-normal {
-        border-color: #b1b4b6;
-        background: #f8f8f8;
     }
 
     .muted {
@@ -1219,6 +1478,63 @@ include __DIR__ . '/header.php';
         border: 0;
         font-size: 1rem;
     }
+
+    .edit-photo-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+    }
+
+    @media (max-width: 720px) {
+        .edit-photo-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .edit-photo-item {
+        border: 2px solid #d8d8d8;
+        padding: 0.5rem;
+        background: #f8f8f8;
+    }
+
+    .edit-photo-item img {
+        width: 100%;
+        height: 120px;
+        object-fit: cover;
+        border: 2px solid #d8d8d8;
+        background: #ffffff;
+        display: block;
+        margin-bottom: 0.5rem;
+    }
+
+    .pagination-wrap {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin: 1.5rem 0;
+        align-items: center;
+    }
+
+    .pagination-link,
+    .pagination-current {
+        display: inline-block;
+        border: 2px solid #1d70b8;
+        padding: 0.45rem 0.7rem;
+        font-weight: 900;
+        text-decoration: none;
+    }
+
+    .pagination-current {
+        background: #1d70b8;
+        color: #ffffff;
+    }
+
+    .pagination-link:hover,
+    .pagination-link:focus {
+        background: #eef7ff;
+        text-decoration: none;
+    }
 </style>
 
 <section class="page-hero">
@@ -1250,21 +1566,10 @@ include __DIR__ . '/header.php';
 
     <?php if ($isLeader): ?>
         <div class="dashboard-actions">
-            <a class="btn btn-primary" href="<?= e(url('add_update.php')) ?>">
-                Add update
-            </a>
-
-            <a class="btn btn-outline-primary" href="<?= e(url('team_links.php')) ?>">
-                Manage teams
-            </a>
-
-            <a class="btn btn-outline-primary" href="<?= e(url('leaders.php')) ?>">
-                Manage leaders
-            </a>
-
-            <a class="btn btn-primary" href="<?= e(url('email_all.php')) ?>">
-                Email to all
-            </a>
+            <a class="btn btn-primary" href="<?= e(url('add_update.php')) ?>">Add update</a>
+            <a class="btn btn-outline-primary" href="<?= e(url('team_links.php')) ?>">Manage teams</a>
+            <a class="btn btn-outline-primary" href="<?= e(url('leaders.php')) ?>">Manage leaders</a>
+            <a class="btn btn-primary" href="<?= e(url('email_all.php')) ?>">Email to all</a>
         </div>
     <?php endif; ?>
 
@@ -1273,6 +1578,11 @@ include __DIR__ . '/header.php';
         <div>
             <section class="mb-4">
                 <h2>Updates feed</h2>
+
+                <p class="muted">
+                    Showing page <?= (int)$page ?> of <?= (int)$totalPages ?>.
+                    <?= (int)$totalPosts ?> published update<?= $totalPosts === 1 ? '' : 's' ?> total.
+                </p>
 
                 <?php if (empty($feedPosts)): ?>
                     <div class="empty-feed">
@@ -1409,6 +1719,7 @@ include __DIR__ . '/header.php';
                                         $memberPhoto = !empty($member['photo_url']) ? media_url($member['photo_url']) : '';
                                         $memberName = (string)$member['name'];
                                         ?>
+
                                         <?php if ($isLeader): ?>
                                             <a
                                                 class="team-face-link"
@@ -1551,7 +1862,7 @@ include __DIR__ . '/header.php';
                         >
                             <div class="modal-dialog modal-lg" role="document">
                                 <div class="modal-content">
-                                    <form method="post" class="js-edit-post-form">
+                                    <form method="post" enctype="multipart/form-data" class="js-edit-post-form">
                                         <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
                                         <input type="hidden" name="action" value="edit_post">
                                         <input type="hidden" name="post_id" value="<?= $postId ?>">
@@ -1568,7 +1879,7 @@ include __DIR__ . '/header.php';
 
                                         <div class="modal-body">
                                             <div class="edit-help">
-                                                Use the editor below to update the message. Edited posts will show an edited label in the feed.
+                                                Use the editor below to update the message, post settings and photos.
                                             </div>
 
                                             <div class="form-group">
@@ -1594,16 +1905,8 @@ include __DIR__ . '/header.php';
                                                     ></div>
                                                 </div>
 
-                                                <textarea
-                                                    id="body_html<?= $postId ?>"
-                                                    name="body_html"
-                                                    hidden
-                                                ></textarea>
-
-                                                <textarea
-                                                    id="body_source<?= $postId ?>"
-                                                    hidden
-                                                ><?= e((string)$post['body']) ?></textarea>
+                                                <textarea id="body_html<?= $postId ?>" name="body_html" hidden></textarea>
+                                                <textarea id="body_source<?= $postId ?>" hidden><?= e((string)$post['body']) ?></textarea>
 
                                                 <small class="form-text text-muted">
                                                     Basic formatting, links, lists and colours are supported.
@@ -1660,7 +1963,7 @@ include __DIR__ . '/header.php';
                                                 </div>
 
                                                 <div class="form-group col-md-6">
-                                                    <label for="photo_url<?= $postId ?>">External photo URL</label>
+                                                    <label for="photo_url<?= $postId ?>">External/main photo URL</label>
                                                     <input
                                                         class="form-control"
                                                         id="photo_url<?= $postId ?>"
@@ -1668,7 +1971,65 @@ include __DIR__ . '/header.php';
                                                         type="url"
                                                         value="<?= e($post['photo_url'] ?? '') ?>"
                                                     >
+
+                                                    <?php if (!empty($post['photo_url'])): ?>
+                                                        <div class="form-check mt-2">
+                                                            <input
+                                                                class="form-check-input"
+                                                                type="checkbox"
+                                                                id="clear_main_photo<?= $postId ?>"
+                                                                name="clear_main_photo"
+                                                                value="1"
+                                                            >
+                                                            <label class="form-check-label" for="clear_main_photo<?= $postId ?>">
+                                                                Clear current external/main photo URL
+                                                            </label>
+                                                        </div>
+                                                    <?php endif; ?>
                                                 </div>
+                                            </div>
+
+                                            <?php if (!empty($postPhotos)): ?>
+                                                <h3>Current uploaded photos</h3>
+
+                                                <div class="edit-photo-grid">
+                                                    <?php foreach ($postPhotos as $photo): ?>
+                                                        <?php if (!empty($photo['photo_url'])): ?>
+                                                            <div class="edit-photo-item">
+                                                                <img src="<?= e(media_url($photo['photo_url'])) ?>" alt="">
+
+                                                                <div class="form-check">
+                                                                    <input
+                                                                        class="form-check-input"
+                                                                        type="checkbox"
+                                                                        id="remove_photo_<?= (int)$photo['id'] ?>"
+                                                                        name="remove_photo_ids[]"
+                                                                        value="<?= (int)$photo['id'] ?>"
+                                                                    >
+                                                                    <label class="form-check-label" for="remove_photo_<?= (int)$photo['id'] ?>">
+                                                                        Remove this photo
+                                                                    </label>
+                                                                </div>
+                                                            </div>
+                                                        <?php endif; ?>
+                                                    <?php endforeach; ?>
+                                                </div>
+                                            <?php endif; ?>
+
+                                            <div class="form-group">
+                                                <label for="photos<?= $postId ?>">Upload new photos</label>
+                                                <input
+                                                    class="form-control"
+                                                    id="photos<?= $postId ?>"
+                                                    name="photos[]"
+                                                    type="file"
+                                                    accept="image/jpeg,image/png,image/webp,image/gif"
+                                                    multiple
+                                                >
+
+                                                <small class="form-text text-muted">
+                                                    JPG, PNG, WEBP or GIF. Maximum 8MB per photo.
+                                                </small>
                                             </div>
 
                                             <div class="form-check">
@@ -1700,6 +2061,53 @@ include __DIR__ . '/header.php';
                         </div>
                     <?php endif; ?>
                 <?php endforeach; ?>
+
+                <?php if ($totalPages > 1): ?>
+                    <nav class="pagination-wrap" aria-label="Updates pagination">
+                        <?php if ($page > 1): ?>
+                            <a class="pagination-link" href="<?= e(dashboard_pagination_url($page - 1)) ?>">
+                                Previous
+                            </a>
+                        <?php endif; ?>
+
+                        <?php
+                        $startPage = max(1, $page - 2);
+                        $endPage = min($totalPages, $page + 2);
+                        ?>
+
+                        <?php if ($startPage > 1): ?>
+                            <a class="pagination-link" href="<?= e(dashboard_pagination_url(1)) ?>">1</a>
+                            <?php if ($startPage > 2): ?>
+                                <span class="muted">...</span>
+                            <?php endif; ?>
+                        <?php endif; ?>
+
+                        <?php for ($i = $startPage; $i <= $endPage; $i++): ?>
+                            <?php if ($i === $page): ?>
+                                <span class="pagination-current"><?= (int)$i ?></span>
+                            <?php else: ?>
+                                <a class="pagination-link" href="<?= e(dashboard_pagination_url($i)) ?>">
+                                    <?= (int)$i ?>
+                                </a>
+                            <?php endif; ?>
+                        <?php endfor; ?>
+
+                        <?php if ($endPage < $totalPages): ?>
+                            <?php if ($endPage < $totalPages - 1): ?>
+                                <span class="muted">...</span>
+                            <?php endif; ?>
+                            <a class="pagination-link" href="<?= e(dashboard_pagination_url($totalPages)) ?>">
+                                <?= (int)$totalPages ?>
+                            </a>
+                        <?php endif; ?>
+
+                        <?php if ($page < $totalPages): ?>
+                            <a class="pagination-link" href="<?= e(dashboard_pagination_url($page + 1)) ?>">
+                                Next
+                            </a>
+                        <?php endif; ?>
+                    </nav>
+                <?php endif; ?>
             </section>
         </div>
 
@@ -1717,40 +2125,80 @@ include __DIR__ . '/header.php';
 
                     <?php if (empty($teams)): ?>
                         <p class="muted mb-0">No teams found.</p>
+                    <?php else: ?>
+                        <div class="checkin-state-list">
+                            <?php foreach ($teams as $team): ?>
+                                <?php
+                                $teamId = (int)$team['id'];
+                                $latestLocation = $latestLocationByTeam[$teamId] ?? null;
+                                $hasPendingToday = !empty($pendingCheckinTodayByTeam[$teamId]);
+                                $state = dashboard_checkin_state($team, $latestLocation, $hasPendingToday);
+                                $teamMembers = $teamMembersByTeam[$teamId] ?? [];
+                                ?>
+
+                                <a
+                                    class="checkin-state-card <?= e($state['class']) ?>"
+                                    href="<?= e(url('team_links.php?view=team&team_id=' . $teamId . '&tab=pending')) ?>"
+                                >
+                                    <h3><?= e($team['name']) ?></h3>
+
+                                    <span class="checkin-state-label">
+                                        <?= e($state['label']) ?>
+                                    </span>
+
+                                    <p class="checkin-state-detail">
+                                        <?= e($state['detail']) ?>
+
+                                        <?php if ($latestLocation): ?>
+                                            <br>
+                                            Last approved:
+                                            <?= e(format_datetime($latestLocation['checked_in_at'])) ?>
+                                        <?php endif; ?>
+                                    </p>
+
+                                    <?php if (!empty($teamMembers)): ?>
+                                        <div class="checkin-team-faces" aria-label="Team members">
+                                            <?php foreach (array_slice($teamMembers, 0, 10) as $member): ?>
+                                                <?php
+                                                $memberPhoto = !empty($member['photo_url']) ? media_url($member['photo_url']) : '';
+                                                $memberName = (string)$member['name'];
+                                                ?>
+
+                                                <?php if ($memberPhoto !== ''): ?>
+                                                    <img
+                                                        class="checkin-team-face"
+                                                        src="<?= e($memberPhoto) ?>"
+                                                        alt=""
+                                                        title="<?= e($memberName) ?>"
+                                                    >
+                                                <?php else: ?>
+                                                    <span
+                                                        class="checkin-team-face-placeholder"
+                                                        title="<?= e($memberName) ?>"
+                                                    >
+                                                        <?= e(initials_from_name($memberName)) ?>
+                                                    </span>
+                                                <?php endif; ?>
+                                            <?php endforeach; ?>
+
+                                            <?php if (count($teamMembers) > 10): ?>
+                                                <span class="checkin-team-face-placeholder">
+                                                    +<?= count($teamMembers) - 10 ?>
+                                                </span>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php endif; ?>
+                                </a>
+                            <?php endforeach; ?>
+                        </div>
                     <?php endif; ?>
-
-                    <?php foreach ($teams as $team): ?>
-                        <?php
-                        $teamId = (int)$team['id'];
-                        $latestLocation = $latestLocationByTeam[$teamId] ?? null;
-                        $hasPendingToday = !empty($pendingCheckinTodayByTeam[$teamId]);
-                        $state = dashboard_checkin_state($team, $latestLocation, $hasPendingToday);
-                        ?>
-
-                        <a
-                            class="checkin-state-card <?= e($state['class']) ?>"
-                            href="<?= e(url('team_links.php?view=team&team_id=' . $teamId . '&tab=pending')) ?>"
-                        >
-                            <h3><?= e($team['name']) ?></h3>
-                            <p class="checkin-state-label"><?= e($state['label']) ?></p>
-
-                            <p class="checkin-state-detail">
-                                <?= e($state['detail']) ?>
-
-                                <?php if ($latestLocation): ?>
-                                    <br>
-                                    Last approved:
-                                    <?= e(format_datetime($latestLocation['checked_in_at'])) ?>
-                                <?php endif; ?>
-                            </p>
-                        </a>
-                    <?php endforeach; ?>
                 <?php else: ?>
                     <h2>Latest location</h2>
 
                     <div class="location-note">
                         <p>
-                            Locations are manually entered by leaders. If there is no location for a particular day,
+                            Times shown for check-ins and location
+        updates are Finland local time, normally UK time + 2 hours Locations are manually entered by leaders. If there is no location for a particular day,
                             this does not necessarily indicate an issue. There may simply be a delay in entering the update.
                         </p>
                     </div>
