@@ -178,16 +178,7 @@ a {
 
    
 
-    .site-logo-placeholder,
-    .compact-logo-placeholder {
-        width: 42px;
-        height: 42px;
-        min-width: 42px;
-        min-height: 42px;
-        max-width: 42px;
-        max-height: 42px;
-    }
-
+ 
     .site-brand-text,
     .compact-site-brand-text {
         font-size: 0.95rem;
