@@ -1252,6 +1252,10 @@ include __DIR__ . '/header.php';
         align-items: start;
     }
 
+    .team-detail-layout-full {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
     @media (max-width: 980px) {
         .team-detail-layout {
             grid-template-columns: 1fr;
@@ -1435,6 +1439,10 @@ include __DIR__ . '/header.php';
         height: 340px;
         border: 2px solid #1d1d1d;
         background: #f3f2f1;
+        margin-bottom: 1rem;
+    }
+
+    .review-map-actions {
         margin-bottom: 1rem;
     }
 
@@ -1640,7 +1648,7 @@ include __DIR__ . '/header.php';
             <?php endforeach; ?>
         </nav>
 
-        <div class="team-detail-layout">
+        <div class="team-detail-layout <?= $currentTab === 'overview' ? '' : 'team-detail-layout-full' ?>">
 
             <div>
 
@@ -1878,6 +1886,34 @@ include __DIR__ . '/header.php';
                                         <aside>
                                             <div class="review-facts">
                                                 <h4>Submitted details</h4>
+
+                                                <?php
+                                                $checkinLat = safe_float($checkin['latitude'] ?? null);
+                                                $checkinLng = safe_float($checkin['longitude'] ?? null);
+                                                $googleMapsUrl = ($checkinLat !== null && $checkinLng !== null)
+                                                    ? 'https://www.google.com/maps/search/?api=1&query=' . rawurlencode((string)$checkinLat . ',' . (string)$checkinLng)
+                                                    : '';
+                                                ?>
+
+                                                <?php if ($checkinLat !== null && $checkinLng !== null): ?>
+                                                    <div
+                                                        class="map-review js-review-checkin-map"
+                                                        data-lat="<?= e($checkinLat) ?>"
+                                                        data-lng="<?= e($checkinLng) ?>"
+                                                        data-label="<?= e($checkin['location_name'] ?: 'Submitted check-in location') ?>"
+                                                    ></div>
+
+                                                    <div class="review-map-actions">
+                                                        <a
+                                                            class="btn btn-outline-primary btn-sm"
+                                                            href="<?= e($googleMapsUrl) ?>"
+                                                            target="_blank"
+                                                            rel="noopener"
+                                                        >
+                                                            Open in Google Maps
+                                                        </a>
+                                                    </div>
+                                                <?php endif; ?>
 
                                                 <p>
                                                     <strong>Coordinates:</strong><br>
@@ -2291,9 +2327,10 @@ include __DIR__ . '/header.php';
 
             </div>
 
-            <aside>
-                <section class="teams-panel">
-                    <h2>Team members</h2>
+            <?php if ($currentTab === 'overview'): ?>
+                <aside>
+                    <section class="teams-panel">
+                        <h2>Team members</h2>
 
                     <?php if (empty($teamPeople)): ?>
                         <p class="muted mb-0">No young people are assigned to this team yet.</p>
@@ -2374,8 +2411,9 @@ include __DIR__ . '/header.php';
                             </span>
                         <?php endforeach; ?>
                     </div>
-                </section>
-            </aside>
+                    </section>
+                </aside>
+            <?php endif; ?>
 
         </div>
 
@@ -2583,6 +2621,33 @@ include __DIR__ . '/header.php';
         if (typeof L === 'undefined') {
             return;
         }
+
+        document.querySelectorAll('.js-review-checkin-map').forEach(function (reviewMapEl) {
+            var lat = parseFloat(reviewMapEl.dataset.lat);
+            var lng = parseFloat(reviewMapEl.dataset.lng);
+            var label = reviewMapEl.dataset.label || 'Submitted check-in location';
+
+            if (Number.isNaN(lat) || Number.isNaN(lng)) {
+                return;
+            }
+
+            var reviewMap = L.map(reviewMapEl, {
+                scrollWheelZoom: false
+            }).setView([lat, lng], 14);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(reviewMap);
+
+            L.marker([lat, lng])
+                .addTo(reviewMap)
+                .bindPopup(label);
+
+            setTimeout(function () {
+                reviewMap.invalidateSize();
+            }, 300);
+        });
 
         var mapEl = document.getElementById('manual-checkin-map');
 
