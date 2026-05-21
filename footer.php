@@ -3,9 +3,7 @@
 
         <div class="footer-main">
             <div class="footer-brand-block">
-                <div class="footer-brand-mark" aria-hidden="true">
-                    EB
-                </div>
+               
 
                 <div>
                     <h2 class="footer-title">
