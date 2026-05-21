@@ -712,9 +712,7 @@ if ($submittedSuccess) {
                 <strong><?= e(explorer_contact_phone()) ?></strong>.
             </p>
 
-            <p class="mb-0">
-                Leaders will review the check-in before it is added to the public parent update page.
-            </p>
+            
         </section>
 
         <p>

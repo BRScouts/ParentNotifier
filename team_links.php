@@ -14,7 +14,7 @@ const CHECKIN_OVERDUE_HOUR_FINLAND = 19;
 $error = '';
 
 /**
- * Helpers
+ * Token and text helpers
  */
 
 function generate_parent_token(): string
@@ -83,14 +83,37 @@ function distance_km(float $lat1, float $lon1, float $lat2, float $lon2): float
     $a = sin($deltaLat / 2) ** 2
         + cos($lat1Rad) * cos($lat2Rad) * sin($deltaLon / 2) ** 2;
 
-    $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
-
-    return $earthRadiusKm * $c;
+    return 6371.0 * (2 * atan2(sqrt($a), sqrt(1 - $a)));
 }
 
 function miles_from_km(float $km): float
 {
     return $km * 0.621371;
+}
+
+function json_items(?string $json): array
+{
+    if (!$json) {
+        return [];
+    }
+
+    $decoded = json_decode($json, true);
+
+    if (!is_array($decoded)) {
+        return [];
+    }
+
+    return array_values(array_filter($decoded, static function ($item) {
+        if (is_string($item)) {
+            return trim($item) !== '';
+        }
+
+        if (is_array($item)) {
+            return !empty(array_filter($item));
+        }
+
+        return false;
+    }));
 }
 
 function person_display_name(array $person): string
@@ -125,34 +148,69 @@ function person_initials(string $name): string
     return $letters !== '' ? $letters : '?';
 }
 
-function json_items(?string $json): array
+function leader_initials(?string $name): string
 {
-    if (!$json) {
-        return [];
-    }
-
-    $decoded = json_decode($json, true);
-
-    if (!is_array($decoded)) {
-        return [];
-    }
-
-    return array_values(array_filter($decoded, static function ($item) {
-        if (is_string($item)) {
-            return trim($item) !== '';
-        }
-
-        if (is_array($item)) {
-            return !empty(array_filter($item));
-        }
-
-        return false;
-    }));
+    return person_initials($name ?: 'Leader');
 }
 
 function person_has_allergies(array $person): bool
 {
     return count(json_items($person['allergies_json'] ?? null)) > 0;
+}
+
+function media_url(?string $path): string
+{
+    $path = trim((string)$path);
+
+    if ($path === '') {
+        return '';
+    }
+
+    if (preg_match('/^https?:\/\//i', $path)) {
+        return $path;
+    }
+
+    return url($path);
+}
+
+/**
+ * Date/check-in helpers
+ */
+
+function finland_now(): DateTime
+{
+    return new DateTime('now', new DateTimeZone(FINLAND_TIMEZONE));
+}
+
+function finland_today(): string
+{
+    return finland_now()->format('Y-m-d');
+}
+
+function finland_hour(): int
+{
+    return (int)finland_now()->format('G');
+}
+
+function date_in_finland(?string $datetime): ?string
+{
+    if (!$datetime) {
+        return null;
+    }
+
+    try {
+        $dt = new DateTime($datetime);
+        $dt->setTimezone(new DateTimeZone(FINLAND_TIMEZONE));
+
+        return $dt->format('Y-m-d');
+    } catch (Throwable $exception) {
+        return date('Y-m-d', strtotime($datetime));
+    }
+}
+
+function checked_in_today_finland(?string $datetime): bool
+{
+    return date_in_finland($datetime) === finland_today();
 }
 
 function checkin_dates(): array
@@ -174,6 +232,10 @@ function checkin_dates(): array
     return $dates;
 }
 
+/**
+ * Data helpers
+ */
+
 function fetch_team(PDO $pdo, int $teamId): ?array
 {
     $stmt = $pdo->prepare('SELECT * FROM teams WHERE id = ? LIMIT 1');
@@ -183,34 +245,14 @@ function fetch_team(PDO $pdo, int $teamId): ?array
     return $team ?: null;
 }
 
-function finland_today(): string
+function team_parent_link(array $team): string
 {
-    return (new DateTime('now', new DateTimeZone(FINLAND_TIMEZONE)))->format('Y-m-d');
+    return url('dashboard.php?token=' . $team['parent_token']);
 }
 
-function finland_hour(): int
+function team_explorer_link(array $team): string
 {
-    return (int)(new DateTime('now', new DateTimeZone(FINLAND_TIMEZONE)))->format('G');
-}
-
-function date_in_finland(?string $datetime): ?string
-{
-    if (!$datetime) {
-        return null;
-    }
-
-    try {
-        $dt = new DateTime($datetime);
-        $dt->setTimezone(new DateTimeZone(FINLAND_TIMEZONE));
-        return $dt->format('Y-m-d');
-    } catch (Throwable $exception) {
-        return date('Y-m-d', strtotime($datetime));
-    }
-}
-
-function checked_in_today_finland(?string $datetime): bool
-{
-    return date_in_finland($datetime) === finland_today();
+    return url('explorer_checkin.php?token=' . $team['explorer_token']);
 }
 
 function member_reports_summary(?string $json): array
@@ -246,7 +288,7 @@ function checkin_status_class(string $status): string
 function checkin_status_label(string $status): string
 {
     if ($status === 'reviewed') {
-        return 'Reviewed / posted';
+        return 'Approved and published';
     }
 
     if ($status === 'rejected') {
@@ -256,20 +298,14 @@ function checkin_status_label(string $status): string
     return 'Pending review';
 }
 
-function team_parent_link(array $team): string
-{
-    return url('team.php?token=' . $team['parent_token']);
-}
-
-function team_explorer_link(array $team): string
-{
-    return url('explorer_checkin.php?token=' . $team['explorer_token']);
-}
-
-function build_parent_checkin_body(string $teamName, string $locationName, string $publicNote, string $accommodationType): string
-{
-    if ($publicNote !== '') {
-        return $publicNote;
+function build_parent_checkin_body(
+    string $teamName,
+    string $locationName,
+    string $publicNote,
+    string $accommodationType
+): string {
+    if (trim($publicNote) !== '') {
+        return trim($publicNote);
     }
 
     $body = $teamName . ' has checked in for the evening.';
@@ -287,8 +323,15 @@ function build_parent_checkin_body(string $teamName, string $locationName, strin
     return $body;
 }
 
-function queue_parent_checkin_emails(PDO $pdo, int $teamId, string $teamName, string $subject, string $body, string $parentLink): int
-{
+function queue_parent_checkin_emails(
+    PDO $pdo,
+    int $teamId,
+    string $subject,
+    string $body,
+    string $parentLink,
+    ?int $postId = null,
+    ?int $locationId = null
+): int {
     $stmt = $pdo->prepare(
         'SELECT parent_emails_json
          FROM young_people
@@ -317,9 +360,9 @@ function queue_parent_checkin_emails(PDO $pdo, int $teamId, string $teamName, st
 
     $insert = $pdo->prepare(
         'INSERT INTO email_queue
-            (to_email, subject, content, related_team_id)
+            (to_email, subject, content, related_team_id, related_post_id, related_location_id)
          VALUES
-            (?, ?, ?, ?)'
+            (?, ?, ?, ?, ?, ?)'
     );
 
     $count = 0;
@@ -330,6 +373,8 @@ function queue_parent_checkin_emails(PDO $pdo, int $teamId, string $teamName, st
             $subject,
             $content,
             $teamId,
+            $postId,
+            $locationId,
         ]);
 
         $count++;
@@ -377,6 +422,8 @@ function create_reviewed_location_and_post(
         $internalNote,
     ]);
 
+    $locationId = (int)$pdo->lastInsertId();
+
     $stmt = $pdo->prepare(
         'UPDATE teams
          SET status = ?,
@@ -411,15 +458,16 @@ function create_reviewed_location_and_post(
         $feedBody,
     ]);
 
-    $parentLink = team_parent_link($team);
+    $postId = (int)$pdo->lastInsertId();
 
     queue_parent_checkin_emails(
         $pdo,
         $teamId,
-        $teamName,
         $teamName . ' check-in update',
         $feedBody,
-        $parentLink
+        team_parent_link($team),
+        $postId,
+        $locationId
     );
 
     if ($checkinId !== null) {
@@ -489,9 +537,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $isPublic,
             ]);
 
-            $newTeamId = (int)$pdo->lastInsertId();
-
-            redirect('team_links.php?view=team&team_id=' . $newTeamId);
+            redirect('team_links.php?view=team&team_id=' . (int)$pdo->lastInsertId());
         }
     }
 
@@ -539,13 +585,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($teamId > 0) {
             $stmt = $pdo->prepare('UPDATE teams SET parent_token = ? WHERE id = ?');
-            $stmt->execute([
-                generate_parent_token(),
-                $teamId,
-            ]);
+            $stmt->execute([generate_parent_token(), $teamId]);
         }
 
-        redirect('team_links.php?view=team&team_id=' . $teamId);
+        redirect('team_links.php?view=team&team_id=' . $teamId . '&tab=links');
     }
 
     if ($action === 'regenerate_explorer_token') {
@@ -553,13 +596,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($teamId > 0) {
             $stmt = $pdo->prepare('UPDATE teams SET explorer_token = ? WHERE id = ?');
-            $stmt->execute([
-                generate_explorer_token(),
-                $teamId,
-            ]);
+            $stmt->execute([generate_explorer_token(), $teamId]);
         }
 
-        redirect('team_links.php?view=team&team_id=' . $teamId);
+        redirect('team_links.php?view=team&team_id=' . $teamId . '&tab=links');
     }
 
     if ($action === 'add_post') {
@@ -644,7 +684,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $pdo->commit();
 
-                redirect('team_links.php?view=team&team_id=' . $teamId . '&tab=check-ins');
+                redirect('team_links.php?view=team&team_id=' . $teamId . '&tab=pending');
             } catch (Throwable $exception) {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
@@ -679,7 +719,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
         }
 
-        redirect('team_links.php?view=team&team_id=' . $teamId . '&tab=check-ins');
+        redirect('team_links.php?view=team&team_id=' . $teamId . '&tab=pending');
     }
 }
 
@@ -696,7 +736,8 @@ $locations = $pdo
         'SELECT
             tl.*,
             t.name AS team_name,
-            l.name AS leader_name
+            l.name AS leader_name,
+            l.photo_url AS leader_photo_url
          FROM team_locations tl
          JOIN teams t ON t.id = tl.team_id
          LEFT JOIN leaders l ON l.id = tl.leader_id
@@ -727,7 +768,8 @@ try {
             'SELECT
                 ec.*,
                 t.name AS team_name,
-                l.name AS reviewed_by_name
+                l.name AS reviewed_by_name,
+                l.photo_url AS reviewed_by_photo_url
              FROM explorer_checkins ec
              JOIN teams t ON t.id = ec.team_id
              LEFT JOIN leaders l ON l.id = ec.reviewed_by
@@ -844,14 +886,24 @@ foreach ($teams as $team) {
 }
 
 /**
- * Current view.
+ * View state
  */
 
 $view = $_GET['view'] ?? 'overview';
 $currentTeamId = (int)($_GET['team_id'] ?? 0);
 $currentTab = $_GET['tab'] ?? 'overview';
 
-$allowedTabs = ['overview', 'progress', 'posts', 'add-update', 'check-ins', 'edit'];
+$allowedTabs = [
+    'overview',
+    'links',
+    'pending',
+    'manual',
+    'progress',
+    'notes',
+    'posts',
+    'add-update',
+    'edit',
+];
 
 if (!in_array($currentTab, $allowedTabs, true)) {
     $currentTab = 'overview';
@@ -860,6 +912,7 @@ if (!in_array($currentTab, $allowedTabs, true)) {
 $currentTeam = null;
 $currentTeamSummary = null;
 $currentTeamPosts = [];
+$currentTeamLogs = [];
 
 if ($view === 'team' && $currentTeamId > 0) {
     $currentTeam = fetch_team($pdo, $currentTeamId);
@@ -883,10 +936,33 @@ if ($view === 'team' && $currentTeamId > 0) {
 
     $stmt->execute([$currentTeamId]);
     $currentTeamPosts = $stmt->fetchAll();
+
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT
+                pl.*,
+                yp.name AS person_name,
+                yp.photo_url AS person_photo_url,
+                l.name AS leader_name,
+                l.photo_url AS leader_photo_url
+             FROM person_logs pl
+             JOIN young_people yp ON yp.id = pl.person_id
+             LEFT JOIN leaders l ON l.id = pl.leader_id
+             WHERE yp.team_id = ?
+             ORDER BY pl.occurred_at DESC, pl.id DESC'
+        );
+
+        $stmt->execute([$currentTeamId]);
+        $currentTeamLogs = $stmt->fetchAll();
+    } catch (Throwable $exception) {
+        $currentTeamLogs = [];
+    }
 }
 
 include __DIR__ . '/header.php';
 ?>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 
 <style>
     .page-hero,
@@ -924,6 +1000,33 @@ include __DIR__ . '/header.php';
 
     .teams-panel label {
         font-weight: 800;
+    }
+
+    .team-header-panel {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 1rem;
+        align-items: start;
+    }
+
+    @media (max-width: 800px) {
+        .team-header-panel {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .team-header-faces {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 0.25rem;
+        max-width: 320px;
+    }
+
+    @media (max-width: 800px) {
+        .team-header-faces {
+            justify-content: flex-start;
+        }
     }
 
     .rag-grid {
@@ -1064,6 +1167,7 @@ include __DIR__ . '/header.php';
         text-decoration: none;
         overflow: hidden;
         position: relative;
+        border-radius: 50%;
     }
 
     .tiny-face img {
@@ -1213,7 +1317,8 @@ include __DIR__ . '/header.php';
 
     .post-card,
     .location-card,
-    .checkin-review-card {
+    .checkin-review-card,
+    .note-log-card {
         border: 2px solid #d8d8d8;
         background: #ffffff;
         padding: 1rem;
@@ -1222,7 +1327,8 @@ include __DIR__ . '/header.php';
 
     .post-card h3,
     .location-card h3,
-    .checkin-review-card h3 {
+    .checkin-review-card h3,
+    .note-log-card h3 {
         margin-top: 0;
         font-weight: 900;
     }
@@ -1289,13 +1395,121 @@ include __DIR__ . '/header.php';
         background: #d4351c;
         color: #ffffff;
     }
+
+    .review-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 340px;
+        gap: 1rem;
+        align-items: start;
+    }
+
+    @media (max-width: 900px) {
+        .review-layout {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .review-facts {
+        border: 2px solid #d8d8d8;
+        background: #f8f8f8;
+        padding: 1rem;
+    }
+
+    .map-review {
+        height: 340px;
+        border: 2px solid #1d1d1d;
+        background: #f3f2f1;
+        margin-bottom: 1rem;
+    }
+
+    .map-search-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+    }
+
+    @media (max-width: 640px) {
+        .map-search-row {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .search-results {
+        border: 2px solid #d8d8d8;
+        background: #ffffff;
+        margin-bottom: 0.75rem;
+        display: none;
+    }
+
+    .search-result-button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        background: #ffffff;
+        border: 0;
+        border-bottom: 1px solid #d8d8d8;
+        padding: 0.6rem;
+    }
+
+    .search-result-button:hover,
+    .search-result-button:focus {
+        background: #f3f2f1;
+        text-decoration: underline;
+    }
+
+    .approver-line {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+    }
+
+    .leader-mini {
+        width: 32px;
+        height: 32px;
+        max-width: 32px;
+        max-height: 32px;
+        border-radius: 50%;
+        border: 2px solid #1d1d1d;
+        background: #7413dc;
+        color: #ffffff;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
+        font-weight: 900;
+        overflow: hidden;
+    }
+
+    .leader-mini img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .note-log-heading {
+        display: grid;
+        grid-template-columns: 48px minmax(0, 1fr);
+        gap: 0.75rem;
+        align-items: center;
+    }
+
+    .note-log-photo {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        border: 2px solid #1d1d1d;
+        object-fit: cover;
+        background: #f3f2f1;
+    }
 </style>
 
 <section class="page-hero">
     <div class="container">
         <h1>Teams</h1>
         <p class="lead">
-            Manage team progress, check-ins, updates and parent links.
+            Manage team progress, check-ins, parent links and review Explorer submissions.
         </p>
     </div>
 </section>
@@ -1314,7 +1528,7 @@ include __DIR__ . '/header.php';
         </a>
 
         <?php if ($currentTeam): ?>
-            <a class="btn btn-outline-primary" href="<?= e(team_parent_link($currentTeam)) ?>">
+            <a class="btn btn-outline-primary" href="<?= e(team_parent_link($currentTeam)) ?>" target="_blank" rel="noopener">
                 Open parent view
             </a>
 
@@ -1339,65 +1553,62 @@ include __DIR__ . '/header.php';
         $allergyPeople = $currentTeamSummary['allergy_people'];
         $parentLink = team_parent_link($currentTeam);
         $explorerLink = !empty($currentTeam['explorer_token']) ? team_explorer_link($currentTeam) : '';
+        $pendingCheckins = array_values(array_filter($teamExplorerCheckins, static function ($checkin) {
+            return $checkin['status'] === 'pending';
+        }));
         ?>
 
-        <section class="teams-panel">
-            <h2><?= e($currentTeam['name']) ?></h2>
+        <section class="teams-panel team-header-panel">
+            <div>
+                <h2><?= e($currentTeam['name']) ?></h2>
 
-            <p>
-                <span class="status-pill <?= e(status_class($currentTeam['status'])) ?>">
-                    <?= e(status_label($currentTeam['status'])) ?>
-                </span>
-            </p>
+                <p>
+                    <span class="status-pill <?= e(status_class($currentTeam['status'])) ?>">
+                        <?= e(status_label($currentTeam['status'])) ?>
+                    </span>
+                </p>
 
-            <?php if (!empty($currentTeam['description'])): ?>
-                <p><?= nl2br(e($currentTeam['description'])) ?></p>
-            <?php endif; ?>
+                <p class="mb-0">
+                    <strong>Today:</strong>
+                    <?= e($currentTeamSummary['rag_label']) ?>
+                </p>
 
-            <div class="team-link-box">
-                <strong>Private parent link</strong><br>
-                <a href="<?= e($parentLink) ?>"><?= e($parentLink) ?></a>
-            </div>
-
-            <form
-                method="post"
-                class="mb-3"
-                onsubmit="return confirm('Regenerate this parent link? The old parent link will stop working.');"
-            >
-                <input type="hidden" name="action" value="regenerate_team_token">
-                <input type="hidden" name="team_id" value="<?= (int)$currentTeam['id'] ?>">
-                <button class="btn btn-outline-danger btn-sm">Regenerate parent link</button>
-            </form>
-
-            <div class="explorer-link-box">
-                <strong>Explorer check-in link</strong><br>
-
-                <?php if ($explorerLink !== ''): ?>
-                    <a href="<?= e($explorerLink) ?>" target="_blank" rel="noopener">
-                        <?= e($explorerLink) ?>
-                    </a>
-                <?php else: ?>
-                    <span class="muted">No Explorer check-in link has been generated yet.</span>
+                <?php if (!empty($currentTeam['description'])): ?>
+                    <p class="mt-2 mb-0"><?= nl2br(e($currentTeam['description'])) ?></p>
                 <?php endif; ?>
             </div>
 
-            <form
-                method="post"
-                onsubmit="return confirm('Regenerate this Explorer check-in link? The old Explorer link will stop working.');"
-            >
-                <input type="hidden" name="action" value="regenerate_explorer_token">
-                <input type="hidden" name="team_id" value="<?= (int)$currentTeam['id'] ?>">
-                <button class="btn btn-outline-danger btn-sm">Regenerate Explorer check-in link - be careful</button>
-            </form>
+            <div class="team-header-faces" aria-label="Team members">
+                <?php foreach ($teamPeople as $person): ?>
+                    <?php
+                    $personName = person_display_name($person);
+                    $profileUrl = url('people.php?person_id=' . (int)$person['id']);
+                    ?>
+                    <a class="tiny-face" href="<?= e($profileUrl) ?>" title="<?= e($personName) ?>">
+                        <?php if (!empty($person['photo_url'])): ?>
+                            <img src="<?= e(media_url($person['photo_url'])) ?>" alt="">
+                        <?php else: ?>
+                            <?= e(person_initials($personName)) ?>
+                        <?php endif; ?>
+
+                        <?php if (person_has_allergies($person)): ?>
+                            <span class="tiny-face-alert">!</span>
+                        <?php endif; ?>
+                    </a>
+                <?php endforeach; ?>
+            </div>
         </section>
 
         <nav class="team-tabs" aria-label="Team management">
             <?php
             $tabs = [
                 'overview' => 'Overview',
+                'pending' => 'Pending reviews' . (!empty($pendingCheckins) ? ' (' . count($pendingCheckins) . ')' : ''),
+                'manual' => 'Manual check-in',
                 'progress' => 'Progress',
-                'check-ins' => 'Explorer check-ins',
-                'posts' => 'Posts & notes',
+                'notes' => 'Notes',
+                'links' => 'Links',
+                'posts' => 'Posts',
                 'add-update' => 'Add update',
                 'edit' => 'Edit team',
             ];
@@ -1429,7 +1640,7 @@ include __DIR__ . '/header.php';
                         </p>
 
                         <p class="muted mb-0">
-                            Finland time is currently <?= e((new DateTime('now', new DateTimeZone(FINLAND_TIMEZONE)))->format('H:i')) ?>.
+                            Finland time is currently <?= e(finland_now()->format('H:i')) ?>.
                         </p>
                     </section>
 
@@ -1484,33 +1695,277 @@ include __DIR__ . '/header.php';
                         </section>
                     <?php endif; ?>
 
-                <?php elseif ($currentTab === 'check-ins'): ?>
+                <?php elseif ($currentTab === 'links'): ?>
+
+                    <section class="teams-panel">
+                        <h2>Team links</h2>
+
+                        <div class="team-link-box">
+                            <strong>Private parent link</strong><br>
+                            <a href="<?= e($parentLink) ?>" target="_blank" rel="noopener">
+                                <?= e($parentLink) ?>
+                            </a>
+                        </div>
+
+                        <form
+                            method="post"
+                            class="mb-4"
+                            onsubmit="return confirm('Regenerate this parent link? The old parent link will stop working.');"
+                        >
+                            <input type="hidden" name="action" value="regenerate_team_token">
+                            <input type="hidden" name="team_id" value="<?= (int)$currentTeam['id'] ?>">
+                            <button class="btn btn-outline-danger btn-sm">Regenerate parent link</button>
+                        </form>
+
+                        <div class="explorer-link-box">
+                            <strong>Explorer check-in link</strong><br>
+
+                            <?php if ($explorerLink !== ''): ?>
+                                <a href="<?= e($explorerLink) ?>" target="_blank" rel="noopener">
+                                    <?= e($explorerLink) ?>
+                                </a>
+                            <?php else: ?>
+                                <span class="muted">No Explorer check-in link has been generated yet.</span>
+                            <?php endif; ?>
+                        </div>
+
+                        <form
+                            method="post"
+                            onsubmit="return confirm('Regenerate this Explorer check-in link? The old Explorer link will stop working.');"
+                        >
+                            <input type="hidden" name="action" value="regenerate_explorer_token">
+                            <input type="hidden" name="team_id" value="<?= (int)$currentTeam['id'] ?>">
+                            <button class="btn btn-outline-danger btn-sm">Regenerate Explorer check-in link</button>
+                        </form>
+                    </section>
+
+                <?php elseif ($currentTab === 'pending'): ?>
+
+                    <section class="teams-panel">
+                        <h2>Pending Explorer check-ins</h2>
+
+                        <?php if (empty($pendingCheckins)): ?>
+                            <div class="empty-box">
+                                No check-ins are waiting for review.
+                            </div>
+                        <?php else: ?>
+                            <?php foreach ($pendingCheckins as $checkin): ?>
+                                <?php
+                                $reports = member_reports_summary($checkin['member_reports_json'] ?? null);
+                                $suggestedBody = build_parent_checkin_body(
+                                    $currentTeam['name'],
+                                    $checkin['location_name'] ?? '',
+                                    '',
+                                    $checkin['accommodation_type'] ?? ''
+                                );
+                                ?>
+
+                                <article class="checkin-review-card">
+                                    <div class="review-layout">
+                                        <div>
+                                            <h3><?= e($checkin['location_name'] ?: 'Explorer check-in') ?></h3>
+
+                                            <p>
+                                                <span class="status-pill status-warning">Pending review</span>
+                                            </p>
+
+                                            <p class="muted">
+                                                Submitted <?= e(format_datetime($checkin['submitted_at'])) ?>
+                                                <?php if (!empty($checkin['submitted_by'])): ?>
+                                                    by <?= e($checkin['submitted_by']) ?>
+                                                <?php endif; ?>
+                                            </p>
+
+                                            <div class="parent-preview">
+                                                <h4>Parent-facing update</h4>
+
+                                                <p class="muted">
+                                                    Edit this before approving. Do not include injuries, medication, first aid or welfare details.
+                                                </p>
+
+                                                <form method="post">
+                                                    <input type="hidden" name="action" value="approve_explorer_checkin">
+                                                    <input type="hidden" name="team_id" value="<?= (int)$currentTeam['id'] ?>">
+                                                    <input type="hidden" name="checkin_id" value="<?= (int)$checkin['id'] ?>">
+
+                                                    <div class="form-group">
+                                                        <label>Location name</label>
+                                                        <input class="form-control" name="location_name" value="<?= e($checkin['location_name']) ?>" required>
+                                                    </div>
+
+                                                    <div class="form-row">
+                                                        <div class="form-group col-md-6">
+                                                            <label>Latitude</label>
+                                                            <input class="form-control" name="latitude" value="<?= e($checkin['latitude']) ?>" required>
+                                                        </div>
+
+                                                        <div class="form-group col-md-6">
+                                                            <label>Longitude</label>
+                                                            <input class="form-control" name="longitude" value="<?= e($checkin['longitude']) ?>" required>
+                                                        </div>
+                                                    </div>
+
+                                                    <input type="hidden" name="accommodation_type" value="<?= e($checkin['accommodation_type']) ?>">
+
+                                                    <div class="form-group">
+                                                        <label>Team status</label>
+                                                        <select class="form-control" name="status">
+                                                            <option value="checked_in">Checked in</option>
+                                                            <option value="resting">Resting</option>
+                                                            <option value="delayed">Delayed</option>
+                                                            <option value="needs_follow_up">Needs follow-up</option>
+                                                            <option value="completed">Completed</option>
+                                                        </select>
+                                                    </div>
+
+                                                    <div class="form-group">
+                                                        <label>Message parents will see</label>
+                                                        <textarea class="form-control" name="public_note" rows="6"><?= e($suggestedBody) ?></textarea>
+                                                    </div>
+
+                                                    <div class="form-group">
+                                                        <label>Internal leader note</label>
+                                                        <textarea class="form-control" name="internal_note" rows="4"><?= e($checkin['welfare_notes'] ?? '') ?></textarea>
+                                                    </div>
+
+                                                    <div class="form-group">
+                                                        <label>Review notes</label>
+                                                        <textarea class="form-control" name="review_notes" rows="3"></textarea>
+                                                    </div>
+
+                                                    <button class="btn btn-primary">
+                                                        Approve, publish and email parents
+                                                    </button>
+                                                </form>
+                                            </div>
+
+                                            <form
+                                                method="post"
+                                                class="mt-3"
+                                                onsubmit="return confirm('Reject this check-in? Use this only for duplicate or incorrect submissions.');"
+                                            >
+                                                <input type="hidden" name="action" value="reject_explorer_checkin">
+                                                <input type="hidden" name="team_id" value="<?= (int)$currentTeam['id'] ?>">
+                                                <input type="hidden" name="checkin_id" value="<?= (int)$checkin['id'] ?>">
+
+                                                <div class="form-group">
+                                                    <label>Reject notes</label>
+                                                    <textarea class="form-control" name="review_notes" rows="3" placeholder="Example: duplicate submission, incorrect team, accidental entry"></textarea>
+                                                </div>
+
+                                                <button class="btn btn-outline-danger">
+                                                    Reject check-in
+                                                </button>
+                                            </form>
+                                        </div>
+
+                                        <aside>
+                                            <div class="review-facts">
+                                                <h4>Submitted details</h4>
+
+                                                <p>
+                                                    <strong>Coordinates:</strong><br>
+                                                    <?= e($checkin['latitude']) ?>, <?= e($checkin['longitude']) ?>
+                                                </p>
+
+                                                <p>
+                                                    <strong>Staying:</strong><br>
+                                                    <?= e($checkin['accommodation_type']) ?>
+                                                </p>
+
+                                                <?php if (!empty($checkin['accommodation_notes'])): ?>
+                                                    <p>
+                                                        <strong>Accommodation notes:</strong><br>
+                                                        <?= nl2br(e($checkin['accommodation_notes'])) ?>
+                                                    </p>
+                                                <?php endif; ?>
+
+                                                <?php if (!empty($checkin['welfare_notes'])): ?>
+                                                    <div class="internal-warning">
+                                                        <strong>Private welfare notes:</strong><br>
+                                                        <?= nl2br(e($checkin['welfare_notes'])) ?>
+                                                    </div>
+                                                <?php endif; ?>
+
+                                                <?php if ((int)$checkin['has_injuries'] === 1 || (int)$checkin['has_medication'] === 1 || !empty($reports)): ?>
+                                                    <div class="internal-warning">
+                                                        <strong>Private first aid / medication info</strong>
+                                                        <p>This is for leaders only and is not sent to parents.</p>
+
+                                                        <?php if (!empty($reports)): ?>
+                                                            <ul class="mb-0">
+                                                                <?php foreach ($reports as $report): ?>
+                                                                    <li>
+                                                                        <strong><?= e($report['name'] ?? 'Participant') ?></strong>
+
+                                                                        <?php if (!empty($report['injury_description'])): ?>
+                                                                            <br>Injury/concern: <?= nl2br(e($report['injury_description'])) ?>
+                                                                        <?php endif; ?>
+
+                                                                        <?php if (!empty($report['medication_detail'])): ?>
+                                                                            <br>Medication: <?= nl2br(e($report['medication_detail'])) ?>
+                                                                        <?php endif; ?>
+
+                                                                        <?php if (!empty($report['first_aid_given'])): ?>
+                                                                            <br>First aid: <?= nl2br(e($report['first_aid_given'])) ?>
+                                                                        <?php endif; ?>
+                                                                    </li>
+                                                                <?php endforeach; ?>
+                                                            </ul>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                <?php endif; ?>
+                                            </div>
+                                        </aside>
+                                    </div>
+                                </article>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </section>
+
+                <?php elseif ($currentTab === 'manual'): ?>
 
                     <section class="teams-panel">
                         <h2>Manual check-in</h2>
 
                         <p class="muted">
-                            Use this if the team cannot submit their own check-in, or if a leader needs to add one directly.
+                            Use this when a team cannot submit the Explorer check-in page or a leader needs to enter the check-in directly.
                         </p>
 
-                        <form method="post">
+                        <div class="map-search-row">
+                            <input
+                                class="form-control"
+                                id="manual-map-search"
+                                type="search"
+                                placeholder="Search for a place in Finland"
+                            >
+                            <button class="btn btn-primary" type="button" id="manual-map-search-button">
+                                Search
+                            </button>
+                        </div>
+
+                        <div id="manual-search-results" class="search-results"></div>
+
+                        <div id="manual-checkin-map" class="map-review"></div>
+
+                        <form method="post" id="manual-checkin-form">
                             <input type="hidden" name="action" value="manual_checkin">
                             <input type="hidden" name="team_id" value="<?= (int)$currentTeam['id'] ?>">
 
                             <div class="form-group">
                                 <label>Location name</label>
-                                <input class="form-control" name="location_name" required>
+                                <input class="form-control" id="manual_location_name" name="location_name" required>
                             </div>
 
                             <div class="form-row">
                                 <div class="form-group col-md-6">
                                     <label>Latitude</label>
-                                    <input class="form-control" name="latitude" required>
+                                    <input class="form-control" id="manual_latitude" name="latitude" required>
                                 </div>
 
                                 <div class="form-group col-md-6">
                                     <label>Longitude</label>
-                                    <input class="form-control" name="longitude" required>
+                                    <input class="form-control" id="manual_longitude" name="longitude" required>
                                 </div>
                             </div>
 
@@ -1541,7 +1996,7 @@ include __DIR__ . '/header.php';
 
                             <div class="form-group">
                                 <label>Parent-facing update</label>
-                                <textarea class="form-control" name="public_note" rows="4" placeholder="Do not include injuries, medication, welfare issues or private notes."></textarea>
+                                <textarea class="form-control" name="public_note" rows="5" placeholder="Do not include injuries, medication, welfare issues or private notes."></textarea>
                             </div>
 
                             <div class="form-group">
@@ -1549,212 +2004,10 @@ include __DIR__ . '/header.php';
                                 <textarea class="form-control" name="internal_note" rows="4"></textarea>
                             </div>
 
-                            <div class="parent-preview">
-                                <strong>Parent update preview:</strong>
-                                <p class="mb-0">
-                                    If the parent-facing update box is left empty, the system will post a simple check-in message with the approximate location and accommodation type.
-                                </p>
-                            </div>
-
                             <button class="btn btn-primary">
-                                Save check-in and notify parents
+                                Save check-in and email parents
                             </button>
                         </form>
-                    </section>
-
-                    <section class="teams-panel">
-                        <h2>Explorer submissions</h2>
-
-                        <?php if (empty($teamExplorerCheckins)): ?>
-                            <div class="empty-box">No Explorer check-ins have been submitted for this team yet.</div>
-                        <?php else: ?>
-                            <?php foreach ($teamExplorerCheckins as $checkin): ?>
-                                <?php
-                                $reports = member_reports_summary($checkin['member_reports_json'] ?? null);
-                                $suggestedBody = build_parent_checkin_body(
-                                    $currentTeam['name'],
-                                    $checkin['location_name'] ?? '',
-                                    '',
-                                    $checkin['accommodation_type'] ?? ''
-                                );
-                                ?>
-
-                                <article class="checkin-review-card">
-                                    <h3>
-                                        <?= e($checkin['location_name'] ?: 'Explorer check-in') ?>
-                                    </h3>
-
-                                    <p>
-                                        <span class="status-pill <?= e(checkin_status_class($checkin['status'])) ?>">
-                                            <?= e(checkin_status_label($checkin['status'])) ?>
-                                        </span>
-                                    </p>
-
-                                    <p class="muted">
-                                        Submitted <?= e(format_datetime($checkin['submitted_at'])) ?>
-                                        <?php if (!empty($checkin['submitted_by'])): ?>
-                                            by <?= e($checkin['submitted_by']) ?>
-                                        <?php endif; ?>
-                                    </p>
-
-                                    <p>
-                                        <strong>Coordinates:</strong>
-                                        <?= e($checkin['latitude']) ?>, <?= e($checkin['longitude']) ?><br>
-
-                                        <strong>Staying:</strong>
-                                        <?= e($checkin['accommodation_type']) ?>
-                                    </p>
-
-                                    <?php if (!empty($checkin['accommodation_notes'])): ?>
-                                        <p>
-                                            <strong>Accommodation notes:</strong><br>
-                                            <?= nl2br(e($checkin['accommodation_notes'])) ?>
-                                        </p>
-                                    <?php endif; ?>
-
-                                    <?php if (!empty($checkin['welfare_notes'])): ?>
-                                        <div class="internal-warning">
-                                            <strong>Internal welfare notes:</strong><br>
-                                            <?= nl2br(e($checkin['welfare_notes'])) ?>
-                                        </div>
-                                    <?php endif; ?>
-
-                                    <?php if ((int)$checkin['has_injuries'] === 1 || (int)$checkin['has_medication'] === 1 || !empty($reports)): ?>
-                                        <div class="internal-warning">
-                                            <strong>Private first aid / medication information:</strong>
-                                            <p>
-                                                This is for leaders only. It will not be included in the parent update.
-                                            </p>
-
-                                            <?php if (!empty($reports)): ?>
-                                                <ul class="mb-0">
-                                                    <?php foreach ($reports as $report): ?>
-                                                        <li>
-                                                            <strong><?= e($report['name'] ?? 'Participant') ?></strong>
-
-                                                            <?php if (!empty($report['injury_description'])): ?>
-                                                                <br>Injury/concern: <?= nl2br(e($report['injury_description'])) ?>
-                                                            <?php endif; ?>
-
-                                                            <?php if (!empty($report['medication_detail'])): ?>
-                                                                <br>Medication: <?= nl2br(e($report['medication_detail'])) ?>
-                                                            <?php endif; ?>
-
-                                                            <?php if (!empty($report['first_aid_given'])): ?>
-                                                                <br>First aid: <?= nl2br(e($report['first_aid_given'])) ?>
-                                                            <?php endif; ?>
-                                                        </li>
-                                                    <?php endforeach; ?>
-                                                </ul>
-                                            <?php endif; ?>
-                                        </div>
-                                    <?php endif; ?>
-
-                                    <div class="parent-preview">
-                                        <strong>What parents will see:</strong>
-                                        <p><?= nl2br(e($suggestedBody)) ?></p>
-                                    </div>
-
-                                    <?php if ($checkin['status'] === 'pending'): ?>
-                                        <form method="post" class="mb-3">
-                                            <input type="hidden" name="action" value="approve_explorer_checkin">
-                                            <input type="hidden" name="team_id" value="<?= (int)$currentTeam['id'] ?>">
-                                            <input type="hidden" name="checkin_id" value="<?= (int)$checkin['id'] ?>">
-
-                                            <div class="form-group">
-                                                <label>Location name</label>
-                                                <input class="form-control" name="location_name" value="<?= e($checkin['location_name']) ?>" required>
-                                            </div>
-
-                                            <div class="form-row">
-                                                <div class="form-group col-md-6">
-                                                    <label>Latitude</label>
-                                                    <input class="form-control" name="latitude" value="<?= e($checkin['latitude']) ?>" required>
-                                                </div>
-
-                                                <div class="form-group col-md-6">
-                                                    <label>Longitude</label>
-                                                    <input class="form-control" name="longitude" value="<?= e($checkin['longitude']) ?>" required>
-                                                </div>
-                                            </div>
-
-                                            <input type="hidden" name="accommodation_type" value="<?= e($checkin['accommodation_type']) ?>">
-
-                                            <div class="form-group">
-                                                <label>Team status</label>
-                                                <select class="form-control" name="status">
-                                                    <option value="checked_in">Checked in</option>
-                                                    <option value="resting">Resting</option>
-                                                    <option value="delayed">Delayed</option>
-                                                    <option value="needs_follow_up">Needs follow-up</option>
-                                                    <option value="completed">Completed</option>
-                                                </select>
-                                            </div>
-
-                                            <div class="form-group">
-                                                <label>Parent-facing update</label>
-                                                <textarea class="form-control" name="public_note" rows="4" placeholder="Leave blank to use the preview above."></textarea>
-                                                <small class="form-text text-muted">
-                                                    Do not include injuries, medication, welfare concerns or private notes.
-                                                </small>
-                                            </div>
-
-                                            <div class="form-group">
-                                                <label>Internal leader note</label>
-                                                <textarea class="form-control" name="internal_note" rows="4"><?= e($checkin['welfare_notes'] ?? '') ?></textarea>
-                                            </div>
-
-                                            <div class="form-group">
-                                                <label>Review notes</label>
-                                                <textarea class="form-control" name="review_notes" rows="3"></textarea>
-                                            </div>
-
-                                            <button class="btn btn-primary">
-                                                Approve, post check-in and notify parents
-                                            </button>
-                                        </form>
-
-                                        <form
-                                            method="post"
-                                            onsubmit="return confirm('Reject this Explorer check-in? It will not be posted to parents.');"
-                                        >
-                                            <input type="hidden" name="action" value="reject_explorer_checkin">
-                                            <input type="hidden" name="team_id" value="<?= (int)$currentTeam['id'] ?>">
-                                            <input type="hidden" name="checkin_id" value="<?= (int)$checkin['id'] ?>">
-
-                                            <div class="form-group">
-                                                <label>Reject notes</label>
-                                                <textarea class="form-control" name="review_notes" rows="3"></textarea>
-                                            </div>
-
-                                            <button class="btn btn-outline-danger">
-                                                Reject check-in
-                                            </button>
-                                        </form>
-                                    <?php else: ?>
-                                        <?php if (!empty($checkin['reviewed_by_name']) || !empty($checkin['reviewed_at'])): ?>
-                                            <p class="muted mb-0">
-                                                Reviewed
-                                                <?php if (!empty($checkin['reviewed_by_name'])): ?>
-                                                    by <?= e($checkin['reviewed_by_name']) ?>
-                                                <?php endif; ?>
-
-                                                <?php if (!empty($checkin['reviewed_at'])): ?>
-                                                    on <?= e(format_datetime($checkin['reviewed_at'])) ?>
-                                                <?php endif; ?>
-                                            </p>
-                                        <?php endif; ?>
-
-                                        <?php if (!empty($checkin['review_notes'])): ?>
-                                            <p class="muted">
-                                                <strong>Review notes:</strong>
-                                                <?= nl2br(e($checkin['review_notes'])) ?>
-                                            </p>
-                                        <?php endif; ?>
-                                    <?php endif; ?>
-                                </article>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
                     </section>
 
                 <?php elseif ($currentTab === 'progress'): ?>
@@ -1792,23 +2045,37 @@ include __DIR__ . '/header.php';
                             <?php endforeach; ?>
                         </div>
 
-                        <h3>Location check-ins</h3>
+                        <h3>Approved check-ins</h3>
 
                         <?php if (empty($teamLocations)): ?>
-                            <div class="empty-box">No locations have been added for this team yet.</div>
+                            <div class="empty-box">No locations have been approved for this team yet.</div>
                         <?php else: ?>
                             <?php foreach (array_reverse($teamLocations) as $location): ?>
                                 <article class="location-card">
                                     <h3><?= e($location['location_name']) ?></h3>
+
                                     <p class="muted">
                                         <?= e(format_datetime($location['checked_in_at'])) ?>
-                                        <?php if (!empty($location['leader_name'])): ?>
-                                            | <?= e($location['leader_name']) ?>
-                                        <?php endif; ?>
                                     </p>
 
+                                    <?php if (!empty($location['leader_name'])): ?>
+                                        <div class="approver-line">
+                                            <span class="leader-mini">
+                                                <?php if (!empty($location['leader_photo_url'])): ?>
+                                                    <img src="<?= e(media_url($location['leader_photo_url'])) ?>" alt="">
+                                                <?php else: ?>
+                                                    <?= e(leader_initials($location['leader_name'])) ?>
+                                                <?php endif; ?>
+                                            </span>
+
+                                            <span>
+                                                Approved by <strong><?= e($location['leader_name']) ?></strong>
+                                            </span>
+                                        </div>
+                                    <?php endif; ?>
+
                                     <?php if (!empty($location['public_note'])): ?>
-                                        <p><?= nl2br(e($location['public_note'])) ?></p>
+                                        <p class="mt-3"><?= nl2br(e($location['public_note'])) ?></p>
                                     <?php endif; ?>
 
                                     <?php if (!empty($location['internal_note'])): ?>
@@ -1822,17 +2089,62 @@ include __DIR__ . '/header.php';
                         <?php endif; ?>
                     </section>
 
+                <?php elseif ($currentTab === 'notes'): ?>
+
+                    <section class="teams-panel">
+                        <h2>Team notes log</h2>
+
+                        <p class="muted">
+                            First aid, medication, behaviour, welfare and internal logs for young people in this team.
+                        </p>
+
+                        <?php if (empty($currentTeamLogs)): ?>
+                            <div class="empty-box">
+                                No personal file notes have been recorded for this team yet.
+                            </div>
+                        <?php else: ?>
+                            <?php foreach ($currentTeamLogs as $log): ?>
+                                <article class="note-log-card">
+                                    <div class="note-log-heading">
+                                        <?php if (!empty($log['person_photo_url'])): ?>
+                                            <img class="note-log-photo" src="<?= e(media_url($log['person_photo_url'])) ?>" alt="">
+                                        <?php else: ?>
+                                            <span class="leader-mini">
+                                                <?= e(person_initials($log['person_name'] ?? 'Person')) ?>
+                                            </span>
+                                        <?php endif; ?>
+
+                                        <div>
+                                            <h3><?= e($log['title'] ?? 'Log entry') ?></h3>
+                                            <p class="muted mb-0">
+                                                <?= e($log['person_name'] ?? 'Young person') ?>
+                                                <?php if (!empty($log['occurred_at'])): ?>
+                                                    | <?= e(format_datetime($log['occurred_at'])) ?>
+                                                <?php endif; ?>
+
+                                                <?php if (!empty($log['leader_name'])): ?>
+                                                    | <?= e($log['leader_name']) ?>
+                                                <?php endif; ?>
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <?php if (!empty($log['log_type'])): ?>
+                                        <p class="mt-3">
+                                            <span class="status-pill"><?= e($log['log_type']) ?></span>
+                                        </p>
+                                    <?php endif; ?>
+
+                                    <p><?= nl2br(e($log['body'] ?? '')) ?></p>
+                                </article>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </section>
+
                 <?php elseif ($currentTab === 'posts'): ?>
 
                     <section class="teams-panel">
-                        <h2>Posts & team notes</h2>
-
-                        <?php if (!empty($currentTeam['description'])): ?>
-                            <article class="post-card">
-                                <h3>Team notes</h3>
-                                <p><?= nl2br(e($currentTeam['description'])) ?></p>
-                            </article>
-                        <?php endif; ?>
+                        <h2>Posts</h2>
 
                         <?php if (empty($currentTeamPosts)): ?>
                             <div class="empty-box">No posts have been added for this team yet.</div>
@@ -1980,7 +2292,7 @@ include __DIR__ . '/header.php';
                                 <li>
                                     <a class="tiny-face" href="<?= e($profileUrl) ?>" title="<?= e($personName) ?>">
                                         <?php if (!empty($person['photo_url'])): ?>
-                                            <img src="<?= e($person['photo_url']) ?>" alt="">
+                                            <img src="<?= e(media_url($person['photo_url'])) ?>" alt="">
                                         <?php else: ?>
                                             <?= e(person_initials($personName)) ?>
                                         <?php endif; ?>
@@ -2069,7 +2381,7 @@ include __DIR__ . '/header.php';
 
                     <a
                         class="rag-card rag-<?= e($summary['rag_status']) ?>"
-                        href="<?= e(url('team_links.php?view=team&team_id=' . $teamId . '&tab=check-ins')) ?>"
+                        href="<?= e(url('team_links.php?view=team&team_id=' . $teamId . '&tab=pending')) ?>"
                     >
                         <div class="rag-team-name">
                             <?= e($team['name']) ?>
@@ -2096,9 +2408,6 @@ include __DIR__ . '/header.php';
 
         <section class="teams-panel">
             <h2>Teams overview</h2>
-            <p class="muted">
-                Select a team to view its members, updates, check-in status and route progress.
-            </p>
 
             <?php if (empty($teams)): ?>
                 <div class="empty-box">No teams have been added yet.</div>
@@ -2138,7 +2447,7 @@ include __DIR__ . '/header.php';
 
                                             <a class="tiny-face" href="<?= e($profileUrl) ?>" title="<?= e($personName) ?>">
                                                 <?php if (!empty($person['photo_url'])): ?>
-                                                    <img src="<?= e($person['photo_url']) ?>" alt="">
+                                                    <img src="<?= e(media_url($person['photo_url'])) ?>" alt="">
                                                 <?php else: ?>
                                                     <?= e(person_initials($personName)) ?>
                                                 <?php endif; ?>
@@ -2250,5 +2559,139 @@ include __DIR__ . '/header.php';
     <?php endif; ?>
 
 </main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+    (function () {
+        if (typeof L === 'undefined') {
+            return;
+        }
+
+        var mapEl = document.getElementById('manual-checkin-map');
+
+        if (!mapEl) {
+            return;
+        }
+
+        var latInput = document.getElementById('manual_latitude');
+        var lngInput = document.getElementById('manual_longitude');
+        var locationInput = document.getElementById('manual_location_name');
+        var searchInput = document.getElementById('manual-map-search');
+        var searchButton = document.getElementById('manual-map-search-button');
+        var resultsBox = document.getElementById('manual-search-results');
+
+        var defaultLat = 61.9241;
+        var defaultLng = 25.7482;
+
+        var map = L.map(mapEl).setView([defaultLat, defaultLng], 6);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        var marker = L.marker([defaultLat, defaultLng], {
+            draggable: true
+        }).addTo(map);
+
+        function setLocation(lat, lng, label, zoom) {
+            latInput.value = Number(lat).toFixed(7);
+            lngInput.value = Number(lng).toFixed(7);
+
+            if (label && locationInput.value.trim() === '') {
+                locationInput.value = label;
+            }
+
+            marker.setLatLng([lat, lng]);
+            map.setView([lat, lng], zoom || 13);
+        }
+
+        marker.on('dragend', function () {
+            var pos = marker.getLatLng();
+            setLocation(pos.lat, pos.lng, '', map.getZoom());
+        });
+
+        map.on('click', function (event) {
+            setLocation(event.latlng.lat, event.latlng.lng, '', map.getZoom());
+        });
+
+        setLocation(defaultLat, defaultLng, '', 6);
+
+        function renderResults(results) {
+            resultsBox.innerHTML = '';
+
+            if (!results || results.length === 0) {
+                resultsBox.style.display = 'block';
+                resultsBox.innerHTML = '<div class="p-2 muted">No results found.</div>';
+                return;
+            }
+
+            results.slice(0, 6).forEach(function (result) {
+                var button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'search-result-button';
+                button.textContent = result.display_name;
+
+                button.addEventListener('click', function () {
+                    setLocation(
+                        parseFloat(result.lat),
+                        parseFloat(result.lon),
+                        result.display_name,
+                        14
+                    );
+
+                    resultsBox.style.display = 'none';
+                });
+
+                resultsBox.appendChild(button);
+            });
+
+            resultsBox.style.display = 'block';
+        }
+
+        function searchMap() {
+            var query = searchInput.value.trim();
+
+            if (query === '') {
+                return;
+            }
+
+            var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=6&countrycodes=fi&q='
+                + encodeURIComponent(query);
+
+            fetch(url, {
+                headers: {
+                    'Accept': 'application/json'
+                }
+            })
+                .then(function (response) {
+                    return response.json();
+                })
+                .then(renderResults)
+                .catch(function () {
+                    resultsBox.style.display = 'block';
+                    resultsBox.innerHTML = '<div class="p-2 muted">Search failed. You can still click the map manually.</div>';
+                });
+        }
+
+        if (searchButton) {
+            searchButton.addEventListener('click', searchMap);
+        }
+
+        if (searchInput) {
+            searchInput.addEventListener('keydown', function (event) {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    searchMap();
+                }
+            });
+        }
+
+        setTimeout(function () {
+            map.invalidateSize();
+        }, 300);
+    })();
+</script>
 
 <?php include __DIR__ . '/footer.php'; ?>
