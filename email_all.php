@@ -219,33 +219,208 @@ function email_all_build_content(
 }
 
 /**
- * Render the final HTML email exactly as the cron/template system should see it.
- *
- * Supports common placeholders in assets/email_template.html:
- * - {{subject}}, {{SUBJECT}}, {{title}}, {{TITLE}}
- * - {{content}}, {{CONTENT}}, {{body}}, {{BODY}}
- * - {{app_name}}, {{APP_NAME}}
- *
- * If the template does not contain a recognised content placeholder, the content
- * is inserted before </body>, or appended to the end as a fallback.
+ * These helpers intentionally mirror the cron email worker so the preview uses
+ * the same template placeholder replacement as the real queued email send.
+ */
+function email_all_mail_constant(string $name, $default = null)
+{
+    return defined($name) ? constant($name) : $default;
+}
+
+function email_all_safe_email_html(string $html): string
+{
+    $allowedTags = '<p><br><strong><b><em><i><u><a><ol><ul><li><span><blockquote><h1><h2><h3><h4><table><thead><tbody><tr><td><th>';
+
+    $html = strip_tags($html, $allowedTags);
+
+    /**
+     * Remove inline JS/event handlers.
+     */
+    $html = preg_replace('/\son[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html);
+
+    /**
+     * Remove javascript: links.
+     */
+    $html = preg_replace('/href\s*=\s*([\'\"])\s*javascript:[^\'\"]*\1/i', 'href="#"', $html);
+
+    /**
+     * Permit the same basic inline styles as the cron worker.
+     */
+    $html = preg_replace_callback('/style\s*=\s*([\'\"])(.*?)\1/i', function ($matches) {
+        $style = $matches[2];
+        $safeRules = [];
+
+        foreach (explode(';', $style) as $rule) {
+            $rule = trim($rule);
+
+            if ($rule === '') {
+                continue;
+            }
+
+            if (preg_match('/^(color|background-color|font-weight|font-style|text-decoration|margin|margin-top|margin-bottom|padding|line-height|font-size|border-left|display)\s*:\s*[^;"\']+$/i', $rule)) {
+                $safeRules[] = $rule;
+            }
+        }
+
+        if (empty($safeRules)) {
+            return '';
+        }
+
+        return ' style="' . htmlspecialchars(implode('; ', $safeRules), ENT_QUOTES, 'UTF-8') . '"';
+    }, $html);
+
+    /**
+     * Permit safe link targets only.
+     */
+    $html = preg_replace_callback('/href\s*=\s*([\'\"])(.*?)\1/i', function ($matches) {
+        $quote = $matches[1];
+        $href = trim(html_entity_decode($matches[2], ENT_QUOTES, 'UTF-8'));
+
+        if (
+            preg_match('/^https?:\/\//i', $href)
+            || preg_match('/^mailto:/i', $href)
+            || preg_match('/^tel:/i', $href)
+        ) {
+            return 'href=' . $quote . htmlspecialchars($href, ENT_QUOTES, 'UTF-8') . $quote;
+        }
+
+        return 'href="#"';
+    }, $html);
+
+    return $html;
+}
+
+function email_all_plain_text_to_html(string $text): string
+{
+    $text = trim($text);
+
+    if ($text === '') {
+        return '';
+    }
+
+    $escaped = htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
+    $paragraphs = preg_split("/\n{2,}/", $escaped);
+    $html = '';
+
+    foreach ($paragraphs as $paragraph) {
+        $paragraph = trim((string)$paragraph);
+
+        if ($paragraph === '') {
+            continue;
+        }
+
+        $html .= '<p style="margin:0 0 14px 0;color:#1d1d1d;font-size:16px;line-height:1.6;">'
+            . nl2br($paragraph)
+            . '</p>';
+    }
+
+    return $html;
+}
+
+function email_all_content_to_html(string $content): string
+{
+    $content = trim($content);
+
+    if ($content === '') {
+        return '';
+    }
+
+    if ($content !== strip_tags($content)) {
+        return email_all_safe_email_html($content);
+    }
+
+    return email_all_plain_text_to_html($content);
+}
+
+function email_all_content_to_plain_text(string $content): string
+{
+    $content = trim($content);
+
+    if ($content === '') {
+        return '';
+    }
+
+    $content = preg_replace('/<br\s*\/?>/i', "\n", $content);
+    $content = preg_replace('/<\/p>/i', "\n\n", $content);
+    $content = preg_replace('/<\/li>/i', "\n", $content);
+
+    $text = html_entity_decode(strip_tags((string)$content), ENT_QUOTES, 'UTF-8');
+    $text = preg_replace("/\n{3,}/", "\n\n", (string)$text);
+
+    return trim((string)$text);
+}
+
+function email_all_extract_first_url(string $content): string
+{
+    if (preg_match('/https?:\/\/[^\s<>"\']+/i', $content, $matches)) {
+        return rtrim($matches[0], '.,)');
+    }
+
+    if (preg_match('/href\s*=\s*([\'\"])(https?:\/\/.*?)\1/i', $content, $matches)) {
+        return trim((string)$matches[2]);
+    }
+
+    return '';
+}
+
+function email_all_make_template_replacements(string $subject, string $content): array
+{
+    $appName = (string)email_all_mail_constant('APP_NAME', 'Explorer Belt Live');
+    $logoUrl = (string)email_all_mail_constant(
+        'MAIL_LOGO_URL',
+        'https://exbelt2026.irvalscouts.org.uk/assets/logo.png'
+    );
+
+    $ckUrl = (string)email_all_mail_constant('MAIL_CK_URL', 'https://ckenterprises.co.uk');
+
+    $contentHtml = email_all_content_to_html($content);
+    $plainText = email_all_content_to_plain_text($content);
+    $firstUrl = email_all_extract_first_url($content);
+
+    $preheader = mb_substr(
+        trim(preg_replace('/\s+/', ' ', $plainText)),
+        0,
+        140
+    );
+
+    if ($preheader === '') {
+        $preheader = $subject;
+    }
+
+    $ctaUrl = $firstUrl !== '' ? $firstUrl : (string)email_all_mail_constant('BASE_URL', '');
+    $ctaText = $firstUrl !== '' ? 'View update' : 'Open portal';
+
+    $introText = 'There is a new update from the Explorer Belt portal.';
+
+    return [
+        '{{APP_NAME}}' => htmlspecialchars($appName, ENT_QUOTES, 'UTF-8'),
+        '{{LOGO_URL}}' => htmlspecialchars($logoUrl, ENT_QUOTES, 'UTF-8'),
+        '{{EMAIL_TITLE}}' => htmlspecialchars($subject, ENT_QUOTES, 'UTF-8'),
+        '{{PREHEADER_TEXT}}' => htmlspecialchars($preheader, ENT_QUOTES, 'UTF-8'),
+        '{{EMAIL_HEADING}}' => htmlspecialchars($subject, ENT_QUOTES, 'UTF-8'),
+        '{{INTRO_TEXT}}' => htmlspecialchars($introText, ENT_QUOTES, 'UTF-8'),
+        '{{CONTENT_HTML}}' => $contentHtml,
+        '{{CTA_URL}}' => htmlspecialchars($ctaUrl, ENT_QUOTES, 'UTF-8'),
+        '{{CTA_TEXT}}' => htmlspecialchars($ctaText, ENT_QUOTES, 'UTF-8'),
+        '{{CK_ENTERPRISES_URL}}' => htmlspecialchars($ckUrl, ENT_QUOTES, 'UTF-8'),
+        '{{CURRENT_YEAR}}' => date('Y'),
+    ];
+}
+
+/**
+ * Render the final HTML email exactly as the cron/template system sends it.
  */
 function email_all_render_template_preview(string $subject, string $content): string
 {
-    $template = '';
-
-    if (is_file(EMAIL_ALL_TEMPLATE_PATH)) {
-        $template = file_get_contents(EMAIL_ALL_TEMPLATE_PATH);
-    }
-
-    if (!$template) {
+    if (!is_file(EMAIL_ALL_TEMPLATE_PATH)) {
         return '
             <div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;border:1px solid #ddd;background:#ffffff;">
-                <div style="background:#7413dc;color:#fff;padding:20px;">
-                    <h1 style="margin:0;color:#fff;">' . e(APP_NAME) . '</h1>
+                <div style="background:#7413dc;color:#fff;padding:20px;text-align:center;">
+                    <img src="https://exbelt2026.irvalscouts.org.uk/assets/logo.png" alt="' . e(APP_NAME) . '" width="180" style="display:block;width:180px;max-width:180px;height:auto;border:0;margin:0 auto;">
                 </div>
                 <div style="padding:24px;">
                     <h2>' . e($subject) . '</h2>
-                    ' . $content . '
+                    ' . email_all_content_to_html($content) . '
                 </div>
                 <div style="background:#4d0b95;color:#fff;padding:16px;font-size:13px;">
                     Provided by CK Enterprises UK
@@ -254,69 +429,13 @@ function email_all_render_template_preview(string $subject, string $content): st
         ';
     }
 
-    $contentTokens = [
-        '{{content}}',
-        '{{CONTENT}}',
-        '{{body}}',
-        '{{BODY}}',
-        '[[content]]',
-        '[[CONTENT]]',
-        '[[body]]',
-        '[[BODY]]',
-        '%CONTENT%',
-        '%%CONTENT%%',
-        '{content}',
-        '{CONTENT}',
-    ];
+    $template = file_get_contents(EMAIL_ALL_TEMPLATE_PATH);
 
-    $subjectTokens = [
-        '{{subject}}',
-        '{{SUBJECT}}',
-        '{{title}}',
-        '{{TITLE}}',
-        '[[subject]]',
-        '[[SUBJECT]]',
-        '[[title]]',
-        '[[TITLE]]',
-        '%SUBJECT%',
-        '%%SUBJECT%%',
-        '{subject}',
-        '{SUBJECT}',
-    ];
-
-    $appNameTokens = [
-        '{{app_name}}',
-        '{{APP_NAME}}',
-        '[[app_name]]',
-        '[[APP_NAME]]',
-        '%APP_NAME%',
-        '%%APP_NAME%%',
-        '{app_name}',
-        '{APP_NAME}',
-    ];
-
-    $rendered = $template;
-    $rendered = str_replace($subjectTokens, e($subject), $rendered);
-    $rendered = str_replace($appNameTokens, e(APP_NAME), $rendered);
-
-    $hadContentPlaceholder = false;
-
-    foreach ($contentTokens as $token) {
-        if (strpos($rendered, $token) !== false) {
-            $hadContentPlaceholder = true;
-            $rendered = str_replace($token, $content, $rendered);
-        }
+    if ($template === false || trim($template) === '') {
+        throw new RuntimeException('Email template could not be read or is empty.');
     }
 
-    if (!$hadContentPlaceholder) {
-        if (stripos($rendered, '</body>') !== false) {
-            $rendered = preg_replace('/<\/body>/i', $content . '</body>', $rendered, 1);
-        } else {
-            $rendered .= $content;
-        }
-    }
-
-    return $rendered;
+    return strtr($template, email_all_make_template_replacements($subject, $content));
 }
 
 function email_all_queue_email(
@@ -1216,7 +1335,12 @@ include __DIR__ . '/header.php';
             <?php endif; ?>
 
             <div class="preview-frame">
-                <?= $previewHtml ?>
+                <iframe
+                    title="Email preview"
+                    srcdoc="<?= e($previewHtml) ?>"
+                    style="width:100%;min-height:680px;border:0;background:#ffffff;"
+                    sandbox="allow-popups allow-popups-to-escape-sandbox"
+                ></iframe>
             </div>
 
             <div class="button-row">
