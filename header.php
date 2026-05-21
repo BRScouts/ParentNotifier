@@ -974,29 +974,8 @@ $leaderRole = $leaderRoleColumn ? (string)($currentLeader[$leaderRoleColumn] ?? 
 
                         <?php if ($leaderPhoneColumn || $leaderRoleColumn): ?>
                             <div class="form-row">
-                                <?php if ($leaderPhoneColumn): ?>
-                                    <div class="form-group col-md-6">
-                                        <label for="profile_phone">Contact number</label>
-                                        <input
-                                            class="form-control"
-                                            id="profile_phone"
-                                            name="profile_phone"
-                                            value="<?= e($leaderPhone) ?>"
-                                        >
-                                    </div>
-                                <?php endif; ?>
+                                
 
-                                <?php if ($leaderRoleColumn): ?>
-                                    <div class="form-group col-md-6">
-                                        <label for="profile_role">Role / title</label>
-                                        <input
-                                            class="form-control"
-                                            id="profile_role"
-                                            name="profile_role"
-                                            value="<?= e($leaderRole) ?>"
-                                        >
-                                    </div>
-                                <?php endif; ?>
                             </div>
                         <?php endif; ?>
 
