@@ -34,7 +34,7 @@ include __DIR__ . '/header.php';
     .login-hero {
         background: #7413dc;
         color: #ffffff;
-        padding: 1.75rem 0;
+        padding: 1.5rem 0;
         margin-bottom: 2rem;
     }
 
@@ -167,7 +167,7 @@ include __DIR__ . '/header.php';
             <h2>Sign in with Microsoft</h2>
 
             <p>
-                Use your Microsoft account if your email address has been added as a leader account.
+                Use Microsoft sign-in if your Microsoft email address has been added as a leader account.
             </p>
 
             <a class="sso-button" href="<?= e(url('microsoft_start.php')) ?>">

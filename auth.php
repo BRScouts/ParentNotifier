@@ -1,5 +1,10 @@
 <?php
 declare(strict_types=1);
+$composerAutoload = __DIR__ . '/vendor/autoload.php';
+
+if (file_exists($composerAutoload)) {
+    require_once $composerAutoload;
+}
 
 require_once __DIR__ . '/config.php';
 
@@ -117,118 +122,25 @@ function require_parent_or_leader(): ?array
 
     return $team;
 }
+use TheNetworg\OAuth2\Client\Provider\Azure;
 
-if (!function_exists('is_logged_in')) {
-    function is_logged_in(): bool
+if (!function_exists('microsoft_provider')) {
+    function microsoft_provider(): Azure
     {
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
+        if (!class_exists(Azure::class)) {
+            throw new RuntimeException('Microsoft SSO package is not installed. Run: composer require thenetworg/oauth2-azure');
         }
 
-        return !empty($_SESSION['leader_id']);
-    }
-}
-
-if (!function_exists('microsoft_authorize_url')) {
-    function microsoft_authorize_url(): string
-    {
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
-
-        $state = bin2hex(random_bytes(24));
-        $_SESSION['ms_oauth_state'] = $state;
-
-        $params = [
-            'client_id' => MS_CLIENT_ID,
-            'response_type' => 'code',
-            'redirect_uri' => MS_REDIRECT_URI,
-            'response_mode' => 'query',
-            'scope' => 'openid profile email User.Read',
-            'state' => $state,
-            'prompt' => 'select_account',
-        ];
-
-        return 'https://login.microsoftonline.com/' . rawurlencode(MS_TENANT_ID) . '/oauth2/v2.0/authorize?' . http_build_query($params);
-    }
-}
-
-if (!function_exists('microsoft_post')) {
-    function microsoft_post(string $url, array $fields): array
-    {
-        $ch = curl_init($url);
-
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => http_build_query($fields),
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/x-www-form-urlencoded',
-            ],
-            CURLOPT_TIMEOUT => 20,
+        $provider = new Azure([
+            'clientId' => MS_CLIENT_ID,
+            'clientSecret' => MS_CLIENT_SECRET,
+            'redirectUri' => MS_REDIRECT_URI,
+            'tenant' => MS_TENANT_ID,
         ]);
 
-        $raw = curl_exec($ch);
-        $error = curl_error($ch);
-        $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $provider->defaultEndPointVersion = Azure::ENDPOINT_VERSION_2_0;
 
-        curl_close($ch);
-
-        if ($raw === false || $error !== '') {
-            throw new RuntimeException('Microsoft request failed: ' . $error);
-        }
-
-        $data = json_decode($raw, true);
-
-        if (!is_array($data)) {
-            throw new RuntimeException('Microsoft returned an invalid response.');
-        }
-
-        if ($status < 200 || $status >= 300) {
-            $message = $data['error_description'] ?? $data['error'] ?? 'Microsoft authentication failed.';
-            throw new RuntimeException($message);
-        }
-
-        return $data;
-    }
-}
-
-if (!function_exists('microsoft_get_json')) {
-    function microsoft_get_json(string $url, string $accessToken): array
-    {
-        $ch = curl_init($url);
-
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER => [
-                'Authorization: Bearer ' . $accessToken,
-                'Accept: application/json',
-            ],
-            CURLOPT_TIMEOUT => 20,
-        ]);
-
-        $raw = curl_exec($ch);
-        $error = curl_error($ch);
-        $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-
-        curl_close($ch);
-
-        if ($raw === false || $error !== '') {
-            throw new RuntimeException('Microsoft Graph request failed: ' . $error);
-        }
-
-        $data = json_decode($raw, true);
-
-        if (!is_array($data)) {
-            throw new RuntimeException('Microsoft Graph returned an invalid response.');
-        }
-
-        if ($status < 200 || $status >= 300) {
-            $message = $data['error']['message'] ?? 'Could not read Microsoft profile.';
-            throw new RuntimeException($message);
-        }
-
-        return $data;
+        return $provider;
     }
 }
 
@@ -264,7 +176,7 @@ if (!function_exists('find_leader_by_email')) {
 }
 
 if (!function_exists('login_leader_from_record')) {
-    function login_leader_from_record(array $leader): void
+    function login_leader_from_record(array $leader, string $method = 'microsoft'): void
     {
         if (session_status() !== PHP_SESSION_ACTIVE) {
             session_start();
@@ -275,40 +187,60 @@ if (!function_exists('login_leader_from_record')) {
         $_SESSION['leader_id'] = (int)$leader['id'];
         $_SESSION['leader_email'] = $leader['email'] ?? '';
         $_SESSION['leader_name'] = $leader['name'] ?? '';
-        $_SESSION['auth_method'] = 'microsoft';
+        $_SESSION['auth_method'] = $method;
     }
 }
 
-if (!function_exists('microsoft_login_with_code')) {
-    function microsoft_login_with_code(string $code): array
+if (!function_exists('microsoft_extract_email')) {
+    function microsoft_extract_email(array $resourceOwner): string
     {
-        $tokenUrl = 'https://login.microsoftonline.com/' . rawurlencode(MS_TENANT_ID) . '/oauth2/v2.0/token';
+        $candidates = [
+            $resourceOwner['mail'] ?? '',
+            $resourceOwner['userPrincipalName'] ?? '',
+            $resourceOwner['upn'] ?? '',
+            $resourceOwner['email'] ?? '',
+            $resourceOwner['preferred_username'] ?? '',
+        ];
 
-        $tokenData = microsoft_post($tokenUrl, [
-            'client_id' => MS_CLIENT_ID,
-            'client_secret' => MS_CLIENT_SECRET,
+        foreach ($candidates as $candidate) {
+            $candidate = trim((string)$candidate);
+
+            if ($candidate !== '' && filter_var($candidate, FILTER_VALIDATE_EMAIL)) {
+                return $candidate;
+            }
+        }
+
+        return '';
+    }
+}
+
+if (!function_exists('microsoft_login_from_callback')) {
+    function microsoft_login_from_callback(string $code, string $state): array
+    {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
+
+        $expectedState = $_SESSION['ms_oauth_state'] ?? '';
+        unset($_SESSION['ms_oauth_state']);
+
+        if ($state === '' || $expectedState === '' || !hash_equals($expectedState, $state)) {
+            throw new RuntimeException('Microsoft sign-in could not be verified. Please try again.');
+        }
+
+        $provider = microsoft_provider();
+
+        $token = $provider->getAccessToken('authorization_code', [
             'code' => $code,
-            'redirect_uri' => MS_REDIRECT_URI,
-            'grant_type' => 'authorization_code',
-            'scope' => 'openid profile email User.Read',
+            'scope' => ['openid', 'profile', 'email', 'User.Read'],
         ]);
 
-        if (empty($tokenData['access_token'])) {
-            throw new RuntimeException('Microsoft did not return an access token.');
-        }
+        $resourceOwner = $provider->getResourceOwner($token);
+        $resourceOwnerArray = $resourceOwner->toArray();
 
-        $profile = microsoft_get_json(
-            'https://graph.microsoft.com/v1.0/me?$select=id,displayName,mail,userPrincipalName',
-            $tokenData['access_token']
-        );
-
-        $email = trim((string)($profile['mail'] ?? ''));
+        $email = microsoft_extract_email($resourceOwnerArray);
 
         if ($email === '') {
-            $email = trim((string)($profile['userPrincipalName'] ?? ''));
-        }
-
-        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             throw new RuntimeException('Microsoft did not return a usable email address.');
         }
 
@@ -326,7 +258,7 @@ if (!function_exists('microsoft_login_with_code')) {
             throw new RuntimeException('This leader account is not active.');
         }
 
-        login_leader_from_record($leader);
+        login_leader_from_record($leader, 'microsoft');
 
         return $leader;
     }
