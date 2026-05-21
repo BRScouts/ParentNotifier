@@ -927,9 +927,7 @@ include __DIR__ . '/header.php';
                 Add update
             </a>
 
-            <a class="btn btn-primary" href="<?= e(url('add_location.php')) ?>">
-                Add team location
-            </a>
+            
 
             <a class="btn btn-outline-primary" href="<?= e(url('team_links.php')) ?>">
                 Manage teams

@@ -17,9 +17,10 @@
             </div>
 
             <div class="footer-message">
-                <strong>No news is not bad news.</strong>
+                <strong>Our Privacy Notice</strong>
                 <span>
-                    Updates and locations are added manually by leaders and may be delayed while teams are being checked in/ information being inputted due to delay in signal.
+                    How we handle your personal information and data during the event.
+                    <a href="<?= e(url('privacy.php')) ?>">Read more</a>
                 </span>
             </div>
         </div>
