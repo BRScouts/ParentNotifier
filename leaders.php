@@ -1,0 +1,1598 @@
+<?php
+require_once __DIR__ . '/auth.php';
+
+$pdo = db();
+$user = current_user();
+$parentTeam = parent_access_team();
+
+if (!$user && !$parentTeam) {
+    redirect('403.php');
+}
+
+$isAdmin = (bool)$user;
+$error = '';
+$success = '';
+
+/**
+ * General helpers
+ */
+
+function eb_leaders_table_exists(PDO $pdo, string $table): bool
+{
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT COUNT(*)
+             FROM information_schema.tables
+             WHERE table_schema = DATABASE()
+               AND table_name = ?'
+        );
+
+        $stmt->execute([$table]);
+
+        if ((int)$stmt->fetchColumn() > 0) {
+            return true;
+        }
+
+        /*
+         * Fallback: try selecting no rows from the table.
+         * This confirms the table is usable even if information_schema is restricted.
+         */
+        $safeTable = str_replace('`', '', $table);
+        $pdo->query('SELECT 1 FROM `' . $safeTable . '` LIMIT 1');
+
+        return true;
+    } catch (Throwable $exception) {
+        return false;
+    }
+}
+
+function eb_leaders_schedule_table(PDO $pdo): ?string
+{
+    /*
+     * Your table name.
+     */
+    if (eb_leaders_table_exists($pdo, 'leader_schedules')) {
+        return 'leader_schedules';
+    }
+
+    /*
+     * Backwards-compatible fallbacks.
+     */
+    foreach (['leader_schedule', 'leader_availability'] as $table) {
+        if (eb_leaders_table_exists($pdo, $table)) {
+            return $table;
+        }
+    }
+
+    return null;
+}
+
+function eb_leaders_columns(PDO $pdo, string $table): array
+{
+    try {
+        $stmt = $pdo->query('DESCRIBE `' . str_replace('`', '', $table) . '`');
+        $columns = [];
+
+        foreach ($stmt->fetchAll() as $row) {
+            $columns[] = $row['Field'];
+        }
+
+        return $columns;
+    } catch (Throwable $exception) {
+        return [];
+    }
+}
+
+function eb_leaders_has_col(array $columns, string $column): bool
+{
+    return in_array($column, $columns, true);
+}
+
+function eb_leaders_first_col(array $columns, array $candidates): ?string
+{
+    foreach ($candidates as $candidate) {
+        if (in_array($candidate, $columns, true)) {
+            return $candidate;
+        }
+    }
+
+    return null;
+}
+
+function eb_leaders_val(array $row, array $keys, $default = '')
+{
+    foreach ($keys as $key) {
+        if (array_key_exists($key, $row) && $row[$key] !== null && $row[$key] !== '') {
+            return $row[$key];
+        }
+    }
+
+    return $default;
+}
+
+function eb_leaders_media_url(?string $path): string
+{
+    $path = trim((string)$path);
+
+    if ($path === '') {
+        return '';
+    }
+
+    if (preg_match('/^https?:\/\//i', $path)) {
+        return $path;
+    }
+
+    return url($path);
+}
+
+function eb_leaders_initials(string $name): string
+{
+    $parts = preg_split('/\s+/', trim($name));
+    $initials = '';
+
+    foreach ($parts as $part) {
+        if ($part !== '') {
+            $initials .= strtoupper(substr($part, 0, 1));
+        }
+
+        if (strlen($initials) >= 2) {
+            break;
+        }
+    }
+
+    return $initials ?: '?';
+}
+
+function eb_leaders_format_datetime(?string $datetime): string
+{
+    if (!$datetime) {
+        return '';
+    }
+
+    $timestamp = strtotime($datetime);
+
+    if (!$timestamp) {
+        return '';
+    }
+
+    return date('d M Y', $timestamp);
+}
+
+/**
+ * Schedule helpers
+ */
+
+
+function eb_leaders_get_schedule_config(PDO $pdo): array
+{
+    $table = eb_leaders_schedule_table($pdo);
+
+    if (!$table) {
+        return [
+            'table' => null,
+            'columns' => [],
+            'id_col' => null,
+            'leader_col' => null,
+            'start_col' => null,
+            'end_col' => null,
+            'type_col' => null,
+            'note_col' => null,
+        ];
+    }
+
+    $columns = eb_leaders_columns($pdo, $table);
+
+    return [
+        'table' => $table,
+        'columns' => $columns,
+        'id_col' => eb_leaders_first_col($columns, ['id', 'schedule_id']),
+        'leader_col' => eb_leaders_first_col($columns, ['leader_id']),
+        'start_col' => eb_leaders_first_col($columns, [
+            'schedule_start',
+            'starts_at',
+            'start_at',
+            'start_datetime',
+            'start_date',
+            'from_date',
+            'date_from',
+        ]),
+        'end_col' => eb_leaders_first_col($columns, [
+            'schedule_end',
+            'ends_at',
+            'end_at',
+            'end_datetime',
+            'end_date',
+            'to_date',
+            'date_to',
+        ]),
+        'type_col' => eb_leaders_first_col($columns, [
+            'schedule_type',
+            'type',
+            'status',
+            'leader_status',
+            'role_type',
+        ]),
+        'note_col' => eb_leaders_first_col($columns, [
+            'note',
+            'notes',
+            'description',
+        ]),
+    ];
+}
+
+function eb_leaders_schedule_start(array $schedule): ?int
+{
+    $raw = eb_leaders_val($schedule, [
+        'schedule_start',
+        'starts_at',
+        'start_at',
+        'start_datetime',
+        'start_date',
+        'from_date',
+        'date_from',
+    ], '');
+
+    $timestamp = strtotime((string)$raw);
+
+    return $timestamp ?: null;
+}
+
+function eb_leaders_schedule_end(array $schedule): ?int
+{
+    $raw = eb_leaders_val($schedule, [
+        'schedule_end',
+        'ends_at',
+        'end_at',
+        'end_datetime',
+        'end_date',
+        'to_date',
+        'date_to',
+    ], '');
+
+    $timestamp = strtotime((string)$raw);
+
+    if ($timestamp) {
+        return $timestamp;
+    }
+
+    $start = eb_leaders_schedule_start($schedule);
+
+    if ($start) {
+        return strtotime('+1 day', $start) ?: null;
+    }
+
+    return null;
+}
+
+function eb_leaders_schedule_status(array $schedule): string
+{
+    $raw = strtolower((string)eb_leaders_val($schedule, [
+        'schedule_type',
+        'type',
+        'status',
+        'leader_status',
+        'role_type',
+    ], ''));
+
+    if (str_contains($raw, 'home')) {
+        return 'home_contact';
+    }
+
+    if (
+        str_contains($raw, 'country')
+        || str_contains($raw, 'finland')
+        || str_contains($raw, 'in_country')
+    ) {
+        return 'in_country';
+    }
+
+    if (!empty($schedule['is_home_contact'])) {
+        return 'home_contact';
+    }
+
+    return 'in_country';
+}
+
+function eb_leaders_current_schedule_for_leader(array $schedules): ?array
+{
+    $now = time();
+
+    foreach ($schedules as $schedule) {
+        $start = eb_leaders_schedule_start($schedule);
+        $end = eb_leaders_schedule_end($schedule);
+
+        if (!$start || !$end) {
+            continue;
+        }
+
+        if ($now >= $start && $now <= $end) {
+            return $schedule;
+        }
+    }
+
+    return null;
+}
+
+function eb_leaders_get_next_schedule(array $schedules): ?array
+{
+    $now = time();
+    $next = null;
+    $nextStart = PHP_INT_MAX;
+
+    foreach ($schedules as $schedule) {
+        $start = eb_leaders_schedule_start($schedule);
+
+        if (!$start || $start <= $now) {
+            continue;
+        }
+
+        if ($start < $nextStart) {
+            $nextStart = $start;
+            $next = $schedule;
+        }
+    }
+
+    return $next;
+}
+
+function eb_leaders_schedule_label(?array $schedule): string
+{
+    if (!$schedule) {
+        return '';
+    }
+
+    $startRaw = eb_leaders_val($schedule, [
+        'schedule_start',
+        'starts_at',
+        'start_at',
+        'start_datetime',
+        'start_date',
+        'from_date',
+        'date_from',
+    ], '');
+
+    $endRaw = eb_leaders_val($schedule, [
+        'schedule_end',
+        'ends_at',
+        'end_at',
+        'end_datetime',
+        'end_date',
+        'to_date',
+        'date_to',
+    ], '');
+
+    $parts = [];
+
+    if ($startRaw) {
+        $parts[] = 'From ' . eb_leaders_format_datetime((string)$startRaw);
+    }
+
+    if ($endRaw) {
+        $parts[] = 'until ' . eb_leaders_format_datetime((string)$endRaw);
+    }
+
+    return implode(' ', $parts);
+}
+
+function eb_leaders_status_from_leader(array $leader): string
+{
+    $rawStatus = strtolower((string)eb_leaders_val($leader, [
+        'current_status',
+        'status',
+        'leader_status',
+    ], ''));
+
+    if (str_contains($rawStatus, 'home')) {
+        return 'home_contact';
+    }
+
+    if (
+        str_contains($rawStatus, 'country')
+        || str_contains($rawStatus, 'finland')
+        || str_contains($rawStatus, 'in_country')
+    ) {
+        return 'in_country';
+    }
+
+    if (!empty($leader['is_home_contact']) || !empty($leader['home_contact'])) {
+        return 'home_contact';
+    }
+
+    if (!empty($leader['is_in_country']) || !empty($leader['in_country'])) {
+        return 'in_country';
+    }
+
+    return 'not_scheduled';
+}
+
+/**
+ * Parent-facing status labels
+ */
+
+function eb_leaders_parent_status(array $leader): array
+{
+    $currentSchedule = $leader['_current_schedule'] ?? null;
+    $schedules = $leader['_schedules'] ?? [];
+
+    if ($currentSchedule) {
+        $currentType = eb_leaders_schedule_status($currentSchedule);
+
+        if ($currentType === 'home_contact') {
+            return [
+                'status' => 'current_home_contact',
+                'label' => 'Current Home Contact',
+                'class' => 'status-home-contact',
+                'detail' => eb_leaders_schedule_label($currentSchedule),
+            ];
+        }
+
+        return [
+            'status' => 'supporting_finland',
+            'label' => 'Supporting in Finland',
+            'class' => 'status-in-country',
+            'detail' => eb_leaders_schedule_label($currentSchedule),
+        ];
+    }
+
+    $nextSchedule = eb_leaders_get_next_schedule($schedules);
+
+    if ($nextSchedule) {
+        $nextType = eb_leaders_schedule_status($nextSchedule);
+
+        if ($nextType === 'home_contact') {
+            return [
+                'status' => 'preparing_home_contact',
+                'label' => 'Preparing to be Home Contact',
+                'class' => 'status-preparing-home-contact',
+                'detail' => eb_leaders_schedule_label($nextSchedule),
+            ];
+        }
+
+        return [
+            'status' => 'due_finland',
+            'label' => 'Due to arrive in Finland',
+            'class' => 'status-due-finland',
+            'detail' => eb_leaders_schedule_label($nextSchedule),
+        ];
+    }
+
+    $fallbackStatus = eb_leaders_status_from_leader($leader);
+
+    if ($fallbackStatus === 'home_contact') {
+        return [
+            'status' => 'current_home_contact',
+            'label' => 'Current Home Contact',
+            'class' => 'status-home-contact',
+            'detail' => '',
+        ];
+    }
+
+    if ($fallbackStatus === 'in_country') {
+        return [
+            'status' => 'supporting_finland',
+            'label' => 'Supporting in Finland',
+            'class' => 'status-in-country',
+            'detail' => '',
+        ];
+    }
+
+    return [
+        'status' => 'supporting_remotely',
+        'label' => 'Supporting remotely',
+        'class' => 'status-supporting-remotely',
+        'detail' => '',
+    ];
+}
+
+function eb_leaders_admin_status_label(string $status): string
+{
+    if ($status === 'home_contact') {
+        return 'Home contact';
+    }
+
+    if ($status === 'in_country') {
+        return 'In country';
+    }
+
+    return 'Not scheduled';
+}
+
+/**
+ * Data fetchers
+ */
+
+function eb_leaders_fetch_all(PDO $pdo, array $leaderColumns): array
+{
+    $where = '';
+
+    if (eb_leaders_has_col($leaderColumns, 'is_active')) {
+        $where = 'WHERE is_active = 1';
+    }
+
+    $stmt = $pdo->query(
+        'SELECT *
+         FROM leaders
+         ' . $where
+    );
+
+    $leaders = $stmt->fetchAll();
+
+    shuffle($leaders);
+
+    return $leaders;
+}
+
+function eb_leaders_fetch_schedules(PDO $pdo, array $scheduleConfig, array $leaders): array
+{
+    if (!$scheduleConfig['table'] || !$scheduleConfig['leader_col'] || empty($leaders)) {
+        return [];
+    }
+
+    $leaderIds = array_map(static function ($leader) {
+        return (int)$leader['id'];
+    }, $leaders);
+
+    $leaderIds = array_values(array_filter($leaderIds));
+
+    if (empty($leaderIds)) {
+        return [];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($leaderIds), '?'));
+    $orderCol = $scheduleConfig['start_col'] ?: $scheduleConfig['id_col'];
+
+    $sql = 'SELECT * FROM `' . $scheduleConfig['table'] . '`
+            WHERE `' . $scheduleConfig['leader_col'] . '` IN (' . $placeholders . ')';
+
+    if ($orderCol) {
+        $sql .= ' ORDER BY `' . $orderCol . '` ASC';
+    }
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($leaderIds);
+
+    $grouped = [];
+
+    foreach ($stmt->fetchAll() as $schedule) {
+        $leaderId = (int)$schedule[$scheduleConfig['leader_col']];
+
+        if (!isset($grouped[$leaderId])) {
+            $grouped[$leaderId] = [];
+        }
+
+        $grouped[$leaderId][] = $schedule;
+    }
+
+    return $grouped;
+}
+
+/**
+ * Admin save helpers
+ */
+
+function eb_leaders_save_leader(PDO $pdo, array $leaderColumns): void
+{
+    $leaderId = (int)($_POST['leader_id'] ?? 0);
+
+    $input = [
+        'name' => trim($_POST['name'] ?? ''),
+        'role' => trim($_POST['role'] ?? ''),
+        'email' => trim($_POST['email'] ?? ''),
+        'phone' => trim($_POST['phone'] ?? ''),
+        'bio' => trim($_POST['bio'] ?? ''),
+        'photo_url' => trim($_POST['photo_url'] ?? ''),
+        'is_active' => isset($_POST['is_active']) ? 1 : 0,
+        'is_home_contact' => isset($_POST['is_home_contact']) ? 1 : 0,
+        'is_in_country' => isset($_POST['is_in_country']) ? 1 : 0,
+    ];
+
+    if ($input['name'] === '') {
+        throw new RuntimeException('Leader name is required.');
+    }
+
+    $allowed = [];
+
+    foreach ($input as $key => $value) {
+        if (eb_leaders_has_col($leaderColumns, $key)) {
+            $allowed[$key] = $value;
+        }
+    }
+
+    if ($leaderId > 0) {
+        $sets = [];
+        $values = [];
+
+        foreach ($allowed as $column => $value) {
+            $sets[] = '`' . $column . '` = ?';
+            $values[] = $value;
+        }
+
+        if (empty($sets)) {
+            return;
+        }
+
+        $values[] = $leaderId;
+
+        $stmt = $pdo->prepare(
+            'UPDATE leaders SET ' . implode(', ', $sets) . ' WHERE id = ?'
+        );
+
+        $stmt->execute($values);
+    } else {
+        $columns = array_keys($allowed);
+        $values = array_values($allowed);
+
+        if (empty($columns)) {
+            return;
+        }
+
+        $stmt = $pdo->prepare(
+            'INSERT INTO leaders (`' . implode('`, `', $columns) . '`)
+             VALUES (' . implode(',', array_fill(0, count($columns), '?')) . ')'
+        );
+
+        $stmt->execute($values);
+    }
+}
+
+function eb_leaders_add_schedule(PDO $pdo, array $scheduleConfig): void
+{
+    if (!$scheduleConfig['table'] || !$scheduleConfig['leader_col'] || !$scheduleConfig['start_col']) {
+        throw new RuntimeException('Leader schedule table is not configured.');
+    }
+
+    $leaderId = (int)($_POST['leader_id'] ?? 0);
+    $scheduleType = $_POST['schedule_type'] ?? 'in_country';
+    $start = trim($_POST['schedule_start'] ?? '');
+    $end = trim($_POST['schedule_end'] ?? '');
+    $note = trim($_POST['note'] ?? '');
+
+    if ($leaderId <= 0) {
+        throw new RuntimeException('Choose a leader.');
+    }
+
+    if ($start === '') {
+        throw new RuntimeException('Schedule start is required.');
+    }
+
+    $columns = [];
+    $values = [];
+
+    $columns[] = $scheduleConfig['leader_col'];
+    $values[] = $leaderId;
+
+    $columns[] = $scheduleConfig['start_col'];
+    $values[] = str_replace('T', ' ', $start);
+
+    if ($scheduleConfig['end_col']) {
+        $columns[] = $scheduleConfig['end_col'];
+        $values[] = $end !== '' ? str_replace('T', ' ', $end) : null;
+    }
+
+    if ($scheduleConfig['type_col']) {
+        $columns[] = $scheduleConfig['type_col'];
+        $values[] = $scheduleType;
+    }
+
+    if ($scheduleConfig['note_col']) {
+        $columns[] = $scheduleConfig['note_col'];
+        $values[] = $note;
+    }
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO `' . $scheduleConfig['table'] . '`
+            (`' . implode('`, `', $columns) . '`)
+         VALUES
+            (' . implode(',', array_fill(0, count($columns), '?')) . ')'
+    );
+
+    $stmt->execute($values);
+}
+
+function eb_leaders_delete_schedule(PDO $pdo, array $scheduleConfig): void
+{
+    if (!$scheduleConfig['table'] || !$scheduleConfig['id_col']) {
+        throw new RuntimeException('Schedule deletion is not configured.');
+    }
+
+    $scheduleId = (int)($_POST['schedule_id'] ?? 0);
+
+    if ($scheduleId <= 0) {
+        return;
+    }
+
+    $stmt = $pdo->prepare(
+        'DELETE FROM `' . $scheduleConfig['table'] . '`
+         WHERE `' . $scheduleConfig['id_col'] . '` = ?'
+    );
+
+    $stmt->execute([$scheduleId]);
+}
+
+/**
+ * Setup
+ */
+
+$leaderColumns = eb_leaders_columns($pdo, 'leaders');
+$scheduleConfig = eb_leaders_get_schedule_config($pdo);
+
+/**
+ * Admin POST actions
+ */
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isAdmin) {
+    $action = $_POST['action'] ?? '';
+
+    try {
+        if ($action === 'save_leader') {
+            eb_leaders_save_leader($pdo, $leaderColumns);
+            redirect('leaders.php?tab=manage');
+        }
+
+        if ($action === 'add_schedule') {
+            eb_leaders_add_schedule($pdo, $scheduleConfig);
+            redirect('leaders.php?tab=schedule');
+        }
+
+        if ($action === 'delete_schedule') {
+            eb_leaders_delete_schedule($pdo, $scheduleConfig);
+            redirect('leaders.php?tab=schedule');
+        }
+    } catch (Throwable $exception) {
+        $error = $exception->getMessage();
+    }
+}
+
+/**
+ * Fetch data
+ */
+
+$leaders = eb_leaders_fetch_all($pdo, $leaderColumns);
+$schedulesByLeader = eb_leaders_fetch_schedules($pdo, $scheduleConfig, $leaders);
+
+$decoratedLeaders = [];
+
+foreach ($leaders as $leader) {
+    $leaderId = (int)$leader['id'];
+    $leaderSchedules = $schedulesByLeader[$leaderId] ?? [];
+    $currentSchedule = eb_leaders_current_schedule_for_leader($leaderSchedules);
+    $parentStatus = null;
+
+    $leader['_schedules'] = $leaderSchedules;
+    $leader['_current_schedule'] = $currentSchedule;
+    $leader['_parent_status'] = eb_leaders_parent_status($leader);
+
+    $decoratedLeaders[] = $leader;
+}
+
+/**
+ * Group for parent-facing display
+ */
+
+$homeContacts = [];
+$inCountryLeaders = [];
+$upcomingLeaders = [];
+$remoteLeaders = [];
+
+foreach ($decoratedLeaders as $leader) {
+    $parentStatus = $leader['_parent_status'];
+
+    if ($parentStatus['status'] === 'current_home_contact') {
+        $homeContacts[] = $leader;
+    } elseif ($parentStatus['status'] === 'supporting_finland') {
+        $inCountryLeaders[] = $leader;
+    } elseif (
+        $parentStatus['status'] === 'due_finland'
+        || $parentStatus['status'] === 'preparing_home_contact'
+    ) {
+        $upcomingLeaders[] = $leader;
+    } else {
+        $remoteLeaders[] = $leader;
+    }
+}
+
+$tab = $_GET['tab'] ?? 'view';
+
+if (!$isAdmin) {
+    $tab = 'view';
+}
+
+/**
+ * Render parent-facing card
+ */
+
+function eb_leaders_render_card(array $leader): void
+{
+    $name = (string)eb_leaders_val($leader, ['name', 'full_name'], 'Leader');
+    $bio = (string)eb_leaders_val($leader, ['bio', 'description', 'profile'], '');
+    $photo = eb_leaders_media_url((string)eb_leaders_val($leader, ['photo_url', 'image_url', 'avatar_url'], ''));
+
+    $parentStatus = $leader['_parent_status'] ?? eb_leaders_parent_status($leader);
+
+    $status = $parentStatus['status'];
+    $statusLabel = $parentStatus['label'];
+    $statusClass = $parentStatus['class'];
+    $scheduleLabel = $parentStatus['detail'];
+
+    $isHomeContact = $status === 'current_home_contact';
+    ?>
+    <article class="leader-card leader-profile-card">
+        <div class="leader-photo-wrap">
+            <?php if ($photo !== ''): ?>
+                <img
+                    class="leader-photo"
+                    src="<?= e($photo) ?>"
+                    alt="Photo of <?= e($name) ?>"
+                >
+            <?php else: ?>
+                <div class="leader-photo leader-photo-placeholder" aria-hidden="true">
+                    <?= e(eb_leaders_initials($name)) ?>
+                </div>
+            <?php endif; ?>
+        </div>
+
+        <div class="leader-card-body">
+            <div class="leader-card-heading">
+                <div>
+                    <h2><?= e($name) ?></h2>
+                </div>
+            </div>
+
+            <p class="leader-status-line">
+                <span class="leader-status <?= e($statusClass) ?>">
+                    <?= e($statusLabel) ?>
+                </span>
+            </p>
+
+            <?php if ($scheduleLabel !== ''): ?>
+                <p class="leader-schedule">
+                    <?= e($scheduleLabel) ?>
+                </p>
+            <?php endif; ?>
+
+            <?php if ($bio !== ''): ?>
+                <div class="leader-bio-wrapper">
+                    <div class="leader-bio leader-bio-clamped">
+                        <?= nl2br(e($bio)) ?>
+                    </div>
+
+                    <button type="button" class="leader-read-more" data-read-more>
+                        Read more
+                    </button>
+                </div>
+            <?php endif; ?>
+
+            <?php if ($isHomeContact): ?>
+                <div class="leader-contact-details">
+                    <h3>Contact details</h3>
+
+                    <?php if (!empty($leader['phone'])): ?>
+                        <p class="mb-1">
+                            <strong>Phone:</strong>
+                            <a href="tel:<?= e(preg_replace('/\s+/', '', (string)$leader['phone'])) ?>">
+                                <?= e($leader['phone']) ?>
+                            </a>
+                        </p>
+                    <?php endif; ?>
+
+                    <?php if (!empty($leader['email'])): ?>
+                        <p class="mb-0">
+                            <strong>Email:</strong>
+                            <a href="mailto:<?= e($leader['email']) ?>">
+                                <?= e($leader['email']) ?>
+                            </a>
+                        </p>
+                    <?php endif; ?>
+
+                    <?php if (empty($leader['phone']) && empty($leader['email'])): ?>
+                        <p class="muted mb-0">
+                            Contact details have not been added yet.
+                        </p>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
+        </div>
+    </article>
+    <?php
+}
+
+include __DIR__ . '/header.php';
+?>
+
+<style>
+    .compact-leaders-hero {
+        padding: 1.25rem 0 !important;
+        margin-bottom: 1rem !important;
+    }
+
+    .compact-leaders-hero h1 {
+        margin-bottom: 0.25rem;
+    }
+
+    .compact-leaders-hero .lead {
+        font-size: 1.05rem;
+    }
+
+    .leader-contact-warning {
+        border-left: 8px solid #ffdd00;
+        background: #fff7bf;
+        color: #1d1d1d;
+        padding: 0.9rem 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .leader-contact-warning strong {
+        display: block;
+        font-weight: 900;
+        margin-bottom: 0.2rem;
+    }
+
+    .leader-section {
+        margin-bottom: 2.25rem;
+    }
+
+    .leader-section-heading {
+        border-bottom: 4px solid #7413dc;
+        padding-bottom: 0.75rem;
+        margin-bottom: 1rem;
+    }
+
+    .leader-section-heading h2 {
+        margin-bottom: 0.2rem;
+        font-weight: 900;
+    }
+
+    .leader-section-heading p {
+        margin-bottom: 0;
+    }
+
+    .leader-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+
+    @media (min-width: 768px) {
+        .leader-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+
+    .leader-profile-card {
+        display: grid;
+        grid-template-columns: 104px minmax(0, 1fr);
+        gap: 1rem;
+        border: 2px solid #d8d8d8;
+        background: #ffffff;
+        padding: 1rem;
+    }
+
+    @media (max-width: 560px) {
+        .leader-profile-card {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .leader-photo-wrap {
+        width: 104px;
+    }
+
+    .leader-photo {
+        width: 104px !important;
+        height: 104px !important;
+        max-width: 104px !important;
+        max-height: 104px !important;
+        object-fit: cover;
+        display: block;
+        border: 2px solid #1d1d1d;
+        background: #f3f2f1;
+    }
+
+    .leader-photo-placeholder {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #7413dc;
+        color: #ffffff;
+        font-size: 2.4rem;
+        font-weight: 900;
+    }
+
+    .leader-card-body h2 {
+        margin: 0;
+        font-size: 1.25rem;
+        font-weight: 900;
+    }
+
+    .leader-card-heading {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+    }
+
+    .leader-status-line {
+        margin: 0.45rem 0;
+    }
+
+    .leader-status {
+        display: inline-block;
+        padding: 0.3rem 0.5rem;
+        border: 2px solid #1d1d1d;
+        font-weight: 900;
+        line-height: 1.2;
+    }
+
+    .status-in-country {
+        background: #00703c;
+        color: #ffffff;
+    }
+
+    .status-home-contact {
+        background: #1d70b8;
+        color: #ffffff;
+    }
+
+    .status-due-finland {
+        background: #ffdd00;
+        color: #1d1d1d;
+    }
+
+    .status-preparing-home-contact {
+        background: #e7f1fb;
+        color: #1d1d1d;
+    }
+
+    .status-supporting-remotely {
+        background: #f3f2f1;
+        color: #1d1d1d;
+    }
+
+    .leader-schedule {
+        color: #505a5f;
+        margin-bottom: 0.6rem;
+        font-size: 0.95rem;
+    }
+
+    .leader-bio-wrapper {
+        margin-top: 0.5rem;
+    }
+
+    .leader-bio {
+        margin-bottom: 0;
+    }
+
+    .leader-bio-clamped {
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .leader-bio-expanded {
+        display: block;
+        overflow: visible;
+    }
+
+    .leader-read-more {
+        margin-top: 0.35rem;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: #1d70b8;
+        font-weight: 900;
+        text-decoration: underline;
+        cursor: pointer;
+    }
+
+    .leader-read-more:hover,
+    .leader-read-more:focus {
+        color: #003078;
+    }
+
+    .leader-contact-details {
+        border-left: 6px solid #1d70b8;
+        background: #eef7ff;
+        padding: 0.75rem;
+        margin-top: 0.85rem;
+    }
+
+    .leader-contact-details h3 {
+        font-size: 1rem;
+        margin: 0 0 0.5rem;
+        font-weight: 900;
+    }
+
+    .leader-contact-details a {
+        font-weight: 800;
+    }
+
+    .admin-leader-form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+    }
+
+    @media (max-width: 760px) {
+        .admin-leader-form-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .admin-leader-row {
+        border: 2px solid #d8d8d8;
+        background: #ffffff;
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .admin-leader-row summary {
+        cursor: pointer;
+        font-weight: 900;
+    }
+
+    .schedule-table-wrap {
+        overflow-x: auto;
+    }
+
+    .schedule-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #ffffff;
+    }
+
+    .schedule-table th,
+    .schedule-table td {
+        border: 1px solid #d8d8d8;
+        padding: 0.55rem;
+        vertical-align: top;
+    }
+
+    .schedule-table th {
+        background: #f3f2f1;
+        font-weight: 900;
+    }
+</style>
+
+<section class="page-hero compact-leaders-hero">
+    <div class="container">
+        <h1>Leadership team</h1>
+        <p class="lead mb-0">
+            Meet the leaders supporting the Explorer Belt trip.
+        </p>
+    </div>
+</section>
+
+<main id="main-content" class="container my-4">
+
+    <?php if ($error): ?>
+        <div class="alert alert-danger">
+            <?= e($error) ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($success): ?>
+        <div class="alert alert-success">
+            <?= e($success) ?>
+        </div>
+    <?php endif; ?>
+
+    <div class="leader-contact-warning">
+        <strong>Please do not contact leaders in Finland directly.</strong>
+        <span>
+            If you need to contact the trip team, please contact the current home contact shown below.
+        </span>
+    </div>
+
+    <?php if ($isAdmin): ?>
+        <nav class="admin-tabs">
+            <a class="admin-tab <?= $tab === 'view' ? 'active' : '' ?>" href="<?= e(url('leaders.php?tab=view')) ?>">
+                Parent view
+            </a>
+            <a class="admin-tab <?= $tab === 'manage' ? 'active' : '' ?>" href="<?= e(url('leaders.php?tab=manage')) ?>">
+                Manage leaders
+            </a>
+            <a class="admin-tab <?= $tab === 'schedule' ? 'active' : '' ?>" href="<?= e(url('leaders.php?tab=schedule')) ?>">
+                Manage schedule
+            </a>
+        </nav>
+    <?php endif; ?>
+
+    <?php if ($tab === 'manage' && $isAdmin): ?>
+
+        <section class="admin-panel mb-4">
+            <h2>Add leader</h2>
+
+            <form method="post">
+                <input type="hidden" name="action" value="save_leader">
+
+                <div class="admin-leader-form-grid">
+                    <div class="form-group">
+                        <label>Name</label>
+                        <input class="form-control" name="name" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Internal role</label>
+                        <input class="form-control" name="role">
+                        <small class="form-text text-muted">
+                            Internal only. This is not shown to parents.
+                        </small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input class="form-control" type="email" name="email">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Phone</label>
+                        <input class="form-control" name="phone">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Photo URL</label>
+                        <input class="form-control" type="url" name="photo_url">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Status fallback</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="is_in_country" id="add_is_in_country">
+                            <label class="form-check-label" for="add_is_in_country">Supporting in Finland</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="is_home_contact" id="add_is_home_contact">
+                            <label class="form-check-label" for="add_is_home_contact">Current Home Contact</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Bio</label>
+                    <textarea class="form-control" name="bio" rows="4"></textarea>
+                </div>
+
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" name="is_active" id="add_is_active" checked>
+                    <label class="form-check-label" for="add_is_active">Active</label>
+                </div>
+
+                <button class="btn btn-primary">Add leader</button>
+            </form>
+        </section>
+
+        <section class="admin-panel">
+            <h2>Edit leaders</h2>
+
+            <?php foreach ($decoratedLeaders as $leader): ?>
+                <?php
+                $leaderId = (int)$leader['id'];
+                $name = (string)eb_leaders_val($leader, ['name', 'full_name'], 'Leader');
+                ?>
+                <details class="admin-leader-row">
+                    <summary><?= e($name) ?></summary>
+
+                    <form method="post" class="mt-3">
+                        <input type="hidden" name="action" value="save_leader">
+                        <input type="hidden" name="leader_id" value="<?= $leaderId ?>">
+
+                        <div class="admin-leader-form-grid">
+                            <div class="form-group">
+                                <label>Name</label>
+                                <input class="form-control" name="name" value="<?= e($name) ?>" required>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Internal role</label>
+                                <input class="form-control" name="role" value="<?= e(eb_leaders_val($leader, ['role', 'title', 'position'], '')) ?>">
+                                <small class="form-text text-muted">
+                                    Internal only. This is not shown to parents.
+                                </small>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Email</label>
+                                <input class="form-control" type="email" name="email" value="<?= e(eb_leaders_val($leader, ['email'], '')) ?>">
+                            </div>
+
+                            <div class="form-group">
+                                <label>Phone</label>
+                                <input class="form-control" name="phone" value="<?= e(eb_leaders_val($leader, ['phone'], '')) ?>">
+                            </div>
+
+                            <div class="form-group">
+                                <label>Photo URL</label>
+                                <input class="form-control" type="url" name="photo_url" value="<?= e(eb_leaders_val($leader, ['photo_url', 'image_url', 'avatar_url'], '')) ?>">
+                            </div>
+
+                            <div class="form-group">
+                                <label>Status fallback</label>
+
+                                <div class="form-check">
+                                    <input
+                                        class="form-check-input"
+                                        type="checkbox"
+                                        name="is_in_country"
+                                        id="is_in_country_<?= $leaderId ?>"
+                                        <?= !empty($leader['is_in_country']) || !empty($leader['in_country']) ? 'checked' : '' ?>
+                                    >
+                                    <label class="form-check-label" for="is_in_country_<?= $leaderId ?>">
+                                        Supporting in Finland
+                                    </label>
+                                </div>
+
+                                <div class="form-check">
+                                    <input
+                                        class="form-check-input"
+                                        type="checkbox"
+                                        name="is_home_contact"
+                                        id="is_home_contact_<?= $leaderId ?>"
+                                        <?= !empty($leader['is_home_contact']) || !empty($leader['home_contact']) ? 'checked' : '' ?>
+                                    >
+                                    <label class="form-check-label" for="is_home_contact_<?= $leaderId ?>">
+                                        Current Home Contact
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Bio</label>
+                            <textarea class="form-control" name="bio" rows="4"><?= e(eb_leaders_val($leader, ['bio', 'description', 'profile'], '')) ?></textarea>
+                        </div>
+
+                        <div class="form-check mb-3">
+                            <input
+                                class="form-check-input"
+                                type="checkbox"
+                                name="is_active"
+                                id="is_active_<?= $leaderId ?>"
+                                <?= !isset($leader['is_active']) || (int)$leader['is_active'] === 1 ? 'checked' : '' ?>
+                            >
+                            <label class="form-check-label" for="is_active_<?= $leaderId ?>">Active</label>
+                        </div>
+
+                        <button class="btn btn-primary">Save leader</button>
+                    </form>
+                </details>
+            <?php endforeach; ?>
+        </section>
+
+    <?php elseif ($tab === 'schedule' && $isAdmin): ?>
+
+        <section class="admin-panel mb-4">
+            <h2>Add schedule entry</h2>
+
+            <?php if (!$scheduleConfig['table']): ?>
+                <div class="alert alert-warning">
+                    No leader schedule table was found. Create a table named <strong>leader_schedules</strong>.
+                </div>
+
+                <pre><code>CREATE TABLE leader_schedules (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    leader_id INT UNSIGNED NOT NULL,
+    schedule_type ENUM('in_country','home_contact') NOT NULL DEFAULT 'in_country',
+    schedule_start DATETIME NOT NULL,
+    schedule_end DATETIME NULL,
+    note TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_leader_schedules_leader_id (leader_id)
+);</code></pre>
+            <?php else: ?>
+                <form method="post">
+                    <input type="hidden" name="action" value="add_schedule">
+
+                    <div class="admin-leader-form-grid">
+                        <div class="form-group">
+                            <label>Leader</label>
+                            <select class="form-control" name="leader_id" required>
+                                <option value="">Choose leader</option>
+                                <?php foreach ($decoratedLeaders as $leader): ?>
+                                    <option value="<?= (int)$leader['id'] ?>">
+                                        <?= e(eb_leaders_val($leader, ['name', 'full_name'], 'Leader')) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Schedule type</label>
+                            <select class="form-control" name="schedule_type">
+                                <option value="in_country">Supporting in Finland</option>
+                                <option value="home_contact">Home Contact</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Start</label>
+                            <input class="form-control" type="datetime-local" name="schedule_start" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label>End</label>
+                            <input class="form-control" type="datetime-local" name="schedule_end">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Note</label>
+                        <textarea class="form-control" name="note" rows="3"></textarea>
+                    </div>
+
+                    <button class="btn btn-primary">Add schedule</button>
+                </form>
+            <?php endif; ?>
+        </section>
+
+        <?php if ($scheduleConfig['table']): ?>
+            <section class="admin-panel">
+                <h2>Existing schedule entries</h2>
+
+                <div class="schedule-table-wrap">
+                    <table class="schedule-table">
+                        <thead>
+                            <tr>
+                                <th>Leader</th>
+                                <th>Type</th>
+                                <th>Start</th>
+                                <th>End</th>
+                                <th>Note</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($decoratedLeaders as $leader): ?>
+                                <?php foreach (($leader['_schedules'] ?? []) as $schedule): ?>
+                                    <?php
+                                    $scheduleId = $scheduleConfig['id_col'] ? (int)$schedule[$scheduleConfig['id_col']] : 0;
+                                    $type = eb_leaders_schedule_status($schedule);
+                                    ?>
+                                    <tr>
+                                        <td><?= e(eb_leaders_val($leader, ['name', 'full_name'], 'Leader')) ?></td>
+                                        <td><?= e($type === 'home_contact' ? 'Home Contact' : 'Supporting in Finland') ?></td>
+                                        <td><?= e(eb_leaders_format_datetime((string)eb_leaders_val($schedule, ['schedule_start', 'starts_at', 'start_at', 'start_datetime', 'start_date', 'from_date', 'date_from'], ''))) ?></td>
+                                        <td><?= e(eb_leaders_format_datetime((string)eb_leaders_val($schedule, ['schedule_end', 'ends_at', 'end_at', 'end_datetime', 'end_date', 'to_date', 'date_to'], ''))) ?></td>
+                                        <td><?= nl2br(e((string)eb_leaders_val($schedule, ['note', 'notes', 'description'], ''))) ?></td>
+                                        <td>
+                                            <?php if ($scheduleId > 0): ?>
+                                                <form method="post" onsubmit="return confirm('Delete this schedule entry?');">
+                                                    <input type="hidden" name="action" value="delete_schedule">
+                                                    <input type="hidden" name="schedule_id" value="<?= $scheduleId ?>">
+                                                    <button class="btn btn-outline-danger btn-sm">Delete</button>
+                                                </form>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        <?php endif; ?>
+
+    <?php else: ?>
+
+        <?php if (!empty($homeContacts)): ?>
+            <section class="leader-section">
+                <div class="leader-section-heading">
+                    <h2>Current Home Contact</h2>
+                    <p class="muted">
+                        Please use this contact if you need to reach the trip team.
+                    </p>
+                </div>
+
+                <div class="leader-grid">
+                    <?php foreach ($homeContacts as $leader): ?>
+                        <?php eb_leaders_render_card($leader); ?>
+                    <?php endforeach; ?>
+                </div>
+            </section>
+        <?php endif; ?>
+
+        <?php if (!empty($inCountryLeaders)): ?>
+            <section class="leader-section">
+                <div class="leader-section-heading">
+                    <h2>Supporting in Finland</h2>
+                    <p class="muted">
+                        These leaders are currently supporting the trip in Finland. Please do not contact them directly.
+                    </p>
+                </div>
+
+                <div class="leader-grid">
+                    <?php foreach ($inCountryLeaders as $leader): ?>
+                        <?php eb_leaders_render_card($leader); ?>
+                    <?php endforeach; ?>
+                </div>
+            </section>
+        <?php endif; ?>
+
+        <?php if (!empty($upcomingLeaders)): ?>
+            <section class="leader-section">
+                <div class="leader-section-heading">
+                    <h2>Upcoming support</h2>
+                    <p class="muted">
+                        These leaders are scheduled to support the trip soon.
+                    </p>
+                </div>
+
+                <div class="leader-grid">
+                    <?php foreach ($upcomingLeaders as $leader): ?>
+                        <?php eb_leaders_render_card($leader); ?>
+                    <?php endforeach; ?>
+                </div>
+            </section>
+        <?php endif; ?>
+
+        <?php if (!empty($remoteLeaders)): ?>
+            <section class="leader-section">
+                <div class="leader-section-heading">
+                    <h2>Supporting remotely</h2>
+                    <p class="muted">
+                        These leaders are supporting the trip remotely or are not currently scheduled in Finland.
+                    </p>
+                </div>
+
+                <div class="leader-grid">
+                    <?php foreach ($remoteLeaders as $leader): ?>
+                        <?php eb_leaders_render_card($leader); ?>
+                    <?php endforeach; ?>
+                </div>
+            </section>
+        <?php endif; ?>
+
+        <?php if (
+            empty($homeContacts)
+            && empty($inCountryLeaders)
+            && empty($upcomingLeaders)
+            && empty($remoteLeaders)
+        ): ?>
+            <div class="empty-panel">
+                No leaders are currently listed.
+            </div>
+        <?php endif; ?>
+
+    <?php endif; ?>
+
+</main>
+
+<script>
+    (function () {
+        var buttons = document.querySelectorAll('[data-read-more]');
+
+        buttons.forEach(function (button) {
+            var wrapper = button.closest('.leader-bio-wrapper');
+
+            if (!wrapper) {
+                return;
+            }
+
+            var bio = wrapper.querySelector('.leader-bio');
+
+            if (!bio) {
+                return;
+            }
+
+            setTimeout(function () {
+                if (bio.scrollHeight <= bio.clientHeight + 2) {
+                    button.style.display = 'none';
+                }
+            }, 100);
+
+            button.addEventListener('click', function () {
+                var expanded = bio.classList.toggle('leader-bio-expanded');
+
+                if (expanded) {
+                    bio.classList.remove('leader-bio-clamped');
+                    button.textContent = 'Show less';
+                } else {
+                    bio.classList.add('leader-bio-clamped');
+                    button.textContent = 'Read more';
+                }
+            });
+        });
+    })();
+</script>
+
+<?php include __DIR__ . '/footer.php'; ?>

@@ -1,0 +1,2 @@
+[20-May-2026 16:45:19 Europe/London] PHP Parse error:  syntax error, unexpected token "else", expecting end of file in /home/brscouts/exbelt2026.irvalscouts.org.uk/header.php on line 81
+[20-May-2026 16:19:46 UTC] PHP Fatal error:  Cannot redeclare eb_leaders_schedule_table() (previously declared in /home/brscouts/exbelt2026.irvalscouts.org.uk/leaders.php:49) in /home/brscouts/exbelt2026.irvalscouts.org.uk/leaders.php on line 165
