@@ -9,12 +9,18 @@ $error = '';
 
 const POST_UPLOAD_DIR = '/home/brscouts/exbelt2026.irvalscouts.org.uk/assets/posts/';
 const POST_UPLOAD_PUBLIC_PATH = 'assets/posts/';
+const EVENT_TIMEZONE = 'Europe/Helsinki';
 
 $teams = $pdo->query('SELECT * FROM teams ORDER BY name ASC')->fetchAll();
 
 /**
  * Helpers
  */
+
+function event_now_for_database(): string
+{
+    return (new DateTime('now', new DateTimeZone(EVENT_TIMEZONE)))->format('Y-m-d H:i:s');
+}
 
 function clean_post_html(string $html): string
 {
@@ -354,11 +360,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->exec('UPDATE posts SET is_pinned = 0');
             }
 
+            $publishedAt = event_now_for_database();
+
             $stmt = $pdo->prepare(
                 'INSERT INTO posts
                     (team_id, leader_id, title, body, post_type, visibility, photo_url, is_pinned, is_published, published_at)
                  VALUES
-                    (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())'
+                    (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)'
             );
 
             $stmt->execute([
@@ -370,6 +378,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $visibility,
                 $photoUrl,
                 $isPinned,
+                $publishedAt,
             ]);
 
             $postId = (int)$pdo->lastInsertId();
@@ -673,6 +682,10 @@ include __DIR__ . '/header.php';
 
             <p>
                 Email notifications are queued and sent later by the cron job.
+            </p>
+
+            <p>
+                Published time is stored using Finland local time.
             </p>
 
             <p class="muted mb-0">
