@@ -6,6 +6,8 @@ require_login();
 $pdo = db();
 $user = current_user();
 
+const ANALYTICS_EMAILS_PER_PAGE = 25;
+
 function analytics_page_table_exists(PDO $pdo, string $table): bool
 {
     try {
@@ -17,25 +19,6 @@ function analytics_page_table_exists(PDO $pdo, string $table): bool
         );
 
         $stmt->execute([$table]);
-
-        return (int)$stmt->fetchColumn() > 0;
-    } catch (Throwable $exception) {
-        return false;
-    }
-}
-
-function analytics_page_column_exists(PDO $pdo, string $table, string $column): bool
-{
-    try {
-        $stmt = $pdo->prepare(
-            'SELECT COUNT(*)
-             FROM information_schema.columns
-             WHERE table_schema = DATABASE()
-               AND table_name = ?
-               AND column_name = ?'
-        );
-
-        $stmt->execute([$table, $column]);
 
         return (int)$stmt->fetchColumn() > 0;
     } catch (Throwable $exception) {
@@ -103,6 +86,23 @@ function analytics_clean_path(string $path): string
     return $path;
 }
 
+function analytics_page_label(?string $path, ?string $pageKey = null): string
+{
+    $key = strtolower(trim((string)$pageKey));
+
+    if ($key === '') {
+        $key = strtolower(basename((string)$path));
+    }
+
+    $labels = [
+        'dashboard.php' => 'Dashboard',
+        'leaders.php' => 'Leaders',
+        'contact.php' => 'Contact',
+    ];
+
+    return $labels[$key] ?? analytics_clean_path((string)$path);
+}
+
 function analytics_query_date(string $key, string $fallback): string
 {
     $value = trim($_GET[$key] ?? '');
@@ -114,12 +114,45 @@ function analytics_query_date(string $key, string $fallback): string
     return $fallback;
 }
 
+function analytics_url_with_params(array $overrides): string
+{
+    $params = $_GET;
+
+    foreach ($overrides as $key => $value) {
+        if ($value === null) {
+            unset($params[$key]);
+        } else {
+            $params[$key] = $value;
+        }
+    }
+
+    return url('analytics.php' . (!empty($params) ? '?' . http_build_query($params) : ''));
+}
+
+function analytics_page_filter_sql(string $alias = ''): string
+{
+    $prefix = $alias !== '' ? $alias . '.' : '';
+
+    return '
+        AND (
+            ' . $prefix . 'page_key IN ("dashboard.php", "leaders.php", "contact.php")
+            OR ' . $prefix . 'request_path IN ("/dashboard.php", "/leaders.php", "/contact.php")
+            OR ' . $prefix . 'request_path LIKE "%/dashboard.php"
+            OR ' . $prefix . 'request_path LIKE "%/leaders.php"
+            OR ' . $prefix . 'request_path LIKE "%/contact.php"
+        )
+    ';
+}
+
 $today = new DateTime('today');
 $defaultFrom = (clone $today)->modify('-30 days')->format('Y-m-d');
 $defaultTo = $today->format('Y-m-d');
 
 $dateFrom = analytics_query_date('from', $defaultFrom);
 $dateTo = analytics_query_date('to', $defaultTo);
+
+$emailPage = max(1, (int)($_GET['email_page'] ?? 1));
+$emailOffset = ($emailPage - 1) * ANALYTICS_EMAILS_PER_PAGE;
 
 $fromDateTime = $dateFrom . ' 00:00:00';
 $toDateTime = $dateTo . ' 23:59:59';
@@ -143,6 +176,8 @@ $summary = [
 ];
 
 $emailRows = [];
+$emailTotalRows = 0;
+$emailTotalPages = 1;
 $pageRows = [];
 $teamRows = [];
 $clickerRows = [];
@@ -150,6 +185,7 @@ $recentClickRows = [];
 $zeroClickRows = [];
 $yearRows = [];
 $leaderVisitCount = 0;
+$excludedAdminVisitCount = 0;
 $unattributedVisitCount = 0;
 $error = '';
 
@@ -176,6 +212,21 @@ try {
         $summary['emails_clicked'] = (int)($row['emails_clicked'] ?? 0);
         $summary['total_opens'] = (int)($row['total_opens'] ?? 0);
         $summary['total_clicks'] = (int)($row['total_clicks'] ?? 0);
+
+        $stmt = $pdo->prepare(
+            'SELECT COUNT(*)
+             FROM email_queue eq
+             WHERE eq.status = "sent"
+               AND eq.sent_at BETWEEN ? AND ?'
+        );
+
+        $stmt->execute([$fromDateTime, $toDateTime]);
+        $emailTotalRows = (int)$stmt->fetchColumn();
+        $emailTotalPages = max(1, (int)ceil($emailTotalRows / ANALYTICS_EMAILS_PER_PAGE));
+
+        if ($emailPage > $emailTotalPages) {
+            redirect(analytics_url_with_params(['email_page' => $emailTotalPages]));
+        }
 
         $teamNameSelect = $hasTeams ? 't.name AS team_name,' : 'NULL AS team_name,';
         $teamJoin = $hasTeams ? 'LEFT JOIN teams t ON t.id = eq.related_team_id' : '';
@@ -207,7 +258,7 @@ try {
              WHERE eq.status = "sent"
                AND eq.sent_at BETWEEN ? AND ?
              ORDER BY eq.sent_at DESC, eq.id DESC
-             LIMIT 200'
+             LIMIT ' . ANALYTICS_EMAILS_PER_PAGE . ' OFFSET ' . $emailOffset
         );
 
         $stmt->execute([$fromDateTime, $toDateTime]);
@@ -235,6 +286,8 @@ try {
     }
 
     if ($hasPageVisits) {
+        $pageFilter = analytics_page_filter_sql();
+
         $stmt = $pdo->prepare(
             'SELECT
                 COUNT(*) AS page_visits,
@@ -244,7 +297,8 @@ try {
                 SUM(CASE WHEN leader_id IS NOT NULL THEN 1 ELSE 0 END) AS leader_page_visits,
                 SUM(CASE WHEN email_queue_id IS NULL THEN 1 ELSE 0 END) AS unattributed_visits
              FROM page_visits
-             WHERE visited_at BETWEEN ? AND ?'
+             WHERE visited_at BETWEEN ? AND ?
+             ' . $pageFilter
         );
 
         $stmt->execute([$fromDateTime, $toDateTime]);
@@ -258,6 +312,23 @@ try {
         $unattributedVisitCount = (int)($row['unattributed_visits'] ?? 0);
 
         $stmt = $pdo->prepare(
+            'SELECT COUNT(*)
+             FROM page_visits
+             WHERE visited_at BETWEEN ? AND ?
+               AND leader_id IS NULL
+               AND NOT (
+                    page_key IN ("dashboard.php", "leaders.php", "contact.php")
+                    OR request_path IN ("/dashboard.php", "/leaders.php", "/contact.php")
+                    OR request_path LIKE "%/dashboard.php"
+                    OR request_path LIKE "%/leaders.php"
+                    OR request_path LIKE "%/contact.php"
+               )'
+        );
+
+        $stmt->execute([$fromDateTime, $toDateTime]);
+        $excludedAdminVisitCount = (int)$stmt->fetchColumn();
+
+        $stmt = $pdo->prepare(
             'SELECT
                 request_path,
                 page_key,
@@ -267,6 +338,7 @@ try {
              FROM page_visits
              WHERE visited_at BETWEEN ? AND ?
                AND leader_id IS NULL
+               ' . analytics_page_filter_sql() . '
              GROUP BY request_path, page_key
              ORDER BY visits DESC, unique_sessions DESC
              LIMIT 30'
@@ -290,6 +362,7 @@ try {
              WHERE pv.visited_at BETWEEN ? AND ?
                AND pv.leader_id IS NULL
                AND pv.related_team_id IS NOT NULL
+               ' . analytics_page_filter_sql('pv') . '
              GROUP BY pv.related_team_id, team_name
              ORDER BY visits DESC, unique_sessions DESC
              LIMIT 30'
@@ -310,6 +383,7 @@ try {
              FROM page_visits
              WHERE visited_at BETWEEN ? AND ?
                AND leader_id IS NULL
+               ' . analytics_page_filter_sql() . '
              GROUP BY recipient_email, related_team_id
              ORDER BY visits DESC, sessions DESC
              LIMIT 30'
@@ -322,11 +396,13 @@ try {
             'SELECT
                 YEAR(visited_at) AS visit_year,
                 request_path,
+                page_key,
                 COUNT(*) AS visits,
                 COUNT(DISTINCT session_id) AS unique_sessions
              FROM page_visits
              WHERE leader_id IS NULL
-             GROUP BY YEAR(visited_at), request_path
+               ' . analytics_page_filter_sql() . '
+             GROUP BY YEAR(visited_at), request_path, page_key
              ORDER BY visit_year DESC, visits DESC
              LIMIT 100'
         );
@@ -353,6 +429,13 @@ try {
              LEFT JOIN email_queue eq ON eq.id = ete.email_queue_id
              WHERE ete.created_at BETWEEN ? AND ?
                AND ete.event_type = "click"
+               AND (
+                    ete.request_path IS NULL
+                    OR ete.request_path = ""
+                    OR ete.request_path LIKE "%dashboard.php%"
+                    OR ete.request_path LIKE "%leaders.php%"
+                    OR ete.request_path LIKE "%contact.php%"
+               )
              ORDER BY ete.created_at DESC
              LIMIT 50'
         );
@@ -447,6 +530,15 @@ include __DIR__ . '/header.php';
         font-weight: 900;
     }
 
+    .analytics-panel-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
+    }
+
     .analytics-table-wrap {
         overflow-x: auto;
     }
@@ -494,6 +586,77 @@ include __DIR__ . '/header.php';
         background: #f3f2f1;
         color: #505a5f;
         border-color: #b1b4b6;
+    }
+
+    .email-mobile-list {
+        display: none;
+    }
+
+    .email-mobile-card {
+        border: 2px solid #d8d8d8;
+        background: #ffffff;
+        padding: 1rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .email-mobile-card summary {
+        cursor: pointer;
+        font-weight: 900;
+    }
+
+    .email-mobile-card dl {
+        margin: 0.75rem 0 0;
+        display: grid;
+        grid-template-columns: 120px minmax(0, 1fr);
+        gap: 0.35rem 0.75rem;
+    }
+
+    .email-mobile-card dt {
+        font-weight: 900;
+        color: #505a5f;
+    }
+
+    .email-mobile-card dd {
+        margin: 0;
+        word-break: break-word;
+    }
+
+    @media (max-width: 820px) {
+        .email-table-desktop {
+            display: none;
+        }
+
+        .email-mobile-list {
+            display: block;
+        }
+    }
+
+    .pagination-wrap {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin-top: 1rem;
+        align-items: center;
+    }
+
+    .pagination-link,
+    .pagination-current {
+        display: inline-block;
+        border: 2px solid #1d70b8;
+        padding: 0.45rem 0.7rem;
+        font-weight: 900;
+        text-decoration: none;
+    }
+
+    .pagination-current {
+        background: #1d70b8;
+        color: #ffffff;
+    }
+
+    .pagination-link:hover,
+    .pagination-link:focus {
+        background: #eef7ff;
+        text-decoration: none;
     }
 
     .muted {
@@ -578,7 +741,9 @@ include __DIR__ . '/header.php';
 
     <div class="info-box">
         <p class="mb-0">
-            Parent/page usage figures exclude logged-in leader visits. Email open tracking is approximate because some mail apps block or proxy images. Link clicks are more reliable.
+            Page usage only reports parent-facing pages: Dashboard, Leaders and Contact.
+            Logged-in leader visits are excluded from parent usage figures.
+            Email open tracking is approximate because some mail apps block or proxy images.
         </p>
     </div>
 
@@ -621,14 +786,27 @@ include __DIR__ . '/header.php';
     </section>
 
     <section class="analytics-panel">
-        <h2>Emails sent</h2>
+        <div class="analytics-panel-header">
+            <div>
+                <h2>Emails sent</h2>
+                <p class="muted mb-0">
+                    Showing <?= $emailTotalRows === 0 ? 0 : ($emailOffset + 1) ?>
+                    to <?= min($emailOffset + ANALYTICS_EMAILS_PER_PAGE, $emailTotalRows) ?>
+                    of <?= (int)$emailTotalRows ?> sent emails.
+                </p>
+            </div>
+
+            <p class="muted mb-0">
+                Page <?= (int)$emailPage ?> of <?= (int)$emailTotalPages ?>
+            </p>
+        </div>
 
         <?php if (empty($emailRows)): ?>
             <div class="empty-box">
                 No sent email tracking data found for this date range.
             </div>
         <?php else: ?>
-            <div class="analytics-table-wrap">
+            <div class="analytics-table-wrap email-table-desktop">
                 <table class="analytics-table">
                     <thead>
                         <tr>
@@ -638,8 +816,8 @@ include __DIR__ . '/header.php';
                             <th>Team</th>
                             <th>Opens</th>
                             <th>Clicks</th>
-                            <th>Open rate</th>
-                            <th>Clicked?</th>
+                            <th>Open</th>
+                            <th>Clicked</th>
                             <th>Time to first click</th>
                         </tr>
                     </thead>
@@ -686,6 +864,97 @@ include __DIR__ . '/header.php';
                     </tbody>
                 </table>
             </div>
+
+            <div class="email-mobile-list">
+                <?php foreach ($emailRows as $row): ?>
+                    <?php
+                    $openCount = (int)($row['open_count'] ?? 0);
+                    $clickCount = (int)($row['click_count'] ?? 0);
+                    ?>
+                    <details class="email-mobile-card">
+                        <summary>
+                            <?= e($row['subject'] ?? 'Email') ?>
+                            <br>
+                            <span class="muted"><?= e($row['to_email'] ?? '') ?></span>
+                        </summary>
+
+                        <dl>
+                            <dt>Sent</dt>
+                            <dd><?= e(analytics_safe_datetime($row['sent_at'] ?? null)) ?></dd>
+
+                            <dt>Team</dt>
+                            <dd><?= e($row['team_name'] ?: ($row['related_team_id'] ? 'Team #' . $row['related_team_id'] : 'Not team-specific')) ?></dd>
+
+                            <dt>Opens</dt>
+                            <dd><?= $openCount ?></dd>
+
+                            <dt>Clicks</dt>
+                            <dd><?= $clickCount ?></dd>
+
+                            <dt>Status</dt>
+                            <dd>
+                                <?php if ($clickCount > 0): ?>
+                                    <span class="rate-pill rate-good">Clicked</span>
+                                <?php elseif ($openCount > 0): ?>
+                                    <span class="rate-pill rate-warning">Opened only</span>
+                                <?php else: ?>
+                                    <span class="rate-pill rate-muted">No open/click</span>
+                                <?php endif; ?>
+                            </dd>
+
+                            <dt>First click</dt>
+                            <dd><?= e(analytics_seconds_to_human($row['seconds_to_first_click'] !== null ? (int)$row['seconds_to_first_click'] : null)) ?></dd>
+                        </dl>
+                    </details>
+                <?php endforeach; ?>
+            </div>
+
+            <?php if ($emailTotalPages > 1): ?>
+                <nav class="pagination-wrap" aria-label="Email pagination">
+                    <?php if ($emailPage > 1): ?>
+                        <a class="pagination-link" href="<?= e(analytics_url_with_params(['email_page' => $emailPage - 1])) ?>">
+                            Previous
+                        </a>
+                    <?php endif; ?>
+
+                    <?php
+                    $startPage = max(1, $emailPage - 2);
+                    $endPage = min($emailTotalPages, $emailPage + 2);
+                    ?>
+
+                    <?php if ($startPage > 1): ?>
+                        <a class="pagination-link" href="<?= e(analytics_url_with_params(['email_page' => 1])) ?>">1</a>
+                        <?php if ($startPage > 2): ?>
+                            <span class="muted">...</span>
+                        <?php endif; ?>
+                    <?php endif; ?>
+
+                    <?php for ($i = $startPage; $i <= $endPage; $i++): ?>
+                        <?php if ($i === $emailPage): ?>
+                            <span class="pagination-current"><?= (int)$i ?></span>
+                        <?php else: ?>
+                            <a class="pagination-link" href="<?= e(analytics_url_with_params(['email_page' => $i])) ?>">
+                                <?= (int)$i ?>
+                            </a>
+                        <?php endif; ?>
+                    <?php endfor; ?>
+
+                    <?php if ($endPage < $emailTotalPages): ?>
+                        <?php if ($endPage < $emailTotalPages - 1): ?>
+                            <span class="muted">...</span>
+                        <?php endif; ?>
+                        <a class="pagination-link" href="<?= e(analytics_url_with_params(['email_page' => $emailTotalPages])) ?>">
+                            <?= (int)$emailTotalPages ?>
+                        </a>
+                    <?php endif; ?>
+
+                    <?php if ($emailPage < $emailTotalPages): ?>
+                        <a class="pagination-link" href="<?= e(analytics_url_with_params(['email_page' => $emailPage + 1])) ?>">
+                            Next
+                        </a>
+                    <?php endif; ?>
+                </nav>
+            <?php endif; ?>
         <?php endif; ?>
     </section>
 
@@ -694,7 +963,7 @@ include __DIR__ . '/header.php';
 
         <?php if (empty($pageRows)): ?>
             <div class="empty-box">
-                No parent page visits found for this date range.
+                No parent page visits found for Dashboard, Leaders or Contact in this date range.
             </div>
         <?php else: ?>
             <div class="analytics-table-wrap">
@@ -711,10 +980,8 @@ include __DIR__ . '/header.php';
                         <?php foreach ($pageRows as $row): ?>
                             <tr>
                                 <td>
-                                    <strong><?= e(analytics_clean_path($row['request_path'] ?? '')) ?></strong>
-                                    <?php if (!empty($row['page_key'])): ?>
-                                        <br><span class="muted"><?= e($row['page_key']) ?></span>
-                                    <?php endif; ?>
+                                    <strong><?= e(analytics_page_label($row['request_path'] ?? '', $row['page_key'] ?? '')) ?></strong>
+                                    <br><span class="muted"><?= e(analytics_clean_path($row['request_path'] ?? '')) ?></span>
                                 </td>
                                 <td><?= (int)$row['visits'] ?></td>
                                 <td><?= (int)$row['unique_sessions'] ?></td>
@@ -732,7 +999,7 @@ include __DIR__ . '/header.php';
 
         <?php if (empty($clickerRows)): ?>
             <div class="empty-box">
-                No parent/clicker activity found for this date range.
+                No parent/clicker activity found for Dashboard, Leaders or Contact in this date range.
             </div>
         <?php else: ?>
             <div class="analytics-table-wrap">
@@ -771,7 +1038,7 @@ include __DIR__ . '/header.php';
 
         <?php if (empty($teamRows)): ?>
             <div class="empty-box">
-                No team-attributed parent visits found for this date range.
+                No team-attributed parent visits found for Dashboard, Leaders or Contact in this date range.
             </div>
         <?php else: ?>
             <div class="analytics-table-wrap">
@@ -870,11 +1137,11 @@ include __DIR__ . '/header.php';
     </section>
 
     <section class="analytics-panel">
-        <h2>Yearly page usage</h2>
+        <h2>Yearly parent page usage</h2>
 
         <?php if (empty($yearRows)): ?>
             <div class="empty-box">
-                No yearly page usage found yet.
+                No yearly parent page usage found yet.
             </div>
         <?php else: ?>
             <div class="analytics-table-wrap">
@@ -891,7 +1158,10 @@ include __DIR__ . '/header.php';
                         <?php foreach ($yearRows as $row): ?>
                             <tr>
                                 <td><?= e((string)$row['visit_year']) ?></td>
-                                <td><?= e(analytics_clean_path($row['request_path'] ?? '')) ?></td>
+                                <td>
+                                    <strong><?= e(analytics_page_label($row['request_path'] ?? '', $row['page_key'] ?? '')) ?></strong>
+                                    <br><span class="muted"><?= e(analytics_clean_path($row['request_path'] ?? '')) ?></span>
+                                </td>
                                 <td><?= (int)$row['visits'] ?></td>
                                 <td><?= (int)$row['unique_sessions'] ?></td>
                             </tr>
@@ -906,18 +1176,22 @@ include __DIR__ . '/header.php';
         <h2>Internal activity note</h2>
 
         <p>
-            Logged-in leader page visits in this date range:
+            Logged-in leader visits to parent-facing pages in this date range:
             <strong><?= (int)$leaderVisitCount ?></strong>.
         </p>
 
         <p>
-            Unattributed page visits in this date range:
+            Parent visits excluded because they were not Dashboard, Leaders or Contact:
+            <strong><?= (int)$excludedAdminVisitCount ?></strong>.
+        </p>
+
+        <p>
+            Unattributed visits to parent-facing pages in this date range:
             <strong><?= (int)$unattributedVisitCount ?></strong>.
         </p>
 
         <p class="muted mb-0">
-            The parent usage tables above exclude leader visits using <code>leader_id IS NULL</code>.
-            If a parent uses a tracked email link, their later page visits in that session are attributed to that email token.
+            Parent usage tables only include Dashboard, Leaders and Contact, and exclude visits where <code>leader_id</code> is recorded.
         </p>
     </section>
 
