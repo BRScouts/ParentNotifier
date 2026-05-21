@@ -21,26 +21,12 @@ function email_all_clean_html(string $html): string
         return '';
     }
 
-    /**
-     * Basic formatting from Quill.
-     */
     $allowedTags = '<p><br><strong><b><em><i><u><a><ol><ul><li><span><blockquote>';
 
     $html = strip_tags($html, $allowedTags);
-
-    /**
-     * Remove dangerous inline handlers.
-     */
     $html = preg_replace('/\son[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html);
-
-    /**
-     * Remove javascript links.
-     */
     $html = preg_replace('/href\s*=\s*([\'"])\s*javascript:[^\'"]*\1/i', 'href="#"', $html);
 
-    /**
-     * Keep simple colour styles from Quill.
-     */
     $html = preg_replace_callback('/style\s*=\s*([\'"])(.*?)\1/i', function ($matches) {
         $style = $matches[2];
         $safeRules = [];
@@ -111,21 +97,14 @@ function email_all_valid_emails_from_text(string $text): array
     return array_values($emails);
 }
 
-function email_all_html_to_text(string $html): string
-{
-    $html = preg_replace('/<br\s*\/?>/i', "\n", $html);
-    $html = preg_replace('/<\/p>/i', "\n\n", $html);
-    $html = preg_replace('/<\/li>/i', "\n", $html);
-
-    $text = html_entity_decode(strip_tags((string)$html), ENT_QUOTES, 'UTF-8');
-    $text = preg_replace("/\n{3,}/", "\n\n", (string)$text);
-
-    return trim((string)$text);
-}
-
 function email_all_team_link(array $team): string
 {
     return url('dashboard.php?token=' . $team['parent_token']);
+}
+
+function email_all_main_app_link(): string
+{
+    return url('dashboard.php');
 }
 
 function email_all_queue_email(
@@ -152,31 +131,14 @@ function email_all_queue_email(
 
 function email_all_build_content(
     string $messageHtml,
-    array $teamLinks,
-    ?string $specificTeamLink = null
+    string $ctaUrl,
+    string $ctaLabel
 ): string {
     $html = $messageHtml;
 
     $html .= '<hr>';
-
-    if ($specificTeamLink !== null) {
-        $html .= '<p><strong>View the team portal:</strong><br>';
-        $html .= '<a href="' . e($specificTeamLink) . '">' . e($specificTeamLink) . '</a></p>';
-    } else {
-        $html .= '<p><strong>View the selected team portal links:</strong></p>';
-        $html .= '<ul>';
-
-        foreach ($teamLinks as $teamName => $link) {
-            $html .= '<li><strong>' . e($teamName) . ':</strong> ';
-            $html .= '<a href="' . e($link) . '">' . e($link) . '</a></li>';
-        }
-
-        $html .= '</ul>';
-    }
-
-    $html .= '<p style="color:#505a5f;">';
-    $html .= 'This email was sent from the Explorer Belt Live portal. Updates and check-ins are added manually by leaders.';
-    $html .= '</p>';
+    $html .= '<p><strong>' . e($ctaLabel) . ':</strong><br>';
+    $html .= '<a href="' . e($ctaUrl) . '">' . e($ctaUrl) . '</a></p>';
 
     return $html;
 }
@@ -197,6 +159,33 @@ foreach ($teams as $team) {
 }
 
 /**
+ * Fetch leaders.
+ */
+$leaders = [];
+
+try {
+    $leaders = $pdo->query(
+        'SELECT id, name, email
+         FROM leaders
+         WHERE email IS NOT NULL
+           AND email <> ""
+           AND (
+                is_active = 1
+                OR is_active IS NULL
+           )
+         ORDER BY name ASC'
+    )->fetchAll();
+} catch (Throwable $exception) {
+    $leaders = $pdo->query(
+        'SELECT id, name, email
+         FROM leaders
+         WHERE email IS NOT NULL
+           AND email <> ""
+         ORDER BY name ASC'
+    )->fetchAll();
+}
+
+/**
  * Handle submit.
  */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -206,6 +195,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $selectedTeamIds = array_values(array_unique(array_filter(array_map(static function ($value) {
         return (int)$value;
     }, $selectedTeamIds))));
+
+    $selectedLeaderIds = $_POST['leader_ids'] ?? [];
+    $selectedLeaderIds = is_array($selectedLeaderIds) ? $selectedLeaderIds : [];
+
+    $selectedLeaderIds = array_values(array_unique(array_filter(array_map(static function ($value) {
+        return (int)$value;
+    }, $selectedLeaderIds))));
 
     $subject = trim($_POST['subject'] ?? '');
     $messageHtml = email_all_clean_html($_POST['message_html'] ?? '');
@@ -237,14 +233,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($error === '') {
         try {
+            $mainAppLink = email_all_main_app_link();
+
             /**
-             * Build team links.
+             * Team links.
              */
             $teamLinks = [];
 
             foreach ($selectedTeams as $teamId => $team) {
                 if (!empty($team['parent_token'])) {
-                    $teamLinks[$team['name']] = email_all_team_link($team);
+                    $teamLinks[$teamId] = email_all_team_link($team);
                 }
             }
 
@@ -252,14 +250,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new RuntimeException('None of the selected teams have parent links configured.');
             }
 
-            /**
-             * Fetch parent emails for selected teams.
-             *
-             * Each recipient gets queued once.
-             * If an email appears in multiple teams, the first matching team link is used.
-             */
             $recipientMap = [];
 
+            /**
+             * Team parent contacts.
+             * These recipients get their team-specific portal link.
+             */
             $placeholders = implode(',', array_fill(0, count($selectedTeamIds), '?'));
 
             $stmt = $pdo->prepare(
@@ -302,8 +298,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $recipientMap[$key] = [
                             'email' => $email,
                             'team_id' => $teamId,
-                            'team_name' => $row['team_name'],
-                            'team_link' => $teamLink,
+                            'cta_url' => $teamLink,
+                            'cta_label' => 'View the team portal',
                             'source' => 'team',
                         ];
                     }
@@ -312,13 +308,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             /**
              * Manual recipients.
-             *
-             * Manual recipients receive the selected team links.
-             * If there is only one selected team, their CTA will be that team link.
-             * If multiple teams are selected, their CTA will be the first selected team link and all selected links are listed in the email.
+             * These recipients get the main app URL only, not a team link.
              */
             $manualEmails = email_all_valid_emails_from_text($manualEmailsText);
-            $firstTeamLink = reset($teamLinks) ?: null;
 
             foreach ($manualEmails as $email) {
                 $key = strtolower($email);
@@ -327,9 +319,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $recipientMap[$key] = [
                         'email' => $email,
                         'team_id' => null,
-                        'team_name' => null,
-                        'team_link' => count($teamLinks) === 1 ? $firstTeamLink : null,
+                        'cta_url' => $mainAppLink,
+                        'cta_label' => 'Open the portal',
                         'source' => 'manual',
+                    ];
+                }
+            }
+
+            /**
+             * Selected leaders.
+             * These recipients get the main app URL.
+             */
+            if (!empty($selectedLeaderIds)) {
+                $leaderPlaceholders = implode(',', array_fill(0, count($selectedLeaderIds), '?'));
+
+                $stmt = $pdo->prepare(
+                    'SELECT id, name, email
+                     FROM leaders
+                     WHERE id IN (' . $leaderPlaceholders . ')
+                       AND email IS NOT NULL
+                       AND email <> ""
+                     ORDER BY name ASC'
+                );
+
+                $stmt->execute($selectedLeaderIds);
+
+                foreach ($stmt->fetchAll() as $leader) {
+                    $email = trim((string)$leader['email']);
+
+                    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                        continue;
+                    }
+
+                    $key = strtolower($email);
+
+                    if (!isset($recipientMap[$key])) {
+                        $recipientMap[$key] = [
+                            'email' => $email,
+                            'team_id' => null,
+                            'cta_url' => $mainAppLink,
+                            'cta_label' => 'Open the portal',
+                            'source' => 'leader',
+                        ];
+                    }
+                }
+            }
+
+            /**
+             * Always send a copy to the logged-in leader.
+             * Sender copy gets the main app URL.
+             */
+            $loggedInLeaderEmail = trim((string)($user['email'] ?? ''));
+
+            if ($loggedInLeaderEmail !== '' && filter_var($loggedInLeaderEmail, FILTER_VALIDATE_EMAIL)) {
+                $key = strtolower($loggedInLeaderEmail);
+
+                if (!isset($recipientMap[$key])) {
+                    $recipientMap[$key] = [
+                        'email' => $loggedInLeaderEmail,
+                        'team_id' => null,
+                        'cta_url' => $mainAppLink,
+                        'cta_label' => 'Open the portal',
+                        'source' => 'sender_copy',
                     ];
                 }
             }
@@ -341,16 +392,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->beginTransaction();
 
             $queuedCount = 0;
-            $teamRecipientCount = 0;
-            $manualRecipientCount = 0;
 
             foreach ($recipientMap as $recipient) {
-                $specificTeamLink = $recipient['team_link'] ?? null;
-
                 $content = email_all_build_content(
                     $messageHtml,
-                    $teamLinks,
-                    $specificTeamLink
+                    $recipient['cta_url'],
+                    $recipient['cta_label']
                 );
 
                 email_all_queue_email(
@@ -362,20 +409,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 );
 
                 $queuedCount++;
-
-                if ($recipient['source'] === 'manual') {
-                    $manualRecipientCount++;
-                } else {
-                    $teamRecipientCount++;
-                }
             }
 
             $pdo->commit();
 
-            $success = 'Email queued successfully. '
-                . $queuedCount . ' email' . ($queuedCount === 1 ? '' : 's') . ' added to the queue. '
-                . $teamRecipientCount . ' from team contacts, '
-                . $manualRecipientCount . ' manual recipient' . ($manualRecipientCount === 1 ? '' : 's') . '.';
+            $success = 'Email queued. '
+                . $queuedCount . ' email' . ($queuedCount === 1 ? '' : 's') . ' added to the queue.';
         } catch (Throwable $exception) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
@@ -399,28 +438,13 @@ include __DIR__ . '/header.php';
         color: #ffffff !important;
     }
 
-    .email-all-layout {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) 340px;
-        gap: 1.5rem;
-        align-items: start;
-    }
-
-    @media (max-width: 900px) {
-        .email-all-layout {
-            grid-template-columns: 1fr;
-        }
-    }
-
-    .email-panel,
-    .help-panel {
+    .email-panel {
         border: 2px solid #d8d8d8;
         background: #ffffff;
         padding: 1.5rem;
     }
 
-    .email-panel h2,
-    .help-panel h2 {
+    .email-panel h2 {
         margin-top: 0;
         font-weight: 900;
     }
@@ -429,25 +453,29 @@ include __DIR__ . '/header.php';
         font-weight: 800;
     }
 
-    .team-check-grid {
+    .team-check-grid,
+    .leader-check-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 0.5rem;
     }
 
     @media (max-width: 650px) {
-        .team-check-grid {
+        .team-check-grid,
+        .leader-check-grid {
             grid-template-columns: 1fr;
         }
     }
 
-    .team-check {
+    .team-check,
+    .leader-check {
         border: 2px solid #d8d8d8;
         background: #f8f8f8;
         padding: 0.75rem;
     }
 
-    .team-check label {
+    .team-check label,
+    .leader-check label {
         margin-bottom: 0;
         display: flex;
         gap: 0.5rem;
@@ -455,7 +483,8 @@ include __DIR__ . '/header.php';
         cursor: pointer;
     }
 
-    .team-check small {
+    .team-check small,
+    .leader-check small {
         display: block;
         color: #505a5f;
         margin-top: 0.25rem;
@@ -467,7 +496,7 @@ include __DIR__ . '/header.php';
     }
 
     #emailEditor {
-        min-height: 260px;
+        min-height: 280px;
         background: #ffffff;
     }
 
@@ -479,13 +508,6 @@ include __DIR__ . '/header.php';
     .ql-container.ql-snow {
         border: 0;
         font-size: 1rem;
-    }
-
-    .info-box {
-        border-left: 8px solid #1d70b8;
-        background: #eef7ff;
-        padding: 1rem;
-        margin-bottom: 1rem;
     }
 
     .warning-box {
@@ -502,9 +524,9 @@ include __DIR__ . '/header.php';
 
 <section class="page-hero">
     <div class="container">
-        <h1>Email to all</h1>
+        <h1>Email</h1>
         <p class="lead">
-            Send an email to selected team contacts without adding an update to the portal feed.
+            Send an email to selected team contacts.
         </p>
     </div>
 </section>
@@ -529,128 +551,126 @@ include __DIR__ . '/header.php';
         </a>
     </p>
 
-    <div class="email-all-layout">
+    <section class="email-panel">
+        <h2>Email details</h2>
 
-        <section class="email-panel">
-            <h2>Email details</h2>
+        <form method="post" id="emailAllForm">
 
-            <form method="post" id="emailAllForm">
+            <div class="form-group">
+                <label for="subject">Subject</label>
+                <input
+                    class="form-control"
+                    id="subject"
+                    name="subject"
+                    required
+                >
+            </div>
 
-                <div class="form-group">
-                    <label for="subject">Subject</label>
-                    <input
-                        class="form-control"
-                        id="subject"
-                        name="subject"
-                        required
-                    >
-                </div>
+            <div class="form-group">
+                <label>Teams</label>
 
-                <div class="form-group">
-                    <label>Teams to include</label>
-
-                    <?php if (empty($teams)): ?>
-                        <div class="alert alert-warning">
-                            No teams have been created yet.
-                        </div>
-                    <?php else: ?>
-                        <div class="team-check-grid">
-                            <?php foreach ($teams as $team): ?>
-                                <div class="team-check">
-                                    <label>
-                                        <input
-                                            type="checkbox"
-                                            name="team_ids[]"
-                                            value="<?= (int)$team['id'] ?>"
-                                            <?= empty($team['parent_token']) ? 'disabled' : '' ?>
-                                        >
-                                        <span>
-                                            <?= e($team['name']) ?>
-
-                                            <?php if (empty($team['parent_token'])): ?>
-                                                <small>No parent link configured</small>
-                                            <?php else: ?>
-                                                <small>Team portal link will be included</small>
-                                            <?php endif; ?>
-                                        </span>
-                                    </label>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                    <?php endif; ?>
-                </div>
-
-                <div class="form-group">
-                    <label for="manual_emails">Manual recipients</label>
-                    <textarea
-                        class="form-control"
-                        id="manual_emails"
-                        name="manual_emails"
-                        rows="4"
-                        placeholder="Optional. Enter email addresses separated by commas or new lines."
-                    ></textarea>
-
-                    <small class="form-text text-muted">
-                        Manual recipients will also receive the selected team portal link or links.
-                    </small>
-                </div>
-
-                <div class="form-group">
-                    <label for="emailEditor">Message</label>
-
-                    <div class="editor-wrap">
-                        <div id="emailEditor"></div>
+                <?php if (empty($teams)): ?>
+                    <div class="alert alert-warning">
+                        No teams have been created yet.
                     </div>
+                <?php else: ?>
+                    <div class="team-check-grid">
+                        <?php foreach ($teams as $team): ?>
+                            <div class="team-check">
+                                <label>
+                                    <input
+                                        type="checkbox"
+                                        name="team_ids[]"
+                                        value="<?= (int)$team['id'] ?>"
+                                        <?= empty($team['parent_token']) ? 'disabled' : '' ?>
+                                    >
+                                    <span>
+                                        <?= e($team['name']) ?>
 
-                    <textarea id="message_html" name="message_html" hidden required></textarea>
+                                        <?php if (empty($team['parent_token'])): ?>
+                                            <small>No parent link configured</small>
+                                        <?php endif; ?>
+                                    </span>
+                                </label>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </div>
 
-                    <small class="form-text text-muted">
-                        You can use basic formatting such as bold, italic, links, lists and simple colours.
-                    </small>
-                </div>
+            <div class="form-group">
+                <label>Leaders</label>
 
-                <div class="warning-box">
-                    <strong>This will not create a portal update.</strong>
-                    <p class="mb-0">
-                        Emails are added directly to the email queue. Your cron job will send them using the branded email template.
+                <?php if (empty($leaders)): ?>
+                    <p class="muted mb-0">
+                        No leader email addresses found.
                     </p>
+                <?php else: ?>
+                    <div class="leader-check-grid">
+                        <?php foreach ($leaders as $leader): ?>
+                            <?php
+                            $leaderEmail = trim((string)$leader['email']);
+                            $isCurrentUser = strtolower($leaderEmail) === strtolower((string)($user['email'] ?? ''));
+                            ?>
+                            <div class="leader-check">
+                                <label>
+                                    <input
+                                        type="checkbox"
+                                        name="leader_ids[]"
+                                        value="<?= (int)$leader['id'] ?>"
+                                        <?= $isCurrentUser ? 'checked disabled' : '' ?>
+                                    >
+                                    <?php if ($isCurrentUser): ?>
+                                        <input type="hidden" name="leader_ids[]" value="<?= (int)$leader['id'] ?>">
+                                    <?php endif; ?>
+
+                                    <span>
+                                        <?= e($leader['name']) ?>
+                                        <small>
+                                            <?= e($leaderEmail) ?>
+                                            <?= $isCurrentUser ? ' · copy always sent' : '' ?>
+                                        </small>
+                                    </span>
+                                </label>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </div>
+
+            <div class="form-group">
+                <label for="manual_emails">Manual recipients</label>
+                <textarea
+                    class="form-control"
+                    id="manual_emails"
+                    name="manual_emails"
+                    rows="4"
+                    placeholder="Optional. Enter email addresses separated by commas or new lines."
+                ></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="emailEditor">Message</label>
+
+                <div class="editor-wrap">
+                    <div id="emailEditor"></div>
                 </div>
 
-                <button class="btn btn-primary" type="submit">
-                    Queue email
-                </button>
-            </form>
-        </section>
+                <textarea id="message_html" name="message_html" hidden required></textarea>
+            </div>
 
-        <aside class="help-panel">
-            <h2>How recipients are chosen</h2>
-
-            <div class="info-box">
-                <p>
-                    For each selected team, the system uses the email addresses stored against young people in that team.
-                </p>
-
+            <div class="warning-box">
+                <strong>This will queue the email for sending.</strong>
                 <p class="mb-0">
-                    Duplicate email addresses are only queued once.
+                    A copy will also be sent to you.
                 </p>
             </div>
 
-            <h3>Team portal links</h3>
-
-            <p>
-                Each team contact receives the private portal link for their team.
-            </p>
-
-            <p>
-                Manual recipients receive the selected team link if one team is selected, or a list of selected team links if several teams are selected.
-            </p>
-
-            <p class="muted mb-0">
-                The email queue content includes the portal link so the email template CTA button can point to it.
-            </p>
-        </aside>
-
-    </div>
+            <button class="btn btn-primary" type="submit">
+                Queue email
+            </button>
+        </form>
+    </section>
 
 </main>
 
