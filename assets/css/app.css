@@ -111,12 +111,7 @@ a {
 
 .site-logo-placeholder,
 .compact-logo-placeholder {
-    width: 46px;
-    height: 46px;
-    min-width: 46px;
-    min-height: 46px;
-    max-width: 46px;
-    max-height: 46px;
+   
     border: 2px solid var(--white);
     display: inline-flex;
     align-items: center;
