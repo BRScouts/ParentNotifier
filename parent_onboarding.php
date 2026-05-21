@@ -351,14 +351,14 @@ function queue_onboarding_confirmation_email(
     $content =
         "Thank you. The Explorer Belt onboarding details for " . ($person['name'] ?? 'your participant') . " have been submitted.\n\n" .
         "What happens next:\n" .
-        "- Prior to the event, you will be emailed a private team link.\n" .
+        "- This email contains a unique link to your participant’s team page.\n" .
         "- That link will let you see updates, photos and manually entered check-ins for " . $teamName . ".\n" .
-        "- Confirmation messages are manually added by leaders and may not appear straight away.\n" .
+        "- Daily Evening Check-ins are manually added by leaders and may not appear straight away and you will be notified.\n" .
         "- No news is not bad news. Updates may be delayed until all groups are confirmed settled for the night.\n\n" .
         "Emails currently listed for trip updates:\n" .
         implode("\n", $allUpdateEmails) . "\n\n" .
-        "Please look out for emails from " . ONBOARDING_CONFIRMATION_FROM_EMAIL . ". " .
-        "If you do not receive this confirmation within the next hour, please check your junk/spam folder or contact the trip team.";
+        "Please look out for and consider adding to your safe senders list emails from " . ONBOARDING_CONFIRMATION_FROM_EMAIL . ". " .
+        "If you do not receive this confirmation within the next hour, please check your junk/spam folder or contact the trip team.Please also consider adding the above email to your safe senders list.";
 
     $stmt = $pdo->prepare(
         'INSERT INTO email_queue
@@ -1095,8 +1095,8 @@ $demoLeaders = $submittedPerson ? fetch_demo_leaders($pdo) : [];
     <h2>Example of the updates page</h2>
 
     <p>
-        Before the event, you will be emailed a private link to your participant’s team page.
-        The page will show leader updates, photos, and approximate manually entered check-in locations.
+        You should have now recieved a private link to your participant’s team page.
+        The page will show leader updates, photos, and approximate manually entered check-in locations each evening.
     </p>
 
     <div class="warning-box">

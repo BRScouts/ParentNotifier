@@ -8,6 +8,8 @@ $user = current_user();
 
 const TEAM_CHECKIN_START_DATE = '2026-07-29';
 const TEAM_CHECKIN_DAYS = 10;
+const FINLAND_TIMEZONE = 'Europe/Helsinki';
+const CHECKIN_OVERDUE_HOUR_FINLAND = 19;
 
 $error = '';
 
@@ -16,6 +18,11 @@ $error = '';
  */
 
 function generate_parent_token(): string
+{
+    return bin2hex(random_bytes(32));
+}
+
+function generate_explorer_token(): string
 {
     return bin2hex(random_bytes(32));
 }
@@ -167,15 +174,6 @@ function checkin_dates(): array
     return $dates;
 }
 
-function checked_in_today(?string $datetime): bool
-{
-    if (!$datetime) {
-        return false;
-    }
-
-    return date('Y-m-d', strtotime($datetime)) === date('Y-m-d');
-}
-
 function fetch_team(PDO $pdo, int $teamId): ?array
 {
     $stmt = $pdo->prepare('SELECT * FROM teams WHERE id = ? LIMIT 1');
@@ -183,6 +181,263 @@ function fetch_team(PDO $pdo, int $teamId): ?array
     $team = $stmt->fetch();
 
     return $team ?: null;
+}
+
+function finland_today(): string
+{
+    return (new DateTime('now', new DateTimeZone(FINLAND_TIMEZONE)))->format('Y-m-d');
+}
+
+function finland_hour(): int
+{
+    return (int)(new DateTime('now', new DateTimeZone(FINLAND_TIMEZONE)))->format('G');
+}
+
+function date_in_finland(?string $datetime): ?string
+{
+    if (!$datetime) {
+        return null;
+    }
+
+    try {
+        $dt = new DateTime($datetime);
+        $dt->setTimezone(new DateTimeZone(FINLAND_TIMEZONE));
+        return $dt->format('Y-m-d');
+    } catch (Throwable $exception) {
+        return date('Y-m-d', strtotime($datetime));
+    }
+}
+
+function checked_in_today_finland(?string $datetime): bool
+{
+    return date_in_finland($datetime) === finland_today();
+}
+
+function member_reports_summary(?string $json): array
+{
+    if (!$json) {
+        return [];
+    }
+
+    $decoded = json_decode($json, true);
+
+    if (!is_array($decoded)) {
+        return [];
+    }
+
+    return array_values(array_filter($decoded, static function ($report) {
+        return is_array($report) && !empty($report);
+    }));
+}
+
+function checkin_status_class(string $status): string
+{
+    if ($status === 'reviewed') {
+        return 'status-good';
+    }
+
+    if ($status === 'rejected') {
+        return 'status-danger';
+    }
+
+    return 'status-warning';
+}
+
+function checkin_status_label(string $status): string
+{
+    if ($status === 'reviewed') {
+        return 'Reviewed / posted';
+    }
+
+    if ($status === 'rejected') {
+        return 'Rejected';
+    }
+
+    return 'Pending review';
+}
+
+function team_parent_link(array $team): string
+{
+    return url('team.php?token=' . $team['parent_token']);
+}
+
+function team_explorer_link(array $team): string
+{
+    return url('explorer_checkin.php?token=' . $team['explorer_token']);
+}
+
+function build_parent_checkin_body(string $teamName, string $locationName, string $publicNote, string $accommodationType): string
+{
+    if ($publicNote !== '') {
+        return $publicNote;
+    }
+
+    $body = $teamName . ' has checked in for the evening.';
+
+    if ($locationName !== '') {
+        $body .= "\n\nApproximate location: " . $locationName . '.';
+    }
+
+    if ($accommodationType !== '') {
+        $body .= "\n\nThey are staying: " . $accommodationType . '.';
+    }
+
+    $body .= "\n\nLocations are manually reviewed by leaders before being shared. No news is not bad news.";
+
+    return $body;
+}
+
+function queue_parent_checkin_emails(PDO $pdo, int $teamId, string $teamName, string $subject, string $body, string $parentLink): int
+{
+    $stmt = $pdo->prepare(
+        'SELECT parent_emails_json
+         FROM young_people
+         WHERE team_id = ?
+           AND is_active = 1'
+    );
+
+    $stmt->execute([$teamId]);
+
+    $emails = [];
+
+    foreach ($stmt->fetchAll() as $row) {
+        foreach (json_items($row['parent_emails_json'] ?? null) as $email) {
+            $email = trim((string)$email);
+
+            if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $emails[strtolower($email)] = $email;
+            }
+        }
+    }
+
+    $content = nl2br(e($body));
+    $content .= '<hr>';
+    $content .= '<p><strong>View the team portal:</strong><br>';
+    $content .= '<a href="' . e($parentLink) . '">' . e($parentLink) . '</a></p>';
+
+    $insert = $pdo->prepare(
+        'INSERT INTO email_queue
+            (to_email, subject, content, related_team_id)
+         VALUES
+            (?, ?, ?, ?)'
+    );
+
+    $count = 0;
+
+    foreach ($emails as $email) {
+        $insert->execute([
+            $email,
+            $subject,
+            $content,
+            $teamId,
+        ]);
+
+        $count++;
+    }
+
+    return $count;
+}
+
+function create_reviewed_location_and_post(
+    PDO $pdo,
+    array $user,
+    int $teamId,
+    ?int $checkinId,
+    string $locationName,
+    string $latitude,
+    string $longitude,
+    string $publicNote,
+    string $internalNote,
+    string $status,
+    string $accommodationType,
+    string $reviewNotes
+): void {
+    $team = fetch_team($pdo, $teamId);
+
+    if (!$team) {
+        throw new RuntimeException('Team not found.');
+    }
+
+    $teamName = $team['name'] ?? 'Team';
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO team_locations
+            (team_id, leader_id, location_name, latitude, longitude, public_note, internal_note)
+         VALUES
+            (?, ?, ?, ?, ?, ?, ?)'
+    );
+
+    $stmt->execute([
+        $teamId,
+        $user['id'],
+        $locationName,
+        $latitude,
+        $longitude,
+        $publicNote,
+        $internalNote,
+    ]);
+
+    $stmt = $pdo->prepare(
+        'UPDATE teams
+         SET status = ?,
+             current_location_name = ?,
+             current_latitude = ?,
+             current_longitude = ?,
+             last_check_in_at = NOW()
+         WHERE id = ?'
+    );
+
+    $stmt->execute([
+        $status,
+        $locationName,
+        $latitude,
+        $longitude,
+        $teamId,
+    ]);
+
+    $feedBody = build_parent_checkin_body($teamName, $locationName, $publicNote, $accommodationType);
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO posts
+            (team_id, leader_id, title, body, post_type, visibility, is_pinned, is_published, published_at)
+         VALUES
+            (?, ?, ?, ?, "check_in", "team", 0, 1, NOW())'
+    );
+
+    $stmt->execute([
+        $teamId,
+        $user['id'],
+        $teamName . ' checked in',
+        $feedBody,
+    ]);
+
+    $parentLink = team_parent_link($team);
+
+    queue_parent_checkin_emails(
+        $pdo,
+        $teamId,
+        $teamName,
+        $teamName . ' check-in update',
+        $feedBody,
+        $parentLink
+    );
+
+    if ($checkinId !== null) {
+        $stmt = $pdo->prepare(
+            'UPDATE explorer_checkins
+             SET status = "reviewed",
+                 reviewed_by = ?,
+                 reviewed_at = NOW(),
+                 review_notes = ?
+             WHERE id = ?'
+        );
+
+        $stmt->execute([
+            $user['id'],
+            $reviewNotes,
+            $checkinId,
+        ]);
+    }
 }
 
 /**
@@ -219,15 +474,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $stmt = $pdo->prepare(
                 'INSERT INTO teams
-                    (name, slug, parent_token, description, status, is_public)
+                    (name, slug, parent_token, explorer_token, description, status, is_public)
                  VALUES
-                    (?, ?, ?, ?, ?, ?)'
+                    (?, ?, ?, ?, ?, ?, ?)'
             );
 
             $stmt->execute([
                 $name,
                 $slug,
                 generate_parent_token(),
+                generate_explorer_token(),
                 $description,
                 $status,
                 $isPublic,
@@ -292,6 +548,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('team_links.php?view=team&team_id=' . $teamId);
     }
 
+    if ($action === 'regenerate_explorer_token') {
+        $teamId = (int)($_POST['team_id'] ?? 0);
+
+        if ($teamId > 0) {
+            $stmt = $pdo->prepare('UPDATE teams SET explorer_token = ? WHERE id = ?');
+            $stmt->execute([
+                generate_explorer_token(),
+                $teamId,
+            ]);
+        }
+
+        redirect('team_links.php?view=team&team_id=' . $teamId);
+    }
+
     if ($action === 'add_post') {
         $teamId = (int)($_POST['team_id'] ?? 0);
         $title = trim($_POST['title'] ?? '');
@@ -334,14 +604,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    if ($action === 'add_location') {
+    if ($action === 'approve_explorer_checkin' || $action === 'manual_checkin') {
         $teamId = (int)($_POST['team_id'] ?? 0);
+        $checkinId = $action === 'approve_explorer_checkin' ? (int)($_POST['checkin_id'] ?? 0) : null;
+
         $locationName = trim($_POST['location_name'] ?? '');
         $latitude = trim($_POST['latitude'] ?? '');
         $longitude = trim($_POST['longitude'] ?? '');
         $publicNote = trim($_POST['public_note'] ?? '');
         $internalNote = trim($_POST['internal_note'] ?? '');
+        $reviewNotes = trim($_POST['review_notes'] ?? '');
         $status = $_POST['status'] ?? 'checked_in';
+        $accommodationType = trim($_POST['accommodation_type'] ?? '');
 
         if (!in_array($status, $allowedStatuses, true)) {
             $status = 'checked_in';
@@ -350,64 +624,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($teamId <= 0 || $locationName === '' || $latitude === '' || $longitude === '') {
             $error = 'Team, location name, latitude and longitude are required.';
         } else {
-            $stmt = $pdo->prepare(
-                'INSERT INTO team_locations
-                    (team_id, leader_id, location_name, latitude, longitude, public_note, internal_note)
-                 VALUES
-                    (?, ?, ?, ?, ?, ?, ?)'
-            );
+            try {
+                $pdo->beginTransaction();
 
-            $stmt->execute([
-                $teamId,
-                $user['id'],
-                $locationName,
-                $latitude,
-                $longitude,
-                $publicNote,
-                $internalNote,
-            ]);
+                create_reviewed_location_and_post(
+                    $pdo,
+                    $user,
+                    $teamId,
+                    $checkinId,
+                    $locationName,
+                    $latitude,
+                    $longitude,
+                    $publicNote,
+                    $internalNote,
+                    $status,
+                    $accommodationType,
+                    $reviewNotes
+                );
 
-            $stmt = $pdo->prepare(
-                'UPDATE teams
-                 SET status = ?,
-                     current_location_name = ?,
-                     current_latitude = ?,
-                     current_longitude = ?,
-                     last_check_in_at = NOW()
-                 WHERE id = ?'
-            );
+                $pdo->commit();
 
-            $stmt->execute([
-                $status,
-                $locationName,
-                $latitude,
-                $longitude,
-                $teamId,
-            ]);
+                redirect('team_links.php?view=team&team_id=' . $teamId . '&tab=check-ins');
+            } catch (Throwable $exception) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
 
-            $team = fetch_team($pdo, $teamId);
-            $teamName = $team['name'] ?? 'Team';
-
-            $feedBody = $publicNote !== ''
-                ? $publicNote
-                : $teamName . ' has checked in at ' . $locationName . '.';
-
-            $stmt = $pdo->prepare(
-                'INSERT INTO posts
-                    (team_id, leader_id, title, body, post_type, visibility, is_pinned, is_published, published_at)
-                 VALUES
-                    (?, ?, ?, ?, "check_in", "team", 0, 1, NOW())'
-            );
-
-            $stmt->execute([
-                $teamId,
-                $user['id'],
-                $teamName . ' checked in',
-                $feedBody,
-            ]);
-
-            redirect('team_links.php?view=team&team_id=' . $teamId . '&tab=progress');
+                $error = $exception->getMessage();
+            }
         }
+    }
+
+    if ($action === 'reject_explorer_checkin') {
+        $teamId = (int)($_POST['team_id'] ?? 0);
+        $checkinId = (int)($_POST['checkin_id'] ?? 0);
+        $reviewNotes = trim($_POST['review_notes'] ?? '');
+
+        if ($teamId > 0 && $checkinId > 0) {
+            $stmt = $pdo->prepare(
+                'UPDATE explorer_checkins
+                 SET status = "rejected",
+                     reviewed_by = ?,
+                     reviewed_at = NOW(),
+                     review_notes = ?
+                 WHERE id = ?
+                   AND team_id = ?'
+            );
+
+            $stmt->execute([
+                $user['id'],
+                $reviewNotes,
+                $checkinId,
+                $teamId,
+            ]);
+        }
+
+        redirect('team_links.php?view=team&team_id=' . $teamId . '&tab=check-ins');
     }
 }
 
@@ -447,8 +719,28 @@ try {
     $people = [];
 }
 
+$explorerCheckins = [];
+
+try {
+    $explorerCheckins = $pdo
+        ->query(
+            'SELECT
+                ec.*,
+                t.name AS team_name,
+                l.name AS reviewed_by_name
+             FROM explorer_checkins ec
+             JOIN teams t ON t.id = ec.team_id
+             LEFT JOIN leaders l ON l.id = ec.reviewed_by
+             ORDER BY ec.submitted_at DESC'
+        )
+        ->fetchAll();
+} catch (Throwable $exception) {
+    $explorerCheckins = [];
+}
+
 $locationsByTeam = [];
 $peopleByTeam = [];
+$explorerCheckinsByTeam = [];
 
 foreach ($locations as $location) {
     $teamId = (int)$location['team_id'];
@@ -462,11 +754,12 @@ foreach ($people as $person) {
     }
 }
 
-$checkinDates = checkin_dates();
+foreach ($explorerCheckins as $checkin) {
+    $teamId = (int)$checkin['team_id'];
+    $explorerCheckinsByTeam[$teamId][] = $checkin;
+}
 
-/**
- * Build team summaries.
- */
+$checkinDates = checkin_dates();
 
 $teamSummaries = [];
 
@@ -474,15 +767,22 @@ foreach ($teams as $team) {
     $teamId = (int)$team['id'];
     $teamLocations = $locationsByTeam[$teamId] ?? [];
     $teamPeople = $peopleByTeam[$teamId] ?? [];
+    $teamExplorerCheckins = $explorerCheckinsByTeam[$teamId] ?? [];
 
     $checkedDates = [];
     $totalKm = 0.0;
     $previous = null;
     $latestLocation = null;
+    $approvedToday = false;
+    $pendingToday = false;
 
     foreach ($teamLocations as $location) {
-        $date = date('Y-m-d', strtotime($location['checked_in_at']));
+        $date = date_in_finland($location['checked_in_at']);
         $checkedDates[$date] = true;
+
+        if (checked_in_today_finland($location['checked_in_at'])) {
+            $approvedToday = true;
+        }
 
         $lat = safe_float($location['latitude']);
         $lng = safe_float($location['longitude']);
@@ -503,16 +803,42 @@ foreach ($teams as $team) {
         $latestLocation = $location;
     }
 
+    foreach ($teamExplorerCheckins as $checkin) {
+        if ($checkin['status'] === 'pending' && date_in_finland($checkin['submitted_at']) === finland_today()) {
+            $pendingToday = true;
+        }
+    }
+
+    $isOverdue = !$approvedToday && !$pendingToday && finland_hour() >= CHECKIN_OVERDUE_HOUR_FINLAND;
+
+    if ($approvedToday) {
+        $ragStatus = 'approved';
+        $ragLabel = 'Parents notified';
+    } elseif ($pendingToday) {
+        $ragStatus = 'pending';
+        $ragLabel = 'Submitted, pending review';
+    } elseif ($isOverdue) {
+        $ragStatus = 'overdue';
+        $ragLabel = 'No check-in after 19:00 Finland';
+    } else {
+        $ragStatus = 'normal';
+        $ragLabel = 'Normal';
+    }
+
     $allergyPeople = array_values(array_filter($teamPeople, 'person_has_allergies'));
 
     $teamSummaries[$teamId] = [
         'team' => $team,
         'people' => $teamPeople,
         'locations' => $teamLocations,
+        'explorer_checkins' => $teamExplorerCheckins,
         'latest_location' => $latestLocation,
         'checked_dates' => $checkedDates,
         'distance_miles' => miles_from_km($totalKm),
-        'checked_in_today' => checked_in_today($latestLocation['checked_in_at'] ?? null),
+        'checked_in_today' => $approvedToday,
+        'pending_today' => $pendingToday,
+        'rag_status' => $ragStatus,
+        'rag_label' => $ragLabel,
         'allergy_people' => $allergyPeople,
     ];
 }
@@ -525,7 +851,7 @@ $view = $_GET['view'] ?? 'overview';
 $currentTeamId = (int)($_GET['team_id'] ?? 0);
 $currentTab = $_GET['tab'] ?? 'overview';
 
-$allowedTabs = ['overview', 'progress', 'posts', 'add-update', 'add-location', 'edit'];
+$allowedTabs = ['overview', 'progress', 'posts', 'add-update', 'check-ins', 'edit'];
 
 if (!in_array($currentTab, $allowedTabs, true)) {
     $currentTab = 'overview';
@@ -598,6 +924,84 @@ include __DIR__ . '/header.php';
 
     .teams-panel label {
         font-weight: 800;
+    }
+
+    .rag-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.75rem;
+        margin-bottom: 1.5rem;
+    }
+
+    @media (max-width: 1000px) {
+        .rag-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+
+    @media (max-width: 620px) {
+        .rag-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .rag-card {
+        border: 4px solid #b1b4b6;
+        background: #ffffff;
+        padding: 0.85rem;
+        text-decoration: none;
+        color: #1d1d1d;
+        display: block;
+    }
+
+    .rag-card:hover,
+    .rag-card:focus {
+        color: #1d1d1d;
+        text-decoration: none;
+        box-shadow: 0 0 0 3px #ffdd00;
+    }
+
+    .rag-approved {
+        border-color: #00703c;
+    }
+
+    .rag-overdue {
+        border-color: #ffdd00;
+        background: #fff7bf;
+    }
+
+    .rag-pending {
+        border: 4px solid transparent;
+        background:
+            linear-gradient(#ffffff, #ffffff) padding-box,
+            repeating-linear-gradient(
+                45deg,
+                #00703c 0,
+                #00703c 10px,
+                #ffdd00 10px,
+                #ffdd00 20px
+            ) border-box;
+    }
+
+    .rag-normal {
+        border-color: #b1b4b6;
+        background: #f8f8f8;
+    }
+
+    .rag-team-name {
+        font-weight: 900;
+        font-size: 1.05rem;
+        margin-bottom: 0.35rem;
+    }
+
+    .rag-label {
+        font-weight: 800;
+        margin-bottom: 0.25rem;
+    }
+
+    .rag-time {
+        color: #505a5f;
+        font-size: 0.9rem;
     }
 
     .teams-table {
@@ -775,11 +1179,6 @@ include __DIR__ . '/header.php';
         margin-bottom: 1.5rem;
     }
 
-    .allergy-panel h2,
-    .allergy-panel h3 {
-        color: #942514;
-    }
-
     .member-list {
         list-style: none;
         padding: 0;
@@ -813,7 +1212,8 @@ include __DIR__ . '/header.php';
     }
 
     .post-card,
-    .location-card {
+    .location-card,
+    .checkin-review-card {
         border: 2px solid #d8d8d8;
         background: #ffffff;
         padding: 1rem;
@@ -821,7 +1221,8 @@ include __DIR__ . '/header.php';
     }
 
     .post-card h3,
-    .location-card h3 {
+    .location-card h3,
+    .checkin-review-card h3 {
         margin-top: 0;
         font-weight: 900;
     }
@@ -838,11 +1239,55 @@ include __DIR__ . '/header.php';
         margin-bottom: 1rem;
     }
 
+    .explorer-link-box {
+        border: 2px solid #00703c;
+        background: #e9f8ef;
+        padding: 0.75rem;
+        word-break: break-all;
+        margin-bottom: 1rem;
+    }
+
     .empty-box {
         border: 2px dashed #b1b4b6;
         background: #f8f8f8;
         padding: 1rem;
         font-weight: 700;
+    }
+
+    .parent-preview {
+        border-left: 8px solid #00703c;
+        background: #e9f8ef;
+        padding: 1rem;
+        margin: 1rem 0;
+    }
+
+    .internal-warning {
+        border-left: 8px solid #d4351c;
+        background: #fff1f0;
+        padding: 1rem;
+        margin: 1rem 0;
+    }
+
+    .status-pill {
+        display: inline-block;
+        padding: 0.35rem 0.55rem;
+        border: 2px solid #1d1d1d;
+        font-weight: 800;
+    }
+
+    .status-warning {
+        background: #ffdd00;
+        color: #1d1d1d;
+    }
+
+    .status-good {
+        background: #00703c;
+        color: #ffffff;
+    }
+
+    .status-danger {
+        background: #d4351c;
+        color: #ffffff;
     }
 </style>
 
@@ -869,9 +1314,15 @@ include __DIR__ . '/header.php';
         </a>
 
         <?php if ($currentTeam): ?>
-            <a class="btn btn-outline-primary" href="<?= e(url('team.php?token=' . $currentTeam['parent_token'])) ?>">
+            <a class="btn btn-outline-primary" href="<?= e(team_parent_link($currentTeam)) ?>">
                 Open parent view
             </a>
+
+            <?php if (!empty($currentTeam['explorer_token'])): ?>
+                <a class="btn btn-outline-primary" href="<?= e(team_explorer_link($currentTeam)) ?>" target="_blank" rel="noopener">
+                    Open Explorer check-in
+                </a>
+            <?php endif; ?>
         <?php endif; ?>
 
         <a class="btn btn-outline-primary" href="<?= e(url('people.php')) ?>">
@@ -884,8 +1335,10 @@ include __DIR__ . '/header.php';
         <?php
         $teamPeople = $currentTeamSummary['people'];
         $teamLocations = $currentTeamSummary['locations'];
+        $teamExplorerCheckins = $currentTeamSummary['explorer_checkins'];
         $allergyPeople = $currentTeamSummary['allergy_people'];
-        $parentLink = url('team.php?token=' . $currentTeam['parent_token']);
+        $parentLink = team_parent_link($currentTeam);
+        $explorerLink = !empty($currentTeam['explorer_token']) ? team_explorer_link($currentTeam) : '';
         ?>
 
         <section class="teams-panel">
@@ -908,11 +1361,33 @@ include __DIR__ . '/header.php';
 
             <form
                 method="post"
-                onsubmit="return confirm('Regenerate this parent link? The old link will stop working.');"
+                class="mb-3"
+                onsubmit="return confirm('Regenerate this parent link? The old parent link will stop working.');"
             >
                 <input type="hidden" name="action" value="regenerate_team_token">
                 <input type="hidden" name="team_id" value="<?= (int)$currentTeam['id'] ?>">
                 <button class="btn btn-outline-danger btn-sm">Regenerate parent link</button>
+            </form>
+
+            <div class="explorer-link-box">
+                <strong>Explorer check-in link</strong><br>
+
+                <?php if ($explorerLink !== ''): ?>
+                    <a href="<?= e($explorerLink) ?>" target="_blank" rel="noopener">
+                        <?= e($explorerLink) ?>
+                    </a>
+                <?php else: ?>
+                    <span class="muted">No Explorer check-in link has been generated yet.</span>
+                <?php endif; ?>
+            </div>
+
+            <form
+                method="post"
+                onsubmit="return confirm('Regenerate this Explorer check-in link? The old Explorer link will stop working.');"
+            >
+                <input type="hidden" name="action" value="regenerate_explorer_token">
+                <input type="hidden" name="team_id" value="<?= (int)$currentTeam['id'] ?>">
+                <button class="btn btn-outline-danger btn-sm">Regenerate Explorer check-in link</button>
             </form>
         </section>
 
@@ -921,9 +1396,9 @@ include __DIR__ . '/header.php';
             $tabs = [
                 'overview' => 'Overview',
                 'progress' => 'Progress',
+                'check-ins' => 'Explorer check-ins',
                 'posts' => 'Posts & notes',
                 'add-update' => 'Add update',
-                'add-location' => 'Add location',
                 'edit' => 'Edit team',
             ];
             ?>
@@ -945,6 +1420,20 @@ include __DIR__ . '/header.php';
                 <?php if ($currentTab === 'overview'): ?>
 
                     <section class="teams-panel">
+                        <h2>Today’s check-in status</h2>
+
+                        <p>
+                            <span class="status-pill">
+                                <?= e($currentTeamSummary['rag_label']) ?>
+                            </span>
+                        </p>
+
+                        <p class="muted mb-0">
+                            Finland time is currently <?= e((new DateTime('now', new DateTimeZone(FINLAND_TIMEZONE)))->format('H:i')) ?>.
+                        </p>
+                    </section>
+
+                    <section class="teams-panel">
                         <h2>Team progress</h2>
 
                         <p>
@@ -956,21 +1445,13 @@ include __DIR__ . '/header.php';
                             </span>
                         </p>
 
-                        <p>
-                            <?php if ($currentTeamSummary['checked_in_today']): ?>
-                                <span class="status-pill status-checked-in">Checked in today</span>
-                            <?php else: ?>
-                                <span class="status-pill status-delayed">No check-in today</span>
-                            <?php endif; ?>
-                        </p>
-
                         <h3>10 day check-in status</h3>
 
                         <div class="checkin-strip">
                             <?php foreach ($checkinDates as $dateInfo): ?>
                                 <?php
                                 $date = $dateInfo['date'];
-                                $isFuture = $date > date('Y-m-d');
+                                $isFuture = $date > finland_today();
                                 $hasCheckin = isset($currentTeamSummary['checked_dates'][$date]);
 
                                 $class = $hasCheckin
@@ -1003,22 +1484,274 @@ include __DIR__ . '/header.php';
                         </section>
                     <?php endif; ?>
 
-                    <section class="teams-panel">
-                        <h2>Latest posts</h2>
+                <?php elseif ($currentTab === 'check-ins'): ?>
 
-                        <?php if (empty($currentTeamPosts)): ?>
-                            <div class="empty-box">No posts have been added for this team yet.</div>
+                    <section class="teams-panel">
+                        <h2>Manual check-in</h2>
+
+                        <p class="muted">
+                            Use this if the team cannot submit their own check-in, or if a leader needs to add one directly.
+                        </p>
+
+                        <form method="post">
+                            <input type="hidden" name="action" value="manual_checkin">
+                            <input type="hidden" name="team_id" value="<?= (int)$currentTeam['id'] ?>">
+
+                            <div class="form-group">
+                                <label>Location name</label>
+                                <input class="form-control" name="location_name" required>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group col-md-6">
+                                    <label>Latitude</label>
+                                    <input class="form-control" name="latitude" required>
+                                </div>
+
+                                <div class="form-group col-md-6">
+                                    <label>Longitude</label>
+                                    <input class="form-control" name="longitude" required>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Where are they staying?</label>
+                                <select class="form-control" name="accommodation_type">
+                                    <option value="">Not specified</option>
+                                    <option value="Lean-to">Lean-to</option>
+                                    <option value="Tent">Tent</option>
+                                    <option value="With a host">With a host</option>
+                                    <option value="Scout hut / hall">Scout hut / hall</option>
+                                    <option value="Campsite">Campsite</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Team status</label>
+                                <select class="form-control" name="status">
+                                    <option value="checked_in">Checked in</option>
+                                    <option value="on_route">On route</option>
+                                    <option value="resting">Resting</option>
+                                    <option value="delayed">Delayed</option>
+                                    <option value="needs_follow_up">Needs follow-up</option>
+                                    <option value="completed">Completed</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Parent-facing update</label>
+                                <textarea class="form-control" name="public_note" rows="4" placeholder="Do not include injuries, medication, welfare issues or private notes."></textarea>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Internal leader note</label>
+                                <textarea class="form-control" name="internal_note" rows="4"></textarea>
+                            </div>
+
+                            <div class="parent-preview">
+                                <strong>Parent update preview:</strong>
+                                <p class="mb-0">
+                                    If the parent-facing update box is left empty, the system will post a simple check-in message with the approximate location and accommodation type.
+                                </p>
+                            </div>
+
+                            <button class="btn btn-primary">
+                                Save check-in and notify parents
+                            </button>
+                        </form>
+                    </section>
+
+                    <section class="teams-panel">
+                        <h2>Explorer submissions</h2>
+
+                        <?php if (empty($teamExplorerCheckins)): ?>
+                            <div class="empty-box">No Explorer check-ins have been submitted for this team yet.</div>
                         <?php else: ?>
-                            <?php foreach (array_slice($currentTeamPosts, 0, 5) as $post): ?>
-                                <article class="post-card">
-                                    <h3><?= e($post['title']) ?></h3>
+                            <?php foreach ($teamExplorerCheckins as $checkin): ?>
+                                <?php
+                                $reports = member_reports_summary($checkin['member_reports_json'] ?? null);
+                                $suggestedBody = build_parent_checkin_body(
+                                    $currentTeam['name'],
+                                    $checkin['location_name'] ?? '',
+                                    '',
+                                    $checkin['accommodation_type'] ?? ''
+                                );
+                                ?>
+
+                                <article class="checkin-review-card">
+                                    <h3>
+                                        <?= e($checkin['location_name'] ?: 'Explorer check-in') ?>
+                                    </h3>
+
+                                    <p>
+                                        <span class="status-pill <?= e(checkin_status_class($checkin['status'])) ?>">
+                                            <?= e(checkin_status_label($checkin['status'])) ?>
+                                        </span>
+                                    </p>
+
                                     <p class="muted">
-                                        <?= e(format_datetime($post['published_at'])) ?>
-                                        <?php if (!empty($post['leader_name'])): ?>
-                                            | <?= e($post['leader_name']) ?>
+                                        Submitted <?= e(format_datetime($checkin['submitted_at'])) ?>
+                                        <?php if (!empty($checkin['submitted_by'])): ?>
+                                            by <?= e($checkin['submitted_by']) ?>
                                         <?php endif; ?>
                                     </p>
-                                    <p><?= nl2br(e($post['body'])) ?></p>
+
+                                    <p>
+                                        <strong>Coordinates:</strong>
+                                        <?= e($checkin['latitude']) ?>, <?= e($checkin['longitude']) ?><br>
+
+                                        <strong>Staying:</strong>
+                                        <?= e($checkin['accommodation_type']) ?>
+                                    </p>
+
+                                    <?php if (!empty($checkin['accommodation_notes'])): ?>
+                                        <p>
+                                            <strong>Accommodation notes:</strong><br>
+                                            <?= nl2br(e($checkin['accommodation_notes'])) ?>
+                                        </p>
+                                    <?php endif; ?>
+
+                                    <?php if (!empty($checkin['welfare_notes'])): ?>
+                                        <div class="internal-warning">
+                                            <strong>Internal welfare notes:</strong><br>
+                                            <?= nl2br(e($checkin['welfare_notes'])) ?>
+                                        </div>
+                                    <?php endif; ?>
+
+                                    <?php if ((int)$checkin['has_injuries'] === 1 || (int)$checkin['has_medication'] === 1 || !empty($reports)): ?>
+                                        <div class="internal-warning">
+                                            <strong>Private first aid / medication information:</strong>
+                                            <p>
+                                                This is for leaders only. It will not be included in the parent update.
+                                            </p>
+
+                                            <?php if (!empty($reports)): ?>
+                                                <ul class="mb-0">
+                                                    <?php foreach ($reports as $report): ?>
+                                                        <li>
+                                                            <strong><?= e($report['name'] ?? 'Participant') ?></strong>
+
+                                                            <?php if (!empty($report['injury_description'])): ?>
+                                                                <br>Injury/concern: <?= nl2br(e($report['injury_description'])) ?>
+                                                            <?php endif; ?>
+
+                                                            <?php if (!empty($report['medication_detail'])): ?>
+                                                                <br>Medication: <?= nl2br(e($report['medication_detail'])) ?>
+                                                            <?php endif; ?>
+
+                                                            <?php if (!empty($report['first_aid_given'])): ?>
+                                                                <br>First aid: <?= nl2br(e($report['first_aid_given'])) ?>
+                                                            <?php endif; ?>
+                                                        </li>
+                                                    <?php endforeach; ?>
+                                                </ul>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php endif; ?>
+
+                                    <div class="parent-preview">
+                                        <strong>What parents will see:</strong>
+                                        <p><?= nl2br(e($suggestedBody)) ?></p>
+                                    </div>
+
+                                    <?php if ($checkin['status'] === 'pending'): ?>
+                                        <form method="post" class="mb-3">
+                                            <input type="hidden" name="action" value="approve_explorer_checkin">
+                                            <input type="hidden" name="team_id" value="<?= (int)$currentTeam['id'] ?>">
+                                            <input type="hidden" name="checkin_id" value="<?= (int)$checkin['id'] ?>">
+
+                                            <div class="form-group">
+                                                <label>Location name</label>
+                                                <input class="form-control" name="location_name" value="<?= e($checkin['location_name']) ?>" required>
+                                            </div>
+
+                                            <div class="form-row">
+                                                <div class="form-group col-md-6">
+                                                    <label>Latitude</label>
+                                                    <input class="form-control" name="latitude" value="<?= e($checkin['latitude']) ?>" required>
+                                                </div>
+
+                                                <div class="form-group col-md-6">
+                                                    <label>Longitude</label>
+                                                    <input class="form-control" name="longitude" value="<?= e($checkin['longitude']) ?>" required>
+                                                </div>
+                                            </div>
+
+                                            <input type="hidden" name="accommodation_type" value="<?= e($checkin['accommodation_type']) ?>">
+
+                                            <div class="form-group">
+                                                <label>Team status</label>
+                                                <select class="form-control" name="status">
+                                                    <option value="checked_in">Checked in</option>
+                                                    <option value="resting">Resting</option>
+                                                    <option value="delayed">Delayed</option>
+                                                    <option value="needs_follow_up">Needs follow-up</option>
+                                                    <option value="completed">Completed</option>
+                                                </select>
+                                            </div>
+
+                                            <div class="form-group">
+                                                <label>Parent-facing update</label>
+                                                <textarea class="form-control" name="public_note" rows="4" placeholder="Leave blank to use the preview above."></textarea>
+                                                <small class="form-text text-muted">
+                                                    Do not include injuries, medication, welfare concerns or private notes.
+                                                </small>
+                                            </div>
+
+                                            <div class="form-group">
+                                                <label>Internal leader note</label>
+                                                <textarea class="form-control" name="internal_note" rows="4"><?= e($checkin['welfare_notes'] ?? '') ?></textarea>
+                                            </div>
+
+                                            <div class="form-group">
+                                                <label>Review notes</label>
+                                                <textarea class="form-control" name="review_notes" rows="3"></textarea>
+                                            </div>
+
+                                            <button class="btn btn-primary">
+                                                Approve, post check-in and notify parents
+                                            </button>
+                                        </form>
+
+                                        <form
+                                            method="post"
+                                            onsubmit="return confirm('Reject this Explorer check-in? It will not be posted to parents.');"
+                                        >
+                                            <input type="hidden" name="action" value="reject_explorer_checkin">
+                                            <input type="hidden" name="team_id" value="<?= (int)$currentTeam['id'] ?>">
+                                            <input type="hidden" name="checkin_id" value="<?= (int)$checkin['id'] ?>">
+
+                                            <div class="form-group">
+                                                <label>Reject notes</label>
+                                                <textarea class="form-control" name="review_notes" rows="3"></textarea>
+                                            </div>
+
+                                            <button class="btn btn-outline-danger">
+                                                Reject check-in
+                                            </button>
+                                        </form>
+                                    <?php else: ?>
+                                        <?php if (!empty($checkin['reviewed_by_name']) || !empty($checkin['reviewed_at'])): ?>
+                                            <p class="muted mb-0">
+                                                Reviewed
+                                                <?php if (!empty($checkin['reviewed_by_name'])): ?>
+                                                    by <?= e($checkin['reviewed_by_name']) ?>
+                                                <?php endif; ?>
+
+                                                <?php if (!empty($checkin['reviewed_at'])): ?>
+                                                    on <?= e(format_datetime($checkin['reviewed_at'])) ?>
+                                                <?php endif; ?>
+                                            </p>
+                                        <?php endif; ?>
+
+                                        <?php if (!empty($checkin['review_notes'])): ?>
+                                            <p class="muted">
+                                                <strong>Review notes:</strong>
+                                                <?= nl2br(e($checkin['review_notes'])) ?>
+                                            </p>
+                                        <?php endif; ?>
+                                    <?php endif; ?>
                                 </article>
                             <?php endforeach; ?>
                         <?php endif; ?>
@@ -1042,7 +1775,7 @@ include __DIR__ . '/header.php';
                             <?php foreach ($checkinDates as $dateInfo): ?>
                                 <?php
                                 $date = $dateInfo['date'];
-                                $isFuture = $date > date('Y-m-d');
+                                $isFuture = $date > finland_today();
                                 $hasCheckin = isset($currentTeamSummary['checked_dates'][$date]);
 
                                 $class = $hasCheckin
@@ -1170,63 +1903,6 @@ include __DIR__ . '/header.php';
                         </form>
                     </section>
 
-                <?php elseif ($currentTab === 'add-location'): ?>
-
-                    <section class="teams-panel">
-                        <h2>Add location for <?= e($currentTeam['name']) ?></h2>
-
-                        <form method="post">
-                            <input type="hidden" name="action" value="add_location">
-                            <input type="hidden" name="team_id" value="<?= (int)$currentTeam['id'] ?>">
-
-                            <div class="form-group">
-                                <label>Location name</label>
-                                <input
-                                    class="form-control"
-                                    name="location_name"
-                                    placeholder="Example: Near Keswick"
-                                    required
-                                >
-                            </div>
-
-                            <div class="form-row">
-                                <div class="form-group col-md-6">
-                                    <label>Latitude</label>
-                                    <input class="form-control" name="latitude" required>
-                                </div>
-
-                                <div class="form-group col-md-6">
-                                    <label>Longitude</label>
-                                    <input class="form-control" name="longitude" required>
-                                </div>
-                            </div>
-
-                            <div class="form-group">
-                                <label>Status</label>
-                                <select class="form-control" name="status">
-                                    <option value="checked_in">Checked in</option>
-                                    <option value="on_route">On route</option>
-                                    <option value="resting">Resting</option>
-                                    <option value="delayed">Delayed</option>
-                                    <option value="needs_follow_up">Needs leader follow-up</option>
-                                    <option value="completed">Completed</option>
-                                </select>
-                            </div>
-
-                            <div class="form-group">
-                                <label>Parent-facing note</label>
-                                <textarea class="form-control" name="public_note" rows="4"></textarea>
-                            </div>
-
-                            <div class="form-group">
-                                <label>Internal note</label>
-                                <textarea class="form-control" name="internal_note" rows="4"></textarea>
-                            </div>
-
-                            <button class="btn btn-primary">Save location</button>
-                        </form>
-                    </section>
-
                 <?php elseif ($currentTab === 'edit'): ?>
 
                     <section class="teams-panel">
@@ -1345,11 +2021,16 @@ include __DIR__ . '/header.php';
                         </span>
                     </p>
 
+                    <p>
+                        <strong>Today:</strong>
+                        <?= e($currentTeamSummary['rag_label']) ?>
+                    </p>
+
                     <div class="checkin-strip">
                         <?php foreach ($checkinDates as $dateInfo): ?>
                             <?php
                             $date = $dateInfo['date'];
-                            $isFuture = $date > date('Y-m-d');
+                            $isFuture = $date > finland_today();
                             $hasCheckin = isset($currentTeamSummary['checked_dates'][$date]);
 
                             $class = $hasCheckin
@@ -1371,6 +2052,47 @@ include __DIR__ . '/header.php';
         </div>
 
     <?php else: ?>
+
+        <section class="teams-panel">
+            <h2>Today’s check-in status</h2>
+
+            <p class="muted">
+                Based on Finland time. Amber starts after <?= e(CHECKIN_OVERDUE_HOUR_FINLAND) ?>:00 if no check-in has been submitted or approved.
+            </p>
+
+            <div class="rag-grid">
+                <?php foreach ($teams as $team): ?>
+                    <?php
+                    $teamId = (int)$team['id'];
+                    $summary = $teamSummaries[$teamId];
+                    ?>
+
+                    <a
+                        class="rag-card rag-<?= e($summary['rag_status']) ?>"
+                        href="<?= e(url('team_links.php?view=team&team_id=' . $teamId . '&tab=check-ins')) ?>"
+                    >
+                        <div class="rag-team-name">
+                            <?= e($team['name']) ?>
+                        </div>
+
+                        <div class="rag-label">
+                            <?= e($summary['rag_label']) ?>
+                        </div>
+
+                        <div class="rag-time">
+                            <?php if ($summary['latest_location']): ?>
+                                Last approved:
+                                <?= e(format_datetime($summary['latest_location']['checked_in_at'])) ?>
+                            <?php elseif ($summary['pending_today']): ?>
+                                Waiting for leader review
+                            <?php else: ?>
+                                No approved check-in today
+                            <?php endif; ?>
+                        </div>
+                    </a>
+                <?php endforeach; ?>
+            </div>
+        </section>
 
         <section class="teams-panel">
             <h2>Teams overview</h2>
@@ -1441,7 +2163,7 @@ include __DIR__ . '/header.php';
                                         <?php foreach ($checkinDates as $dateInfo): ?>
                                             <?php
                                             $date = $dateInfo['date'];
-                                            $isFuture = $date > date('Y-m-d');
+                                            $isFuture = $date > finland_today();
                                             $hasCheckin = isset($summary['checked_dates'][$date]);
 
                                             $class = $hasCheckin
@@ -1466,13 +2188,18 @@ include __DIR__ . '/header.php';
                                         </span>
                                     </p>
 
+                                    <p>
+                                        <strong>Today:</strong>
+                                        <?= e($summary['rag_label']) ?>
+                                    </p>
+
                                     <?php if ($summary['latest_location']): ?>
                                         <p class="muted mb-0">
                                             <?= e($summary['latest_location']['location_name']) ?><br>
                                             <?= e(format_datetime($summary['latest_location']['checked_in_at'])) ?>
                                         </p>
                                     <?php else: ?>
-                                        <p class="muted mb-0">No check-ins yet.</p>
+                                        <p class="muted mb-0">No approved check-ins yet.</p>
                                     <?php endif; ?>
                                 </td>
                             </tr>
