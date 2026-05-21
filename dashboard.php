@@ -2119,7 +2119,7 @@ include __DIR__ . '/header.php';
                     <div class="location-note">
                         <p>
                             Finland time is currently <?= e(dashboard_finland_now()->format('H:i')) ?>.
-                            Amber starts after <?= e(DASHBOARD_CHECKIN_OVERDUE_HOUR_FINLAND) ?>:00 if no check-in has been submitted or approved.
+                            
                         </p>
                     </div>
 
@@ -2197,8 +2197,7 @@ include __DIR__ . '/header.php';
 
                     <div class="location-note">
                         <p>
-                            Times shown for check-ins and location
-        updates are Finland local time, normally UK time + 2 hours Locations are manually entered by leaders. If there is no location for a particular day,
+                            If there is no location for a particular day,
                             this does not necessarily indicate an issue. There may simply be a delay in entering the update.
                         </p>
                     </div>
