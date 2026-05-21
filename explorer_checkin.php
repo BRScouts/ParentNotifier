@@ -715,7 +715,7 @@ if ($submittedSuccess) {
 
             <p>
                 Thank you. The check-in for <strong><?= e($successData['team_name'] ?? $team['name']) ?></strong>
-                has been submitted to the leadership team.
+                has been submitted to the leadership team. - Please only submit one check-in per day.
             </p>
 
             <p>
