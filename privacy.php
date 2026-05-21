@@ -233,7 +233,7 @@ include __DIR__ . '/header.php';
             <strong>Medical and welfare information is not parent-facing team update content.</strong>
             <p class="mb-0">
                 If an Explorer check-in includes injuries, medication, first aid or welfare notes, leaders review
-                that privately. Parent updates should only include appropriate reassurance and progress information.
+                that privately.
             </p>
         </div>
     </section>
@@ -283,23 +283,6 @@ include __DIR__ . '/header.php';
         </p>
     </section>
 
-    <section class="privacy-panel">
-        <h2>How we keep information secure</h2>
-
-        <p>
-            We use practical and technical measures to protect personal information, including:
-        </p>
-
-        <ul class="privacy-list">
-            <li>Leader-only login for administration areas.</li>
-            <li>Private team links for parent-facing team pages.</li>
-            <li>Separate Explorer check-in links for team submissions.</li>
-            <li>Internal review before check-ins are published to parents.</li>
-            <li>Access controls so parent-facing users do not see private medical or welfare notes.</li>
-            <li>Secure hosting and database storage.</li>
-            <li>Limiting access to those who need it for the event.</li>
-        </ul>
-    </section>
 
     <section class="privacy-panel">
         <h2>Your rights</h2>
