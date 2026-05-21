@@ -270,6 +270,37 @@ function render_person_photo(array $person, string $className): void
     }
 }
 
+function people_search_terms(array $person): string
+{
+    $terms = [
+        $person['name'] ?? '',
+        $person['participant_email'] ?? '',
+        $person['participant_phone'] ?? '',
+    ];
+
+    foreach (json_items($person['parent_emails_json'] ?? null) as $email) {
+        $terms[] = (string)$email;
+    }
+
+    foreach (json_items($person['phones_json'] ?? null) as $phone) {
+        $terms[] = (string)$phone;
+    }
+
+    foreach (json_items($person['emergency_contacts_json'] ?? null) as $contact) {
+        if (!is_array($contact)) {
+            continue;
+        }
+
+        $terms[] = (string)($contact['name'] ?? '');
+        $terms[] = (string)($contact['phone'] ?? '');
+        $terms[] = (string)($contact['email'] ?? '');
+    }
+
+    return strtolower(trim(preg_replace('/\s+/', ' ', implode(' ', array_filter($terms, static function ($term) {
+        return trim((string)$term) !== '';
+    })))));
+}
+
 function render_repeat_inputs(string $name, array $values, string $placeholder): void
 {
     $values = !empty($values) ? $values : [''];
@@ -1050,6 +1081,25 @@ include __DIR__ . '/header.php';
         }
     }
 
+    .people-search {
+        margin-bottom: 1rem;
+    }
+
+    .people-search label {
+        display: block;
+        margin-bottom: 0.35rem;
+        font-weight: 900;
+    }
+
+    .people-search .form-control {
+        max-width: 560px;
+    }
+
+    .people-search-help {
+        margin-top: 0.35rem;
+        margin-bottom: 0;
+    }
+
     .people-table {
         width: 100%;
         border-collapse: collapse;
@@ -1069,6 +1119,21 @@ include __DIR__ . '/header.php';
         font-weight: 900;
     }
 
+    .people-table tbody tr[data-href] {
+        cursor: pointer;
+    }
+
+    .people-table tbody tr[data-href]:hover,
+    .people-table tbody tr[data-href]:focus {
+        background: #f8f8f8;
+        outline: 3px solid #ffdd00;
+        outline-offset: -3px;
+    }
+
+    .people-table tbody tr.is-hidden {
+        display: none;
+    }
+
     .person-row-link {
         color: #1d1d1d;
         text-decoration: none;
@@ -1078,6 +1143,75 @@ include __DIR__ . '/header.php';
     .person-row-link:hover,
     .person-row-link:focus {
         text-decoration: underline;
+    }
+
+    @media (max-width: 720px) {
+        .people-table,
+        .people-table thead,
+        .people-table tbody,
+        .people-table th,
+        .people-table td,
+        .people-table tr {
+            display: block;
+        }
+
+        .people-table {
+            border: 0;
+            background: transparent;
+        }
+
+        .people-table thead {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+
+        .people-table tbody tr {
+            border: 2px solid #d8d8d8;
+            background: #ffffff;
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+        }
+
+        .people-table tbody tr[data-href]:hover,
+        .people-table tbody tr[data-href]:focus {
+            outline-offset: 0;
+        }
+
+        .people-table td {
+            border-bottom: 0;
+            display: grid;
+            grid-template-columns: 120px minmax(0, 1fr);
+            gap: 0.75rem;
+            align-items: start;
+            padding: 0.45rem 0;
+        }
+
+        .people-table td::before {
+            content: attr(data-label);
+            font-weight: 900;
+        }
+
+        .people-table td:first-child {
+            grid-template-columns: 120px minmax(0, 1fr);
+        }
+    }
+
+    @media (max-width: 420px) {
+        .people-table td {
+            grid-template-columns: 1fr;
+            gap: 0.25rem;
+        }
+
+        .people-table td:first-child {
+            grid-template-columns: 1fr;
+        }
     }
 
     .person-face {
@@ -1624,6 +1758,22 @@ include __DIR__ . '/header.php';
                 Red photo border means the parent onboarding form has not been completed. Black photo border means it has been completed.
             </p>
 
+            <?php if (!empty($people)): ?>
+                <div class="people-search">
+                    <label for="peopleSearch">Search people</label>
+                    <input
+                        class="form-control"
+                        id="peopleSearch"
+                        type="search"
+                        placeholder="Search by person name, participant email or phone, parent update email or phone, or emergency contact"
+                        autocomplete="off"
+                    >
+                    <p class="muted people-search-help">
+                        Search includes participant contact details, parent update emails and phone numbers, and emergency contact names, emails and phone numbers.
+                    </p>
+                </div>
+            <?php endif; ?>
+
             <?php if (empty($people)): ?>
                 <div class="empty-box">No young people have been added yet.</div>
             <?php else: ?>
@@ -1675,6 +1825,10 @@ include __DIR__ . '/header.php';
                         <?php endforeach; ?>
                     </tbody>
                 </table>
+
+                <div class="empty-box" id="peopleNoResults" hidden>
+                    No people match your search.
+                </div>
             <?php endif; ?>
         </section>
 
@@ -1759,6 +1913,85 @@ include __DIR__ . '/header.php';
                 contactRows.appendChild(div);
             });
         }
+
+        var peopleSearch = document.getElementById('peopleSearch');
+        var peopleRows = Array.prototype.slice.call(document.querySelectorAll('.people-table tbody tr[data-href]'));
+        var peopleNoResults = document.getElementById('peopleNoResults');
+
+        function normaliseSearchValue(value) {
+            return (value || '').toString().toLowerCase().replace(/\s+/g, ' ').trim();
+        }
+
+        function searchMatches(row, query) {
+            if (query === '') {
+                return true;
+            }
+
+            var haystack = normaliseSearchValue(row.dataset.search || row.textContent || '');
+            var compactHaystack = haystack.replace(/[\s()+.-]/g, '');
+            var compactQuery = query.replace(/[\s()+.-]/g, '');
+
+            return haystack.indexOf(query) !== -1 || (compactQuery !== '' && compactHaystack.indexOf(compactQuery) !== -1);
+        }
+
+        function filterPeopleRows() {
+            if (!peopleSearch) {
+                return;
+            }
+
+            var query = normaliseSearchValue(peopleSearch.value);
+            var visibleCount = 0;
+
+            peopleRows.forEach(function (row) {
+                var isMatch = searchMatches(row, query);
+
+                row.classList.toggle('is-hidden', !isMatch);
+
+                if (isMatch) {
+                    visibleCount += 1;
+                }
+            });
+
+            if (peopleNoResults) {
+                peopleNoResults.hidden = visibleCount !== 0;
+            }
+        }
+
+        if (peopleSearch && peopleRows.length) {
+            peopleSearch.addEventListener('input', filterPeopleRows);
+            filterPeopleRows();
+        }
+
+        peopleRows.forEach(function (row) {
+            row.addEventListener('click', function (event) {
+                if (event.target.closest('a, button, input, select, textarea, label')) {
+                    return;
+                }
+
+                var href = row.dataset.href;
+
+                if (href) {
+                    window.location.href = href;
+                }
+            });
+
+            row.addEventListener('keydown', function (event) {
+                if (event.key !== 'Enter' && event.key !== ' ') {
+                    return;
+                }
+
+                if (event.target.closest('a, button, input, select, textarea, label')) {
+                    return;
+                }
+
+                var href = row.dataset.href;
+
+                if (href) {
+                    event.preventDefault();
+                    window.location.href = href;
+                }
+            });
+        });
     })();
 </script>
 
