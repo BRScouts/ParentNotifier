@@ -166,9 +166,7 @@ include __DIR__ . '/header.php';
         <section class="login-panel">
             <h2>Sign in with Microsoft</h2>
 
-            <p>
-                Use Microsoft sign-in if your Microsoft email address has been added as a leader account.
-            </p>
+            
 
             <a class="sso-button" href="<?= e(url('microsoft_start.php')) ?>">
                 <span class="sso-icon" aria-hidden="true">
