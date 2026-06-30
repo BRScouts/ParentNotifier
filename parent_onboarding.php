@@ -11,7 +11,7 @@ const PEOPLE_UPLOAD_DIR = '/home/brscouts/exbelt2026.irvalscouts.org.uk/assets/p
 const PEOPLE_UPLOAD_PUBLIC_PATH = 'assets/people/';
 const ONBOARDING_CONFIRMATION_FROM_EMAIL = 'noreply@app.irvalscouts.org.uk';
 const DATA_PROTECTION_EMAIL = 'rammyexplorers@gmail.com';
-const ONBOARDING_VERSION = 'explorer-belt-2026-consent-v1';
+const ONBOARDING_VERSION = 'explorer-belt-2026-consent-v4';
 
 $error = '';
 $success = '';
@@ -484,6 +484,72 @@ function allergies_from_post(): array
     return $items;
 }
 
+
+function unique_text_items(array $items): array
+{
+    $clean = [];
+    $seen = [];
+
+    foreach ($items as $item) {
+        if (is_array($item)) {
+            $item = implode(' | ', array_filter(array_map('clean_text', array_map('strval', $item))));
+        }
+
+        $item = clean_text((string)$item);
+
+        if ($item === '') {
+            continue;
+        }
+
+        $key = strtolower(preg_replace('/\s+/', ' ', $item));
+
+        if (isset($seen[$key])) {
+            continue;
+        }
+
+        $seen[$key] = true;
+        $clean[] = $item;
+    }
+
+    return $clean;
+}
+
+function condensed_health_legacy_json_items_from_post(): array
+{
+    /**
+     * Keep the existing/legacy storage model for medication and allergy data.
+     * These arrays feed young_people.medications_json and young_people.allergies_json,
+     * which existing leader/admin screens can already read.
+     */
+    return [
+        'medications' => unique_text_items(medications_from_post()),
+        'allergies' => unique_text_items(allergies_from_post()),
+    ];
+}
+
+function medication_rows_have_items(): bool
+{
+    return !empty(medications_from_post());
+}
+
+function allergy_rows_have_items(): bool
+{
+    return !empty(allergies_from_post());
+}
+
+function free_text_declares_issue(?string $value): int
+{
+    $value = strtolower(trim((string)$value));
+    $value = preg_replace('/[^a-z0-9 ]+/', '', $value);
+    $value = preg_replace('/\s+/', ' ', (string)$value);
+
+    if ($value === '' || in_array($value, ['no', 'none', 'na', 'n a', 'not applicable', 'nothing', 'nil'], true)) {
+        return 0;
+    }
+
+    return 1;
+}
+
 function posted_signature_data_url(string $key): ?string
 {
     $value = trim((string)($_POST[$key] ?? ''));
@@ -539,14 +605,9 @@ function build_submission_snapshot(array $person, array $contacts, array $update
         'emergency_contacts' => $contacts,
         'update_emails' => $updateEmails,
         'health' => [
-            'medical_condition' => clean_text($_POST['health_medical_condition'] ?? ''),
-            'medical_condition_details' => clean_text($_POST['health_medical_condition_details'] ?? ''),
-            'physical_restriction' => clean_text($_POST['health_physical_restriction'] ?? ''),
             'physical_restriction_details' => clean_text($_POST['health_physical_restriction_details'] ?? ''),
-            'medication_allergy' => clean_text($_POST['health_medication_allergy'] ?? ''),
-            'medication_allergy_details' => clean_text($_POST['health_medication_allergy_details'] ?? ''),
-            'medications' => medications_from_post(),
-            'allergies' => allergies_from_post(),
+            'medications' => condensed_health_legacy_json_items_from_post()['medications'],
+            'allergies' => condensed_health_legacy_json_items_from_post()['allergies'],
             'family_doctor_name' => clean_text($_POST['family_doctor_name'] ?? ''),
             'family_doctor_phone' => clean_text($_POST['family_doctor_phone'] ?? ''),
             'family_doctor_address' => clean_text($_POST['family_doctor_address'] ?? ''),
@@ -884,7 +945,7 @@ function validate_parent_form(PDO $pdo, ?array $person): array
         }
 
         if ($homePhone === '') {
-            $errors[] = 'Each emergency contact must have a home telephone number.';
+            $errors[] = 'Each emergency contact must have a home or other contact number.';
         }
 
         if ($mobilePhone === '') {
@@ -937,7 +998,7 @@ function validate_parent_form(PDO $pdo, ?array $person): array
         'ehic_ghic_number' => 'EHIC/GHIC number',
         'ehic_ghic_expiry_date' => 'EHIC/GHIC expiry date',
         'family_doctor_address' => 'Family doctor address',
-        'additional_information' => 'Additional medical or welfare information',
+        'health_physical_restriction_details' => 'Physical condition, injury or incapacity details',
     ];
 
     foreach ($requiredTextFields as $field => $label) {
@@ -959,23 +1020,55 @@ function validate_parent_form(PDO $pdo, ?array $person): array
         }
     }
 
-    foreach (['health_medical_condition', 'health_physical_restriction', 'health_medication_allergy'] as $field) {
-        if (!in_array($_POST[$field] ?? '', ['yes', 'no'], true)) {
-            $errors[] = 'Please answer all health declaration yes/no questions.';
+    $medicationNames = (array)($_POST['medication_name'] ?? []);
+    $medicationTypes = (array)($_POST['medication_type'] ?? []);
+    $medicationDosages = (array)($_POST['medication_dosage'] ?? []);
+    $medicationFrequencies = (array)($_POST['medication_frequency'] ?? []);
+    $medicationFrequencyOther = (array)($_POST['medication_frequency_other'] ?? []);
+    $medicationNotes = (array)($_POST['medication_notes'] ?? []);
+
+    foreach ($medicationNames as $index => $name) {
+        $name = clean_text($name);
+        $type = clean_text($medicationTypes[$index] ?? '');
+        $dosage = clean_text($medicationDosages[$index] ?? '');
+        $frequency = clean_text($medicationFrequencies[$index] ?? '');
+        $other = clean_text($medicationFrequencyOther[$index] ?? '');
+        $note = clean_text($medicationNotes[$index] ?? '');
+
+        if ($name === '' && $type === '' && $dosage === '' && $frequency === '' && $other === '' && $note === '') {
+            continue;
+        }
+
+        if ($name === '' || $type === '' || $dosage === '' || $frequency === '') {
+            $errors[] = 'Please complete all required fields for each medication row you add.';
+            break;
+        }
+
+        if ($frequency === 'Other' && $other === '') {
+            $errors[] = 'Please explain the medication frequency when selecting Other.';
             break;
         }
     }
 
-    if (($_POST['health_medical_condition'] ?? '') === 'yes' && clean_text($_POST['health_medical_condition_details'] ?? '') === '') {
-        $errors[] = 'Please provide details of the medical condition, allergy or intolerance.';
-    }
+    $allergyTypes = (array)($_POST['allergy_type'] ?? []);
+    $allergyDetails = (array)($_POST['allergy_detail'] ?? []);
+    $allergySeverities = (array)($_POST['allergy_severity'] ?? []);
+    $allergyNotes = (array)($_POST['allergy_notes'] ?? []);
 
-    if (($_POST['health_physical_restriction'] ?? '') === 'yes' && clean_text($_POST['health_physical_restriction_details'] ?? '') === '') {
-        $errors[] = 'Please provide details of the physical condition, injury or incapacity.';
-    }
+    foreach ($allergyDetails as $index => $detail) {
+        $type = clean_text($allergyTypes[$index] ?? '');
+        $detail = clean_text($detail);
+        $severity = clean_text($allergySeverities[$index] ?? '');
+        $note = clean_text($allergyNotes[$index] ?? '');
 
-    if (($_POST['health_medication_allergy'] ?? '') === 'yes' && clean_text($_POST['health_medication_allergy_details'] ?? '') === '') {
-        $errors[] = 'Please provide details of the medication allergy.';
+        if ($type === '' && $detail === '' && $severity === '' && $note === '') {
+            continue;
+        }
+
+        if ($type === '' || $detail === '' || $severity === '') {
+            $errors[] = 'Please complete all required fields for each allergy, intolerance or dietary need row you add.';
+            break;
+        }
     }
 
     if (clean_text($_POST['family_doctor_name'] ?? '') === '') {
@@ -1024,6 +1117,8 @@ function build_young_person_updates(PDO $pdo, array $person, ?string $photoPath,
 {
     $now = date('Y-m-d H:i:s');
     $completionColumn = completion_column($pdo);
+    $legacyHealthItems = condensed_health_legacy_json_items_from_post();
+
     $updates = [
         'participant_email' => clean_text_or_null($_POST['participant_email'] ?? ''),
         'participant_phone' => clean_text_or_null($_POST['participant_phone'] ?? ''),
@@ -1032,17 +1127,19 @@ function build_young_person_updates(PDO $pdo, array $person, ?string $photoPath,
         'photo_url' => $photoPath,
         'emergency_contacts_json' => empty($contacts) ? null : json_encode($contacts, JSON_UNESCAPED_UNICODE),
         'parent_emails_json' => json_list_from_array($mergedEmails),
+        'medications_json' => json_list_from_array($legacyHealthItems['medications']),
+        'allergies_json' => json_list_from_array($legacyHealthItems['allergies']),
         'passport_number' => clean_text_or_null($_POST['passport_number'] ?? ''),
         'passport_expiry_date' => clean_date_or_null($_POST['passport_expiry_date'] ?? ''),
         'passport_nationality' => clean_text_or_null($_POST['passport_nationality'] ?? ''),
         'ehic_ghic_number' => clean_text_or_null($_POST['ehic_ghic_number'] ?? ''),
         'ehic_ghic_expiry_date' => clean_date_or_null($_POST['ehic_ghic_expiry_date'] ?? ''),
-        'health_medical_condition' => yes_no_to_bool($_POST['health_medical_condition'] ?? null),
-        'health_medical_condition_details' => clean_text_or_null($_POST['health_medical_condition_details'] ?? ''),
-        'health_physical_restriction' => yes_no_to_bool($_POST['health_physical_restriction'] ?? null),
+        'health_medical_condition' => medication_rows_have_items() || allergy_rows_have_items() ? 1 : 0,
+        'health_medical_condition_details' => null,
+        'health_physical_restriction' => free_text_declares_issue($_POST['health_physical_restriction_details'] ?? ''),
         'health_physical_restriction_details' => clean_text_or_null($_POST['health_physical_restriction_details'] ?? ''),
-        'health_medication_allergy' => yes_no_to_bool($_POST['health_medication_allergy'] ?? null),
-        'health_medication_allergy_details' => clean_text_or_null($_POST['health_medication_allergy_details'] ?? ''),
+        'health_medication_allergy' => null,
+        'health_medication_allergy_details' => null,
         'family_doctor_name' => clean_text_or_null($_POST['family_doctor_name'] ?? ''),
         'family_doctor_phone' => clean_text_or_null($_POST['family_doctor_phone'] ?? ''),
         'family_doctor_address' => clean_text_or_null($_POST['family_doctor_address'] ?? ''),
@@ -1248,6 +1345,8 @@ if ($matchedPerson) {
     }
 
     $parentEmails = array_slice($additionalOnlyEmails, 0, 5);
+    $medications = ensure_rows(json_items($matchedPerson['medications_json'] ?? null), 1, '');
+    $allergies = ensure_rows(json_items($matchedPerson['allergies_json'] ?? null), 1, '');
 }
 
 $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
@@ -1297,6 +1396,9 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
         .declaration-list li { margin-bottom: .65rem; }
         .signature-help { font-size: .95rem; color: #505a5f; margin-top: .35rem; }
         .yes-no-group { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+        .required-label::after { content: ' *'; color: #d4351c; font-weight: 900; }
+        .required-note { color: #d4351c; font-weight: 800; }
+        .optional-note { color: #505a5f; font-weight: 400; }
     </style>
 </head>
 <body>
@@ -1397,6 +1499,8 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
                 <li data-step-label="3">3. Declarations</li>
             </ol>
 
+            <p class="required-note">Fields marked with * are mandatory.</p>
+
             <section class="wizard-step" data-step="1">
                 <div class="dynamic-section">
                     <h2>Personal details</h2>
@@ -1477,8 +1581,8 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
                                 <div class="dynamic-row-grid contact">
                                     <div class="form-group mb-0"><label>Name</label><input class="form-control" name="contact_name[]" required value="<?= e($contact['name'] ?? '') ?>"></div>
                                     <div class="form-group mb-0"><label>Relationship</label><input class="form-control" name="contact_relationship[]" required value="<?= e($contact['relationship'] ?? '') ?>"></div>
-                                    <div class="form-group mb-0"><label>Address</label><input class="form-control" name="contact_address[]" required value="<?= e($contact['address'] ?? '') ?>"></div>
-                                    <div class="form-group mb-0"><label>Home phone</label><input class="form-control" name="contact_home_phone[]" required value="<?= e($contact['home_phone'] ?? '') ?>"></div>
+                                    <div class="form-group mb-0"><label>Address</label><div class="input-group"><input class="form-control contact-address-input" name="contact_address[]" required value="<?= e($contact['address'] ?? '') ?>"><div class="input-group-append"><button type="button" class="btn btn-outline-secondary" data-copy-participant-address>Copy from participant</button></div></div></div>
+                                    <div class="form-group mb-0"><label>Home or other contact number</label><input class="form-control" name="contact_home_phone[]" required value="<?= e($contact['home_phone'] ?? '') ?>"></div>
                                     <div class="form-group mb-0"><label>Mobile phone</label><input class="form-control" name="contact_mobile_phone[]" required value="<?= e($contact['mobile_phone'] ?? '') ?>"></div>
                                     <div class="form-group mb-0"><label>Email</label><input class="form-control contact-email-input" type="email" name="contact_email[]" required value="<?= e($contact['email'] ?? '') ?>"></div>
                                     <button type="button" class="btn btn-outline-danger" data-remove-row>Remove</button>
@@ -1504,7 +1608,7 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
                         <?php foreach ($parentEmails as $email): ?>
                             <div class="dynamic-row additional-email-row">
                                 <div class="dynamic-row-grid simple">
-                                    <div class="form-group mb-0"><label>Additional email address</label><input class="form-control" type="email" name="parent_emails[]" required value="<?= e((string)$email) ?>"></div>
+                                    <div class="form-group mb-0"><label>Additional email address</label><input class="form-control" type="email" name="parent_emails[]" value="<?= e((string)$email) ?>"></div>
                                     <button type="button" class="btn btn-outline-danger" data-remove-row>Remove</button>
                                 </div>
                             </div>
@@ -1521,51 +1625,113 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
 
             <section class="wizard-step" data-step="2" hidden>
                 <div class="dynamic-section">
-                    <h2>Health declaration</h2>
+                    <h2>Health data</h2>
+                    <p class="muted">Medication, allergies, intolerances and dietary needs are captured in the existing format used elsewhere in the system. If a section is not applicable, leave the row blank. If you add a row, complete the required fields in that row.</p>
 
-                    <?php $medicalCondition = yes_no_from_person($matchedPerson, 'health_medical_condition'); ?>
-                    <div class="form-group">
-                        <label>To the best of your knowledge, has your son/daughter any medical condition, allergy or intolerance?</label>
-                        <div class="yes-no-group">
-                            <label><input type="radio" name="health_medical_condition" value="yes" <?= old_checked('health_medical_condition', 'yes', $medicalCondition) ?> required> Yes</label>
-                            <label><input type="radio" name="health_medical_condition" value="no" <?= old_checked('health_medical_condition', 'no', $medicalCondition) ?> required> No</label>
-                        </div>
+                    <h3>Medication</h3>
+                    <p class="muted">Add any prescribed or non-prescribed medication. Include dosage and how often it is taken.</p>
+                    <div id="medicationRows">
+                        <?php foreach ($medications as $medication): ?>
+                            <div class="dynamic-row medication-row">
+                                <div class="dynamic-row-grid medication">
+                                    <div class="form-group mb-0">
+                                        <label>Medication name</label>
+                                        <input class="form-control" name="medication_name[]" value="<?= e((string)$medication) ?>">
+                                    </div>
+                                    <div class="form-group mb-0">
+                                        <label>Type</label>
+                                        <select class="form-control" name="medication_type[]">
+                                            <option value="">Select</option>
+                                            <option value="Prescribed">Prescribed</option>
+                                            <option value="Non-prescribed">Non-prescribed</option>
+                                            <option value="Over the counter">Over the counter</option>
+                                            <option value="Other">Other</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group mb-0">
+                                        <label>Dosage</label>
+                                        <input class="form-control" name="medication_dosage[]" placeholder="Example: 10mg">
+                                    </div>
+                                    <div class="form-group mb-0">
+                                        <label>How often?</label>
+                                        <select class="form-control medication-frequency" name="medication_frequency[]">
+                                            <option value="">Select</option>
+                                            <option value="As and when">As and when</option>
+                                            <option value="Daily">Daily</option>
+                                            <option value="Twice a day">Twice a day</option>
+                                            <option value="Other">Other</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group mb-0">
+                                        <label>Other / notes</label>
+                                        <input class="form-control" name="medication_frequency_other[]" placeholder="If other, explain">
+                                        <input class="form-control mt-1" name="medication_notes[]" placeholder="Additional instructions">
+                                    </div>
+                                    <button type="button" class="btn btn-outline-danger" data-remove-row>Remove</button>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
                     </div>
-                    <div class="form-group">
-                        <label for="health_medical_condition_details">Details, including medication taken</label>
-                        <textarea class="form-control" id="health_medical_condition_details" name="health_medical_condition_details" rows="4" data-required-if="health_medical_condition:yes"><?= e(old_value('health_medical_condition_details', $matchedPerson['health_medical_condition_details'] ?? '')) ?></textarea>
-                    </div>
-
-                    <?php $physicalRestriction = yes_no_from_person($matchedPerson, 'health_physical_restriction'); ?>
-                    <div class="form-group">
-                        <label>Has your son/daughter any physical condition, injury or incapacity that may restrict them taking part in the proposed activities?</label>
-                        <div class="yes-no-group">
-                            <label><input type="radio" name="health_physical_restriction" value="yes" <?= old_checked('health_physical_restriction', 'yes', $physicalRestriction) ?> required> Yes</label>
-                            <label><input type="radio" name="health_physical_restriction" value="no" <?= old_checked('health_physical_restriction', 'no', $physicalRestriction) ?> required> No</label>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label for="health_physical_restriction_details">Details</label>
-                        <textarea class="form-control" id="health_physical_restriction_details" name="health_physical_restriction_details" rows="4" data-required-if="health_physical_restriction:yes"><?= e(old_value('health_physical_restriction_details', $matchedPerson['health_physical_restriction_details'] ?? '')) ?></textarea>
-                    </div>
-
-                    <?php $medicationAllergy = yes_no_from_person($matchedPerson, 'health_medication_allergy'); ?>
-                    <div class="form-group">
-                        <label>Is your son/daughter allergic to any medication?</label>
-                        <div class="yes-no-group">
-                            <label><input type="radio" name="health_medication_allergy" value="yes" <?= old_checked('health_medication_allergy', 'yes', $medicationAllergy) ?> required> Yes</label>
-                            <label><input type="radio" name="health_medication_allergy" value="no" <?= old_checked('health_medication_allergy', 'no', $medicationAllergy) ?> required> No</label>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label for="health_medication_allergy_details">Medication allergy details</label>
-                        <textarea class="form-control" id="health_medication_allergy_details" name="health_medication_allergy_details" rows="4" data-required-if="health_medication_allergy:yes"><?= e(old_value('health_medication_allergy_details', $matchedPerson['health_medication_allergy_details'] ?? '')) ?></textarea>
+                    <div class="dynamic-actions">
+                        <button type="button" class="btn btn-outline-primary" id="addMedicationRow">Add medication</button>
                     </div>
                 </div>
 
-                <div class="info-box">
-                    <strong>Medical information:</strong>
-                    Please use the details boxes above for medication, allergies, intolerances, dietary needs and anything that could affect participation. This avoids asking for the same medical information twice.
+                <div class="dynamic-section">
+                    <h3>Allergies, intolerances and dietary needs</h3>
+                    <p class="muted">Add allergies, intolerances and dietary needs. These are saved back to the existing allergy record field for leader/admin screens.</p>
+                    <div id="allergyRows">
+                        <?php foreach ($allergies as $allergy): ?>
+                            <div class="dynamic-row allergy-row">
+                                <div class="dynamic-row-grid allergy">
+                                    <div class="form-group mb-0">
+                                        <label>Type</label>
+                                        <select class="form-control" name="allergy_type[]">
+                                            <option value="">Select</option>
+                                            <option value="Allergy">Allergy</option>
+                                            <option value="Intolerance">Intolerance</option>
+                                            <option value="Dietary need">Dietary need</option>
+                                            <option value="Medication allergy">Medication allergy</option>
+                                            <option value="Environmental allergy">Environmental allergy</option>
+                                            <option value="Other">Other</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group mb-0">
+                                        <label>Details</label>
+                                        <input class="form-control" name="allergy_detail[]" value="<?= e((string)$allergy) ?>">
+                                    </div>
+                                    <div class="form-group mb-0">
+                                        <label>Severity</label>
+                                        <select class="form-control" name="allergy_severity[]">
+                                            <option value="">Select</option>
+                                            <option value="Mild">Mild</option>
+                                            <option value="Moderate">Moderate</option>
+                                            <option value="Severe">Severe</option>
+                                            <option value="Anaphylaxis risk">Anaphylaxis risk</option>
+                                            <option value="Not sure">Not sure</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group mb-0">
+                                        <label>Notes</label>
+                                        <input class="form-control" name="allergy_notes[]" placeholder="Reaction, treatment or dietary instruction">
+                                    </div>
+                                    <button type="button" class="btn btn-outline-danger" data-remove-row>Remove</button>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <div class="dynamic-actions">
+                        <button type="button" class="btn btn-outline-primary" id="addAllergyRow">Add allergy / intolerance / dietary need</button>
+                    </div>
+                </div>
+
+                <div class="dynamic-section">
+                    <h3>Physical condition, injury or incapacity</h3>
+                    <p class="muted">Please state anything that may restrict participation in the proposed activities. If there is nothing to declare, enter "None".</p>
+                    <div class="form-group">
+                        <label for="health_physical_restriction_details">Physical condition, injury or incapacity details</label>
+                        <textarea class="form-control" id="health_physical_restriction_details" name="health_physical_restriction_details" rows="4" required><?= e(old_value('health_physical_restriction_details', $matchedPerson['health_physical_restriction_details'] ?? '')) ?></textarea>
+                    </div>
                 </div>
 
                 <div class="dynamic-section">
@@ -1578,8 +1744,8 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
                 </div>
 
                 <div class="dynamic-section">
-                    <h3>Additional medical or welfare information</h3>
-                    <div class="form-group"><label for="additional_information">Anything else the leadership team should know?</label><textarea class="form-control" id="additional_information" name="additional_information" rows="5" required><?= e(old_value('additional_information')) ?></textarea></div>
+                    <h3>Additional medical or welfare information <span class="optional-note">(optional)</span></h3>
+                    <div class="form-group"><label for="additional_information">Anything else the leadership team should know?</label><textarea class="form-control" id="additional_information" name="additional_information" rows="5"><?= e(old_value('additional_information')) ?></textarea></div>
                 </div>
 
                 <div class="wizard-actions">
@@ -1664,8 +1830,8 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
         <div class="dynamic-row-grid contact">
             <div class="form-group mb-0"><label>Name</label><input class="form-control" name="contact_name[]" required></div>
             <div class="form-group mb-0"><label>Relationship</label><input class="form-control" name="contact_relationship[]" required></div>
-            <div class="form-group mb-0"><label>Address</label><input class="form-control" name="contact_address[]" required></div>
-            <div class="form-group mb-0"><label>Home phone</label><input class="form-control" name="contact_home_phone[]" required></div>
+            <div class="form-group mb-0"><label>Address</label><div class="input-group"><input class="form-control contact-address-input" name="contact_address[]" required><div class="input-group-append"><button type="button" class="btn btn-outline-secondary" data-copy-participant-address>Copy from participant</button></div></div></div>
+            <div class="form-group mb-0"><label>Home or other contact number</label><input class="form-control" name="contact_home_phone[]" required></div>
             <div class="form-group mb-0"><label>Mobile phone</label><input class="form-control" name="contact_mobile_phone[]" required></div>
             <div class="form-group mb-0"><label>Email</label><input class="form-control contact-email-input" type="email" name="contact_email[]" required></div>
             <button type="button" class="btn btn-outline-danger" data-remove-row>Remove</button>
@@ -1674,12 +1840,33 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
 </template>
 
 <template id="simpleEmailRowTemplate">
-    <div class="dynamic-row additional-email-row"><div class="dynamic-row-grid simple"><div class="form-group mb-0"><label>Additional email address</label><input class="form-control" type="email" name="parent_emails[]" required></div><button type="button" class="btn btn-outline-danger" data-remove-row>Remove</button></div></div>
+    <div class="dynamic-row additional-email-row"><div class="dynamic-row-grid simple"><div class="form-group mb-0"><label>Additional email address</label><input class="form-control" type="email" name="parent_emails[]"></div><button type="button" class="btn btn-outline-danger" data-remove-row>Remove</button></div></div>
 </template>
 
+<template id="medicationRowTemplate">
+    <div class="dynamic-row medication-row">
+        <div class="dynamic-row-grid medication">
+            <div class="form-group mb-0"><label>Medication name</label><input class="form-control" name="medication_name[]"></div>
+            <div class="form-group mb-0"><label>Type</label><select class="form-control" name="medication_type[]"><option value="">Select</option><option value="Prescribed">Prescribed</option><option value="Non-prescribed">Non-prescribed</option><option value="Over the counter">Over the counter</option><option value="Other">Other</option></select></div>
+            <div class="form-group mb-0"><label>Dosage</label><input class="form-control" name="medication_dosage[]" placeholder="Example: 10mg"></div>
+            <div class="form-group mb-0"><label>How often?</label><select class="form-control medication-frequency" name="medication_frequency[]"><option value="">Select</option><option value="As and when">As and when</option><option value="Daily">Daily</option><option value="Twice a day">Twice a day</option><option value="Other">Other</option></select></div>
+            <div class="form-group mb-0"><label>Other / notes</label><input class="form-control" name="medication_frequency_other[]" placeholder="If other, explain"><input class="form-control mt-1" name="medication_notes[]" placeholder="Additional instructions"></div>
+            <button type="button" class="btn btn-outline-danger" data-remove-row>Remove</button>
+        </div>
+    </div>
+</template>
 
-
-
+<template id="allergyRowTemplate">
+    <div class="dynamic-row allergy-row">
+        <div class="dynamic-row-grid allergy">
+            <div class="form-group mb-0"><label>Type</label><select class="form-control" name="allergy_type[]"><option value="">Select</option><option value="Allergy">Allergy</option><option value="Intolerance">Intolerance</option><option value="Dietary need">Dietary need</option><option value="Medication allergy">Medication allergy</option><option value="Environmental allergy">Environmental allergy</option><option value="Other">Other</option></select></div>
+            <div class="form-group mb-0"><label>Details</label><input class="form-control" name="allergy_detail[]"></div>
+            <div class="form-group mb-0"><label>Severity</label><select class="form-control" name="allergy_severity[]"><option value="">Select</option><option value="Mild">Mild</option><option value="Moderate">Moderate</option><option value="Severe">Severe</option><option value="Anaphylaxis risk">Anaphylaxis risk</option><option value="Not sure">Not sure</option></select></div>
+            <div class="form-group mb-0"><label>Notes</label><input class="form-control" name="allergy_notes[]" placeholder="Reaction, treatment or dietary instruction"></div>
+            <button type="button" class="btn btn-outline-danger" data-remove-row>Remove</button>
+        </div>
+    </div>
+</template>
 
 <script>
 (function () {
@@ -1710,6 +1897,22 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
             var controller = document.querySelector('[name="' + parts[0] + '"]:checked');
             field.required = !!(controller && controller.value === parts[1]);
         });
+        markRequiredLabels(section || document);
+    }
+
+    function markRequiredLabels(root) {
+        (root || document).querySelectorAll('input[required], select[required], textarea[required]').forEach(function (field) {
+            if (field.type === 'hidden') return;
+            var label = null;
+            if (field.id) {
+                label = document.querySelector('label[for="' + field.id + '"]');
+            }
+            if (!label) {
+                var wrapper = field.closest('.form-group, .form-check');
+                if (wrapper) label = wrapper.querySelector('label');
+            }
+            if (label) label.classList.add('required-label');
+        });
     }
 
     function updateSignatureNameFields() {
@@ -1736,6 +1939,48 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
         return true;
     }
 
+    function rowHasValue(row) {
+        return Array.prototype.some.call(row.querySelectorAll('input, select, textarea'), function (field) {
+            return field.type !== 'hidden' && String(field.value || '').trim() !== '';
+        });
+    }
+
+    function requireField(field, message) {
+        if (!field || String(field.value || '').trim() !== '') return true;
+        alert(message);
+        field.focus();
+        return false;
+    }
+
+    function validateStartedMedicationRows(section) {
+        var rows = section.querySelectorAll('.medication-row');
+        for (var i = 0; i < rows.length; i++) {
+            var row = rows[i];
+            if (!rowHasValue(row)) continue;
+            if (!requireField(row.querySelector('[name="medication_name[]"]'), 'Please enter the medication name, or leave the whole medication row blank.')) return false;
+            if (!requireField(row.querySelector('[name="medication_type[]"]'), 'Please select the medication type, or leave the whole medication row blank.')) return false;
+            if (!requireField(row.querySelector('[name="medication_dosage[]"]'), 'Please enter the medication dosage, or leave the whole medication row blank.')) return false;
+            var frequency = row.querySelector('[name="medication_frequency[]"]');
+            if (!requireField(frequency, 'Please select how often the medication is taken, or leave the whole medication row blank.')) return false;
+            if (frequency && frequency.value === 'Other') {
+                if (!requireField(row.querySelector('[name="medication_frequency_other[]"]'), 'Please explain the medication frequency when selecting Other.')) return false;
+            }
+        }
+        return true;
+    }
+
+    function validateStartedAllergyRows(section) {
+        var rows = section.querySelectorAll('.allergy-row');
+        for (var i = 0; i < rows.length; i++) {
+            var row = rows[i];
+            if (!rowHasValue(row)) continue;
+            if (!requireField(row.querySelector('[name="allergy_type[]"]'), 'Please select the allergy/intolerance/dietary type, or leave the whole row blank.')) return false;
+            if (!requireField(row.querySelector('[name="allergy_detail[]"]'), 'Please enter the allergy/intolerance/dietary details, or leave the whole row blank.')) return false;
+            if (!requireField(row.querySelector('[name="allergy_severity[]"]'), 'Please select the severity, or leave the whole row blank.')) return false;
+        }
+        return true;
+    }
+
     function validateSection(section) {
         if (!section) return true;
         syncConditionalRequired(section);
@@ -1750,6 +1995,10 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
         if (section.getAttribute('data-step') === '1' && countRows('.contact-row') < 2) {
             alert('Please provide at least two emergency contacts.');
             return false;
+        }
+        if (section.getAttribute('data-step') === '2') {
+            if (!validateStartedMedicationRows(section)) return false;
+            if (!validateStartedAllergyRows(section)) return false;
         }
         if (section.getAttribute('data-step') === '3') {
             if (!validateSignatureCanvas('parentSignatureCanvas', 'parent_signature_data_url')) return false;
@@ -1806,6 +2055,7 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
             target.appendChild(template.content.cloneNode(true));
             updateLimitState();
             updateAutoEmails();
+            markRequiredLabels(target);
         });
         updateLimitState();
     }
@@ -1815,7 +2065,10 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
         var target = document.getElementById(targetId);
         var template = document.getElementById(templateId);
         if (!button || !target || !template) return;
-        button.addEventListener('click', function () { target.appendChild(template.content.cloneNode(true)); });
+        button.addEventListener('click', function () {
+            target.appendChild(template.content.cloneNode(true));
+            markRequiredLabels(target);
+        });
     }
 
     function normaliseEmail(email) { return String(email || '').trim().toLowerCase(); }
@@ -1848,6 +2101,22 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
             target.appendChild(row);
         });
     }
+
+    document.addEventListener('click', function (event) {
+        var copyButton = event.target.closest('[data-copy-participant-address]');
+        if (!copyButton) return;
+        var participantAddress = document.getElementById('home_address');
+        var row = copyButton.closest('.dynamic-row');
+        var contactAddress = row ? row.querySelector('[name="contact_address[]"]') : null;
+        if (!participantAddress || !contactAddress) return;
+        if (participantAddress.value.trim() === '') {
+            alert('Please enter the participant home address first.');
+            participantAddress.focus();
+            return;
+        }
+        contactAddress.value = participantAddress.value.trim();
+        contactAddress.dispatchEvent(new Event('input', {bubbles: true}));
+    });
 
     document.addEventListener('click', function (event) {
         var button = event.target.closest('[data-remove-row]');
@@ -1884,7 +2153,10 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
 
     addRow('addContactRow', 'contactsRows', 'contactRowTemplate', maxContacts, '.contact-row', 'contactLimitText', 'Maximum 5 emergency contacts reached.');
     addRow('addParentEmailRow', 'parentEmailRows', 'simpleEmailRowTemplate', maxAdditionalEmails, '.additional-email-row', 'additionalEmailLimitText', 'Maximum 5 additional email addresses reached.');
+    addUnlimitedRow('addMedicationRow', 'medicationRows', 'medicationRowTemplate');
+    addUnlimitedRow('addAllergyRow', 'allergyRows', 'allergyRowTemplate');
     updateAutoEmails();
+    markRequiredLabels(document);
 
     function attachSignaturePad(canvasId, hiddenId) {
         var canvas = document.getElementById(canvasId);
