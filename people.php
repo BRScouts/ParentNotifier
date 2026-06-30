@@ -26,6 +26,62 @@ function people_now_for_database(): string
     return people_now()->format('Y-m-d H:i:s');
 }
 
+
+function column_exists(PDO $pdo, string $table, string $column): bool
+{
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT COUNT(*)
+             FROM information_schema.columns
+             WHERE table_schema = DATABASE()
+               AND table_name = ?
+               AND column_name = ?'
+        );
+        $stmt->execute([$table, $column]);
+
+        return (int)$stmt->fetchColumn() > 0;
+    } catch (Throwable $exception) {
+        return false;
+    }
+}
+
+function table_exists(PDO $pdo, string $table): bool
+{
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT COUNT(*)
+             FROM information_schema.tables
+             WHERE table_schema = DATABASE()
+               AND table_name = ?'
+        );
+        $stmt->execute([$table]);
+
+        return (int)$stmt->fetchColumn() > 0;
+    } catch (Throwable $exception) {
+        return false;
+    }
+}
+
+function blank_to_null($value): ?string
+{
+    $value = trim((string)$value);
+
+    return $value === '' ? null : $value;
+}
+
+function date_blank_to_null($value): ?string
+{
+    $value = trim((string)$value);
+
+    if ($value === '') {
+        return null;
+    }
+
+    $timestamp = strtotime($value);
+
+    return $timestamp === false ? null : date('Y-m-d', $timestamp);
+}
+
 function json_items(?string $json): array
 {
     if (!$json) {
@@ -56,25 +112,38 @@ function emergency_contacts_from_post(): ?string
 {
     $names = $_POST['contact_name'] ?? [];
     $relationships = $_POST['contact_relationship'] ?? [];
-    $phones = $_POST['contact_phone'] ?? [];
+    $addresses = $_POST['contact_address'] ?? [];
+    $homePhones = $_POST['contact_home_phone'] ?? [];
+    $mobilePhones = $_POST['contact_mobile_phone'] ?? [];
+    $legacyPhones = $_POST['contact_phone'] ?? [];
     $emails = $_POST['contact_email'] ?? [];
 
     $contacts = [];
 
-    foreach ($names as $index => $name) {
+    foreach ((array)$names as $index => $name) {
         $name = trim((string)$name);
         $relationship = trim((string)($relationships[$index] ?? ''));
-        $phone = trim((string)($phones[$index] ?? ''));
+        $address = trim((string)($addresses[$index] ?? ''));
+        $homePhone = trim((string)($homePhones[$index] ?? ''));
+        $mobilePhone = trim((string)($mobilePhones[$index] ?? ''));
+        $legacyPhone = trim((string)($legacyPhones[$index] ?? ''));
         $email = trim((string)($emails[$index] ?? ''));
 
-        if ($name === '' && $relationship === '' && $phone === '' && $email === '') {
+        if ($mobilePhone === '' && $legacyPhone !== '') {
+            $mobilePhone = $legacyPhone;
+        }
+
+        if ($name === '' && $relationship === '' && $address === '' && $homePhone === '' && $mobilePhone === '' && $email === '') {
             continue;
         }
 
         $contacts[] = [
             'name' => $name,
             'relationship' => $relationship,
-            'phone' => $phone,
+            'address' => $address,
+            'home_phone' => $homePhone,
+            'mobile_phone' => $mobilePhone,
+            'phone' => $mobilePhone !== '' ? $mobilePhone : $homePhone,
             'email' => $email,
         ];
     }
@@ -265,6 +334,343 @@ function get_person_logs(PDO $pdo, int $personId): array
     return $stmt->fetchAll();
 }
 
+
+function get_latest_parent_onboarding_submission(PDO $pdo, int $personId): ?array
+{
+    if (!table_exists($pdo, 'parent_onboarding_submissions')) {
+        return null;
+    }
+
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT *
+             FROM parent_onboarding_submissions
+             WHERE person_id = ?
+             ORDER BY submitted_at DESC, id DESC
+             LIMIT 1'
+        );
+        $stmt->execute([$personId]);
+        $submission = $stmt->fetch();
+
+        return $submission ?: null;
+    } catch (Throwable $exception) {
+        return null;
+    }
+}
+
+function latest_submission_snapshot(?array $submission): array
+{
+    if (!$submission || empty($submission['snapshot_json'])) {
+        return [];
+    }
+
+    $decoded = json_decode((string)$submission['snapshot_json'], true);
+
+    return is_array($decoded) ? $decoded : [];
+}
+
+function snapshot_value(array $snapshot, array $path): string
+{
+    $value = $snapshot;
+
+    foreach ($path as $key) {
+        if (!is_array($value) || !array_key_exists($key, $value)) {
+            return '';
+        }
+
+        $value = $value[$key];
+    }
+
+    if (is_array($value)) {
+        return implode(', ', array_filter(array_map('strval', $value)));
+    }
+
+    return trim((string)$value);
+}
+
+function display_value($value, string $fallback = 'Not recorded'): string
+{
+    $value = trim((string)$value);
+
+    return $value === '' ? $fallback : $value;
+}
+
+function value_from_person_or_snapshot(array $person, array $snapshot, string $column, array $snapshotPath = []): string
+{
+    $personValue = trim((string)($person[$column] ?? ''));
+
+    if ($personValue !== '') {
+        return $personValue;
+    }
+
+    return $snapshotPath ? snapshot_value($snapshot, $snapshotPath) : '';
+}
+
+function emergency_contact_phone(array $contact): string
+{
+    $mobile = trim((string)($contact['mobile_phone'] ?? ''));
+    $home = trim((string)($contact['home_phone'] ?? ''));
+    $legacy = trim((string)($contact['phone'] ?? ''));
+
+    if ($mobile !== '' && $home !== '') {
+        return 'Mobile: ' . $mobile . ' | Home/other: ' . $home;
+    }
+
+    if ($mobile !== '') {
+        return 'Mobile: ' . $mobile;
+    }
+
+    if ($home !== '') {
+        return 'Home/other: ' . $home;
+    }
+
+    return $legacy;
+}
+
+function health_pdf_clean_text(string $text): string
+{
+    $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $text = str_replace(["\r\n", "\r"], "\n", $text);
+    $text = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $text);
+    $converted = @iconv('UTF-8', 'Windows-1252//TRANSLIT//IGNORE', $text);
+
+    return $converted === false ? $text : $converted;
+}
+
+function health_pdf_escape(string $text): string
+{
+    return str_replace(['\\', '(', ')'], ['\\\\', '\\(', '\\)'], health_pdf_clean_text($text));
+}
+
+function health_pdf_lines_from_text(string $text, int $maxChars): array
+{
+    $lines = [];
+    $paragraphs = explode("\n", $text);
+
+    foreach ($paragraphs as $paragraph) {
+        $paragraph = trim($paragraph);
+
+        if ($paragraph === '') {
+            $lines[] = '';
+            continue;
+        }
+
+        $wrapped = wordwrap($paragraph, $maxChars, "\n", true);
+
+        foreach (explode("\n", $wrapped) as $line) {
+            $lines[] = $line;
+        }
+    }
+
+    return $lines;
+}
+
+function health_pdf_build_lines(array $person, array $snapshot, ?array $submission = null): array
+{
+    $contacts = json_items($person['emergency_contacts_json'] ?? null);
+    $parentEmails = json_items($person['parent_emails_json'] ?? null);
+    $medications = json_items($person['medications_json'] ?? null);
+    $allergies = json_items($person['allergies_json'] ?? null);
+    $additionalInfo = snapshot_value($snapshot, ['health', 'additional_information']);
+
+    $lines = [];
+    $lines[] = ['text' => 'Explorer Belt health and emergency information', 'size' => 18, 'bold' => true];
+    $lines[] = ['text' => 'Generated: ' . people_now()->format('d M Y H:i'), 'size' => 9, 'bold' => false];
+    $lines[] = ['text' => '', 'size' => 9, 'bold' => false];
+
+    $addSection = static function (string $title) use (&$lines): void {
+        $lines[] = ['text' => '', 'size' => 8, 'bold' => false];
+        $lines[] = ['text' => $title, 'size' => 13, 'bold' => true];
+    };
+
+    $addField = static function (string $label, $value) use (&$lines): void {
+        $value = trim((string)$value);
+        $lines[] = ['text' => $label . ': ' . ($value !== '' ? $value : 'Not recorded'), 'size' => 10, 'bold' => false];
+    };
+
+    $addList = static function (string $label, array $items) use (&$lines): void {
+        $lines[] = ['text' => $label . ':', 'size' => 10, 'bold' => true];
+
+        if (empty($items)) {
+            $lines[] = ['text' => '  None recorded', 'size' => 10, 'bold' => false];
+            return;
+        }
+
+        foreach ($items as $item) {
+            if (is_array($item)) {
+                $item = implode(' | ', array_filter(array_map('strval', $item)));
+            }
+
+            $lines[] = ['text' => '  - ' . (string)$item, 'size' => 10, 'bold' => false];
+        }
+    };
+
+    $addSection('Participant details');
+    $addField('Name', $person['name'] ?? '');
+    $addField('Team', $person['team_name'] ?? '');
+    $addField('Date of birth', !empty($person['dob']) ? person_age($person['dob']) : '');
+    $addField('Gender', $person['gender'] ?? '');
+    $addField('Participant email', $person['participant_email'] ?? '');
+    $addField('Participant phone', $person['participant_phone'] ?? '');
+    $addField('Home address', $person['home_address'] ?? '');
+
+    $addSection('Travel documents');
+    $addField('Passport number', value_from_person_or_snapshot($person, $snapshot, 'passport_number', ['personal', 'passport_number']));
+    $addField('Passport expiry date', value_from_person_or_snapshot($person, $snapshot, 'passport_expiry_date', ['personal', 'passport_expiry_date']));
+    $addField('Passport nationality', value_from_person_or_snapshot($person, $snapshot, 'passport_nationality', ['personal', 'passport_nationality']));
+    $addField('EHIC/GHIC number', value_from_person_or_snapshot($person, $snapshot, 'ehic_ghic_number', ['personal', 'ehic_ghic_number']));
+    $addField('EHIC/GHIC expiry date', value_from_person_or_snapshot($person, $snapshot, 'ehic_ghic_expiry_date', ['personal', 'ehic_ghic_expiry_date']));
+
+    $addSection('Emergency contacts');
+    if (empty($contacts)) {
+        $lines[] = ['text' => 'No emergency contacts recorded.', 'size' => 10, 'bold' => false];
+    } else {
+        foreach ($contacts as $index => $contact) {
+            if (!is_array($contact)) {
+                continue;
+            }
+
+            $lines[] = ['text' => 'Contact ' . ($index + 1), 'size' => 11, 'bold' => true];
+            $addField('Name', $contact['name'] ?? '');
+            $addField('Relationship', $contact['relationship'] ?? '');
+            $addField('Address', $contact['address'] ?? '');
+            $addField('Home or other contact number', $contact['home_phone'] ?? '');
+            $addField('Mobile phone', $contact['mobile_phone'] ?? ($contact['phone'] ?? ''));
+            $addField('Email', $contact['email'] ?? '');
+        }
+    }
+
+    $addSection('Update emails');
+    $addList('Email addresses with access to trip updates', $parentEmails);
+
+    $addSection('Health data');
+    $addList('Medications', $medications);
+    $addList('Allergies, intolerances and dietary needs', $allergies);
+    $addField('Physical condition, injury or incapacity', value_from_person_or_snapshot($person, $snapshot, 'health_physical_restriction_details', ['health', 'physical_restriction_details']));
+    $addField('Additional medical or welfare information', $additionalInfo);
+
+    $addSection('Doctor details');
+    $addField('Family doctor name', value_from_person_or_snapshot($person, $snapshot, 'family_doctor_name', ['health', 'family_doctor_name']));
+    $addField('Family doctor telephone number', value_from_person_or_snapshot($person, $snapshot, 'family_doctor_phone', ['health', 'family_doctor_phone']));
+    $addField('Family doctor address', value_from_person_or_snapshot($person, $snapshot, 'family_doctor_address', ['health', 'family_doctor_address']));
+
+    $addSection('Submission details');
+    $addField('Parent form status', parent_form_completed($person) ? 'Completed' : 'Not completed');
+    $addField('Submitted at', $submission['submitted_at'] ?? ($person['parent_form_completed_at'] ?? ''));
+
+    return $lines;
+}
+
+function send_health_form_pdf(array $person, array $snapshot = [], ?array $submission = null): void
+{
+    $lineSpecs = health_pdf_build_lines($person, $snapshot, $submission);
+    $pageWidth = 595;
+    $pageHeight = 842;
+    $margin = 42;
+    $y = $pageHeight - $margin;
+    $pages = [];
+    $current = [];
+
+    $newPage = static function () use (&$pages, &$current, &$y, $pageHeight, $margin): void {
+        if (!empty($current)) {
+            $pages[] = $current;
+        }
+        $current = [];
+        $y = $pageHeight - $margin;
+    };
+
+    foreach ($lineSpecs as $spec) {
+        $text = (string)($spec['text'] ?? '');
+        $size = (int)($spec['size'] ?? 10);
+        $bold = !empty($spec['bold']);
+        $maxChars = max(35, (int)floor(($pageWidth - ($margin * 2)) / max(4.8, $size * 0.50)));
+        $wrappedLines = health_pdf_lines_from_text($text, $maxChars);
+
+        foreach ($wrappedLines as $line) {
+            $lineHeight = max(12, $size + 4);
+
+            if ($y < $margin + $lineHeight) {
+                $newPage();
+            }
+
+            $current[] = [
+                'x' => $margin,
+                'y' => $y,
+                'size' => $size,
+                'bold' => $bold,
+                'text' => $line,
+            ];
+            $y -= $lineHeight;
+        }
+    }
+
+    if (!empty($current)) {
+        $pages[] = $current;
+    }
+
+    if (empty($pages)) {
+        $pages[] = [];
+    }
+
+    $objects = [];
+    $objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+
+    $fontRegularId = 3;
+    $fontBoldId = 4;
+    $objects[$fontRegularId] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+    $objects[$fontBoldId] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+
+    $pageObjectIds = [];
+    $nextObjectId = 5;
+
+    foreach ($pages as $pageLines) {
+        $content = '';
+
+        foreach ($pageLines as $line) {
+            $font = $line['bold'] ? 'F2' : 'F1';
+            $content .= 'BT /' . $font . ' ' . (int)$line['size'] . ' Tf 1 0 0 1 ' . (int)$line['x'] . ' ' . (int)$line['y'] . ' Tm (' . health_pdf_escape((string)$line['text']) . ") Tj ET\n";
+        }
+
+        $contentId = $nextObjectId++;
+        $pageId = $nextObjectId++;
+        $objects[$contentId] = '<< /Length ' . strlen($content) . " >>\nstream\n" . $content . "endstream";
+        $objects[$pageId] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' . $pageWidth . ' ' . $pageHeight . '] /Resources << /Font << /F1 ' . $fontRegularId . ' 0 R /F2 ' . $fontBoldId . ' 0 R >> >> /Contents ' . $contentId . ' 0 R >>';
+        $pageObjectIds[] = $pageId;
+    }
+
+    $kids = implode(' ', array_map(static fn($id) => $id . ' 0 R', $pageObjectIds));
+    $objects[2] = '<< /Type /Pages /Kids [' . $kids . '] /Count ' . count($pageObjectIds) . ' >>';
+    ksort($objects);
+
+    $pdf = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
+    $offsets = [0 => 0];
+
+    foreach ($objects as $id => $body) {
+        $offsets[$id] = strlen($pdf);
+        $pdf .= $id . " 0 obj\n" . $body . "\nendobj\n";
+    }
+
+    $xrefOffset = strlen($pdf);
+    $pdf .= "xref\n0 " . (count($objects) + 1) . "\n";
+    $pdf .= "0000000000 65535 f \n";
+
+    for ($i = 1; $i <= count($objects); $i++) {
+        $pdf .= sprintf("%010d 00000 n \n", $offsets[$i]);
+    }
+
+    $pdf .= "trailer\n<< /Size " . (count($objects) + 1) . " /Root 1 0 R >>\nstartxref\n" . $xrefOffset . "\n%%EOF";
+
+    $filenameName = preg_replace('/[^A-Za-z0-9_-]+/', '_', (string)($person['name'] ?? 'participant'));
+    $filename = trim($filenameName, '_') ?: 'participant';
+    $filename .= '_health_form.pdf';
+
+    header('Content-Type: application/pdf');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Content-Length: ' . strlen($pdf));
+    echo $pdf;
+    exit;
+}
+
 function render_person_photo(array $person, string $className): void
 {
     $name = $person['name'] ?? 'Young person';
@@ -321,6 +727,9 @@ function render_people_form(array $teams, ?array $formPerson = null): void
             [
                 'name' => '',
                 'relationship' => '',
+                'address' => '',
+                'home_phone' => '',
+                'mobile_phone' => '',
                 'phone' => '',
                 'email' => '',
             ],
@@ -484,6 +893,37 @@ function render_people_form(array $teams, ?array $formPerson = null): void
         </div>
 
         <div class="form-section">
+            <h3>Travel documents</h3>
+
+            <div class="simple-grid">
+                <div class="form-group">
+                    <label for="passport_number">Passport number</label>
+                    <input class="form-control" id="passport_number" name="passport_number" value="<?= e($formPerson['passport_number'] ?? '') ?>">
+                </div>
+
+                <div class="form-group">
+                    <label for="passport_expiry_date">Passport expiry date</label>
+                    <input class="form-control" id="passport_expiry_date" name="passport_expiry_date" type="date" value="<?= e($formPerson['passport_expiry_date'] ?? '') ?>">
+                </div>
+
+                <div class="form-group">
+                    <label for="passport_nationality">Passport nationality</label>
+                    <input class="form-control" id="passport_nationality" name="passport_nationality" value="<?= e($formPerson['passport_nationality'] ?? '') ?>">
+                </div>
+
+                <div class="form-group">
+                    <label for="ehic_ghic_number">EHIC/GHIC number</label>
+                    <input class="form-control" id="ehic_ghic_number" name="ehic_ghic_number" value="<?= e($formPerson['ehic_ghic_number'] ?? '') ?>">
+                </div>
+
+                <div class="form-group">
+                    <label for="ehic_ghic_expiry_date">EHIC/GHIC expiry date</label>
+                    <input class="form-control" id="ehic_ghic_expiry_date" name="ehic_ghic_expiry_date" type="date" value="<?= e($formPerson['ehic_ghic_expiry_date'] ?? '') ?>">
+                </div>
+            </div>
+        </div>
+
+        <div class="form-section">
             <h3>Emergency contacts</h3>
 
             <div id="contactRows">
@@ -501,8 +941,18 @@ function render_people_form(array $teams, ?array $formPerson = null): void
                             </div>
 
                             <div class="form-group">
-                                <label>Phone</label>
-                                <input class="form-control" name="contact_phone[]" value="<?= e($contact['phone'] ?? '') ?>">
+                                <label>Address</label>
+                                <textarea class="form-control" name="contact_address[]" rows="2"><?= e($contact['address'] ?? '') ?></textarea>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Home or other contact number</label>
+                                <input class="form-control" name="contact_home_phone[]" value="<?= e($contact['home_phone'] ?? '') ?>">
+                            </div>
+
+                            <div class="form-group">
+                                <label>Mobile phone</label>
+                                <input class="form-control" name="contact_mobile_phone[]" value="<?= e($contact['mobile_phone'] ?? ($contact['phone'] ?? '')) ?>">
                             </div>
 
                             <div class="form-group">
@@ -548,7 +998,7 @@ function render_people_form(array $teams, ?array $formPerson = null): void
         </div>
 
         <div class="form-section">
-            <h3>Medical information</h3>
+            <h3>Medical and health information</h3>
 
             <div class="simple-grid">
                 <div>
@@ -562,14 +1012,42 @@ function render_people_form(array $teams, ?array $formPerson = null): void
                 </div>
 
                 <div>
-                    <label>Allergies</label>
+                    <label>Allergies, intolerances and dietary needs</label>
                     <div data-repeat-group="allergies">
-                        <?php render_repeat_inputs('allergies', $allergies, 'Allergy'); ?>
+                        <?php render_repeat_inputs('allergies', $allergies, 'Allergy, intolerance or dietary need'); ?>
                     </div>
-                    <button type="button" class="btn btn-outline-primary btn-sm js-add-repeat" data-repeat-name="allergies" data-placeholder="Allergy">
-                        Add allergy
+                    <button type="button" class="btn btn-outline-primary btn-sm js-add-repeat" data-repeat-name="allergies" data-placeholder="Allergy, intolerance or dietary need">
+                        Add allergy / dietary need
                     </button>
                 </div>
+            </div>
+
+            <div class="form-group mt-3">
+                <label for="health_physical_restriction_details">Physical condition, injury or incapacity</label>
+                <textarea
+                    class="form-control"
+                    id="health_physical_restriction_details"
+                    name="health_physical_restriction_details"
+                    rows="4"
+                ><?= e($formPerson['health_physical_restriction_details'] ?? '') ?></textarea>
+            </div>
+
+            <h4>Family doctor</h4>
+            <div class="simple-grid">
+                <div class="form-group">
+                    <label for="family_doctor_name">Name of family doctor</label>
+                    <input class="form-control" id="family_doctor_name" name="family_doctor_name" value="<?= e($formPerson['family_doctor_name'] ?? '') ?>">
+                </div>
+
+                <div class="form-group">
+                    <label for="family_doctor_phone">Telephone number</label>
+                    <input class="form-control" id="family_doctor_phone" name="family_doctor_phone" value="<?= e($formPerson['family_doctor_phone'] ?? '') ?>">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="family_doctor_address">Doctor address</label>
+                <textarea class="form-control" id="family_doctor_address" name="family_doctor_address" rows="3"><?= e($formPerson['family_doctor_address'] ?? '') ?></textarea>
             </div>
         </div>
 
@@ -617,6 +1095,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $participantPhone = trim($_POST['participant_phone'] ?? '');
         $homeAddress = trim($_POST['home_address'] ?? '');
         $gender = trim($_POST['gender'] ?? '');
+        $passportNumber = trim($_POST['passport_number'] ?? '');
+        $passportExpiryDate = trim($_POST['passport_expiry_date'] ?? '');
+        $passportNationality = trim($_POST['passport_nationality'] ?? '');
+        $ehicGhicNumber = trim($_POST['ehic_ghic_number'] ?? '');
+        $ehicGhicExpiryDate = trim($_POST['ehic_ghic_expiry_date'] ?? '');
+        $healthPhysicalRestrictionDetails = trim($_POST['health_physical_restriction_details'] ?? '');
+        $familyDoctorName = trim($_POST['family_doctor_name'] ?? '');
+        $familyDoctorPhone = trim($_POST['family_doctor_phone'] ?? '');
+        $familyDoctorAddress = trim($_POST['family_doctor_address'] ?? '');
         $notes = trim($_POST['notes'] ?? '');
         $isActive = isset($_POST['is_active']) ? 1 : 0;
         $parentFormCompletedAt = isset($_POST['parent_form_complete']) ? people_now_for_database() : null;
@@ -640,6 +1127,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             home_address,
                             gender,
                             parent_form_completed_at,
+                            passport_number,
+                            passport_expiry_date,
+                            passport_nationality,
+                            ehic_ghic_number,
+                            ehic_ghic_expiry_date,
+                            health_physical_restriction,
+                            health_physical_restriction_details,
+                            family_doctor_name,
+                            family_doctor_phone,
+                            family_doctor_address,
                             photo_url,
                             emergency_contacts_json,
                             parent_emails_json,
@@ -650,7 +1147,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             is_active
                         )
                      VALUES
-                        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
                 );
 
                 $stmt->execute([
@@ -662,6 +1159,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $homeAddress !== '' ? $homeAddress : null,
                     $gender !== '' ? $gender : null,
                     $parentFormCompletedAt,
+                    $passportNumber !== '' ? $passportNumber : null,
+                    date_blank_to_null($passportExpiryDate),
+                    $passportNationality !== '' ? $passportNationality : null,
+                    $ehicGhicNumber !== '' ? $ehicGhicNumber : null,
+                    date_blank_to_null($ehicGhicExpiryDate),
+                    $healthPhysicalRestrictionDetails !== '' ? 1 : 0,
+                    $healthPhysicalRestrictionDetails !== '' ? $healthPhysicalRestrictionDetails : null,
+                    $familyDoctorName !== '' ? $familyDoctorName : null,
+                    $familyDoctorPhone !== '' ? $familyDoctorPhone : null,
+                    $familyDoctorAddress !== '' ? $familyDoctorAddress : null,
                     $photoPath,
                     emergency_contacts_from_post(),
                     json_list_from_array($_POST['parent_emails'] ?? []),
@@ -690,6 +1197,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $participantPhone = trim($_POST['participant_phone'] ?? '');
         $homeAddress = trim($_POST['home_address'] ?? '');
         $gender = trim($_POST['gender'] ?? '');
+        $passportNumber = trim($_POST['passport_number'] ?? '');
+        $passportExpiryDate = trim($_POST['passport_expiry_date'] ?? '');
+        $passportNationality = trim($_POST['passport_nationality'] ?? '');
+        $ehicGhicNumber = trim($_POST['ehic_ghic_number'] ?? '');
+        $ehicGhicExpiryDate = trim($_POST['ehic_ghic_expiry_date'] ?? '');
+        $healthPhysicalRestrictionDetails = trim($_POST['health_physical_restriction_details'] ?? '');
+        $familyDoctorName = trim($_POST['family_doctor_name'] ?? '');
+        $familyDoctorPhone = trim($_POST['family_doctor_phone'] ?? '');
+        $familyDoctorAddress = trim($_POST['family_doctor_address'] ?? '');
         $notes = trim($_POST['notes'] ?? '');
         $isActive = isset($_POST['is_active']) ? 1 : 0;
 
@@ -723,6 +1239,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                          home_address = ?,
                          gender = ?,
                          parent_form_completed_at = ?,
+                         passport_number = ?,
+                         passport_expiry_date = ?,
+                         passport_nationality = ?,
+                         ehic_ghic_number = ?,
+                         ehic_ghic_expiry_date = ?,
+                         health_physical_restriction = ?,
+                         health_physical_restriction_details = ?,
+                         family_doctor_name = ?,
+                         family_doctor_phone = ?,
+                         family_doctor_address = ?,
                          photo_url = ?,
                          emergency_contacts_json = ?,
                          parent_emails_json = ?,
@@ -743,6 +1269,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $homeAddress !== '' ? $homeAddress : null,
                     $gender !== '' ? $gender : null,
                     $parentFormCompletedAt,
+                    $passportNumber !== '' ? $passportNumber : null,
+                    date_blank_to_null($passportExpiryDate),
+                    $passportNationality !== '' ? $passportNationality : null,
+                    $ehicGhicNumber !== '' ? $ehicGhicNumber : null,
+                    date_blank_to_null($ehicGhicExpiryDate),
+                    $healthPhysicalRestrictionDetails !== '' ? 1 : 0,
+                    $healthPhysicalRestrictionDetails !== '' ? $healthPhysicalRestrictionDetails : null,
+                    $familyDoctorName !== '' ? $familyDoctorName : null,
+                    $familyDoctorPhone !== '' ? $familyDoctorPhone : null,
+                    $familyDoctorAddress !== '' ? $familyDoctorAddress : null,
                     $photoPath,
                     emergency_contacts_from_post(),
                     json_list_from_array($_POST['parent_emails'] ?? []),
@@ -854,6 +1390,12 @@ if ($personId > 0) {
     }
 
     $personLogs = get_person_logs($pdo, $personId);
+}
+
+if ($view === 'health_pdf' && $currentPerson) {
+    $latestSubmission = get_latest_parent_onboarding_submission($pdo, (int)$currentPerson['id']);
+    $latestSnapshot = latest_submission_snapshot($latestSubmission);
+    send_health_form_pdf($currentPerson, $latestSnapshot, $latestSubmission);
 }
 
 if ($view === 'print' && $currentPerson) {
@@ -1201,6 +1743,33 @@ include __DIR__ . '/header.php';
         font-weight: 900;
     }
 
+    .record-box-wide {
+        grid-column: 1 / -1;
+    }
+
+    .contact-card-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.75rem;
+    }
+
+    @media (max-width: 780px) {
+        .contact-card-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .contact-card {
+        border: 2px solid #d8d8d8;
+        background: #f8f8f8;
+        padding: 0.75rem;
+    }
+
+    .contact-card h4 {
+        margin-top: 0;
+        font-weight: 900;
+    }
+
     .allergy-warning {
         display: inline-block;
         background: #d4351c;
@@ -1365,6 +1934,7 @@ include __DIR__ . '/header.php';
 
         <?php if ($currentPerson): ?>
             <a class="btn btn-outline-primary" href="<?= e(url('people.php?view=edit&person_id=' . (int)$currentPerson['id'])) ?>">Edit details</a>
+            <a class="btn btn-outline-primary" href="<?= e(url('people.php?view=health_pdf&person_id=' . (int)$currentPerson['id'])) ?>">Download health form PDF</a>
             <a class="btn btn-outline-primary" href="<?= e(url('people.php?view=print&person_id=' . (int)$currentPerson['id'])) ?>" target="_blank">Print record</a>
         <?php endif; ?>
     </div>
@@ -1397,6 +1967,9 @@ include __DIR__ . '/header.php';
         $phones = json_items($currentPerson['phones_json'] ?? null);
         $parentEmails = json_items($currentPerson['parent_emails_json'] ?? null);
         $emergencyContacts = json_items($currentPerson['emergency_contacts_json'] ?? null);
+        $latestSubmission = get_latest_parent_onboarding_submission($pdo, (int)$currentPerson['id']);
+        $latestSnapshot = latest_submission_snapshot($latestSubmission);
+        $additionalMedicalInfo = snapshot_value($latestSnapshot, ['health', 'additional_information']);
         ?>
 
         <section class="people-panel">
@@ -1458,65 +2031,63 @@ include __DIR__ . '/header.php';
                 <div class="record-box">
                     <h3>Participant details</h3>
 
-                    <p>
-                        <strong>Gender:</strong><br>
-                        <?= e($currentPerson['gender'] ?: 'Not recorded') ?>
-                    </p>
+                    <p><strong>Gender:</strong><br><?= e(display_value($currentPerson['gender'] ?? '')) ?></p>
 
                     <p>
                         <strong>Contact email:</strong><br>
                         <?php if (!empty($currentPerson['participant_email'])): ?>
-                            <a href="mailto:<?= e($currentPerson['participant_email']) ?>">
-                                <?= e($currentPerson['participant_email']) ?>
-                            </a>
+                            <a href="mailto:<?= e($currentPerson['participant_email']) ?>"><?= e($currentPerson['participant_email']) ?></a>
                         <?php else: ?>
                             <span class="muted">Not recorded</span>
                         <?php endif; ?>
                     </p>
 
-                    <p>
-                        <strong>Phone number:</strong><br>
-                        <?= e($currentPerson['participant_phone'] ?: 'Not recorded') ?>
-                    </p>
-
-                    <p class="mb-0">
-                        <strong>Home address:</strong><br>
-                        <?= nl2br(e($currentPerson['home_address'] ?: 'Not recorded')) ?>
-                    </p>
+                    <p><strong>Phone number:</strong><br><?= e(display_value($currentPerson['participant_phone'] ?? '')) ?></p>
+                    <p class="mb-0"><strong>Home address:</strong><br><?= nl2br(e(display_value($currentPerson['home_address'] ?? ''))) ?></p>
                 </div>
 
                 <div class="record-box">
+                    <h3>Travel documents</h3>
+                    <p><strong>Passport number:</strong><br><?= e(display_value(value_from_person_or_snapshot($currentPerson, $latestSnapshot, 'passport_number', ['personal', 'passport_number']))) ?></p>
+                    <p><strong>Passport expiry date:</strong><br><?= e(display_value(value_from_person_or_snapshot($currentPerson, $latestSnapshot, 'passport_expiry_date', ['personal', 'passport_expiry_date']))) ?></p>
+                    <p><strong>Passport nationality:</strong><br><?= e(display_value(value_from_person_or_snapshot($currentPerson, $latestSnapshot, 'passport_nationality', ['personal', 'passport_nationality']))) ?></p>
+                    <p><strong>EHIC/GHIC number:</strong><br><?= e(display_value(value_from_person_or_snapshot($currentPerson, $latestSnapshot, 'ehic_ghic_number', ['personal', 'ehic_ghic_number']))) ?></p>
+                    <p class="mb-0"><strong>EHIC/GHIC expiry date:</strong><br><?= e(display_value(value_from_person_or_snapshot($currentPerson, $latestSnapshot, 'ehic_ghic_expiry_date', ['personal', 'ehic_ghic_expiry_date']))) ?></p>
+                </div>
+
+                <div class="record-box record-box-wide">
                     <h3>Emergency contacts</h3>
 
                     <?php if (empty($emergencyContacts)): ?>
                         <p class="muted mb-0">No emergency contacts recorded.</p>
                     <?php else: ?>
-                        <ul>
+                        <div class="contact-card-grid">
                             <?php foreach ($emergencyContacts as $contact): ?>
-                                <li>
-                                    <strong><?= e($contact['name'] ?? '') ?></strong>
-                                    <?php if (!empty($contact['relationship'])): ?>
-                                        - <?= e($contact['relationship']) ?>
-                                    <?php endif; ?>
-
-                                    <?php if (!empty($contact['phone'])): ?>
-                                        <br>Phone: <?= e($contact['phone']) ?>
-                                    <?php endif; ?>
-
-                                    <?php if (!empty($contact['email'])): ?>
-                                        <br>Email:
-                                        <a href="mailto:<?= e($contact['email']) ?>"><?= e($contact['email']) ?></a>
-                                    <?php endif; ?>
-                                </li>
+                                <?php if (!is_array($contact)) { continue; } ?>
+                                <div class="contact-card">
+                                    <h4><?= e(display_value($contact['name'] ?? '', 'Unnamed contact')) ?></h4>
+                                    <p><strong>Relationship:</strong> <?= e(display_value($contact['relationship'] ?? '')) ?></p>
+                                    <p><strong>Address:</strong><br><?= nl2br(e(display_value($contact['address'] ?? ''))) ?></p>
+                                    <p><strong>Home or other contact number:</strong><br><?= e(display_value($contact['home_phone'] ?? '')) ?></p>
+                                    <p><strong>Mobile phone:</strong><br><?= e(display_value($contact['mobile_phone'] ?? ($contact['phone'] ?? ''))) ?></p>
+                                    <p class="mb-0"><strong>Email:</strong><br>
+                                        <?php if (!empty($contact['email'])): ?>
+                                            <a href="mailto:<?= e($contact['email']) ?>"><?= e($contact['email']) ?></a>
+                                        <?php else: ?>
+                                            <span class="muted">Not recorded</span>
+                                        <?php endif; ?>
+                                    </p>
+                                </div>
                             <?php endforeach; ?>
-                        </ul>
+                        </div>
                     <?php endif; ?>
                 </div>
 
                 <div class="record-box">
-                    <h3>Parent emails</h3>
+                    <h3>Update emails</h3>
+                    <p class="muted">These addresses can receive Explorer Belt updates and access the private trip update page.</p>
                     <?php if (empty($parentEmails)): ?>
-                        <p class="muted mb-0">No parent emails recorded.</p>
+                        <p class="muted mb-0">No update emails recorded.</p>
                     <?php else: ?>
                         <ul>
                             <?php foreach ($parentEmails as $email): ?>
@@ -1529,7 +2100,7 @@ include __DIR__ . '/header.php';
                 <div class="record-box">
                     <h3>Phone numbers</h3>
                     <?php if (empty($phones)): ?>
-                        <p class="muted mb-0">No phone numbers recorded.</p>
+                        <p class="muted mb-0">No additional phone numbers recorded.</p>
                     <?php else: ?>
                         <ul>
                             <?php foreach ($phones as $phone): ?>
@@ -1551,11 +2122,41 @@ include __DIR__ . '/header.php';
                         </ul>
                     <?php endif; ?>
                 </div>
+
+                <div class="record-box">
+                    <h3>Allergies, intolerances and dietary needs</h3>
+                    <?php if (empty($allergies)): ?>
+                        <p class="muted mb-0">No allergies, intolerances or dietary needs recorded.</p>
+                    <?php else: ?>
+                        <ul>
+                            <?php foreach ($allergies as $allergy): ?>
+                                <li><?= e((string)$allergy) ?></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
+                </div>
+
+                <div class="record-box">
+                    <h3>Physical condition / injury / incapacity</h3>
+                    <p class="mb-0"><?= nl2br(e(display_value(value_from_person_or_snapshot($currentPerson, $latestSnapshot, 'health_physical_restriction_details', ['health', 'physical_restriction_details'])))) ?></p>
+                </div>
+
+                <div class="record-box">
+                    <h3>Family doctor</h3>
+                    <p><strong>Name:</strong><br><?= e(display_value(value_from_person_or_snapshot($currentPerson, $latestSnapshot, 'family_doctor_name', ['health', 'family_doctor_name']))) ?></p>
+                    <p><strong>Telephone:</strong><br><?= e(display_value(value_from_person_or_snapshot($currentPerson, $latestSnapshot, 'family_doctor_phone', ['health', 'family_doctor_phone']))) ?></p>
+                    <p class="mb-0"><strong>Address:</strong><br><?= nl2br(e(display_value(value_from_person_or_snapshot($currentPerson, $latestSnapshot, 'family_doctor_address', ['health', 'family_doctor_address'])))) ?></p>
+                </div>
+
+                <div class="record-box">
+                    <h3>Additional medical or welfare information</h3>
+                    <p class="mb-0"><?= nl2br(e(display_value($additionalMedicalInfo))) ?></p>
+                </div>
             </div>
 
             <?php if (!empty($currentPerson['notes'])): ?>
                 <hr>
-                <h3>Notes</h3>
+                <h3>Internal notes</h3>
                 <p><?= nl2br(e($currentPerson['notes'])) ?></p>
             <?php endif; ?>
         </section>
@@ -1764,8 +2365,16 @@ include __DIR__ . '/header.php';
                             '<input class="form-control" name="contact_relationship[]">' +
                         '</div>' +
                         '<div class="form-group">' +
-                            '<label>Phone</label>' +
-                            '<input class="form-control" name="contact_phone[]">' +
+                            '<label>Address</label>' +
+                            '<textarea class="form-control" name="contact_address[]" rows="2"></textarea>' +
+                        '</div>' +
+                        '<div class="form-group">' +
+                            '<label>Home or other contact number</label>' +
+                            '<input class="form-control" name="contact_home_phone[]">' +
+                        '</div>' +
+                        '<div class="form-group">' +
+                            '<label>Mobile phone</label>' +
+                            '<input class="form-control" name="contact_mobile_phone[]">' +
                         '</div>' +
                         '<div class="form-group">' +
                             '<label>Email</label>' +

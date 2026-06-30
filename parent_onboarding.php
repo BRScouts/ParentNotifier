@@ -11,7 +11,7 @@ const PEOPLE_UPLOAD_DIR = '/home/brscouts/exbelt2026.irvalscouts.org.uk/assets/p
 const PEOPLE_UPLOAD_PUBLIC_PATH = 'assets/people/';
 const ONBOARDING_CONFIRMATION_FROM_EMAIL = 'noreply@app.irvalscouts.org.uk';
 const DATA_PROTECTION_EMAIL = 'rammyexplorers@gmail.com';
-const ONBOARDING_VERSION = 'explorer-belt-2026-consent-v4';
+const ONBOARDING_VERSION = 'explorer-belt-2026-consent-v5';
 
 $error = '';
 $success = '';
@@ -19,6 +19,7 @@ $matchedPerson = null;
 $submittedPerson = null;
 $submittedEmails = [];
 $confirmationQueued = false;
+$downloadToken = '';
 $isLocked = false;
 $lockedPerson = null;
 
@@ -698,6 +699,370 @@ function team_parent_link(array $person): string
     return url('dashboard.php?token=' . $person['parent_token']);
 }
 
+
+function people_now(): DateTime
+{
+    return new DateTime('now', new DateTimeZone('Europe/Helsinki'));
+}
+
+function parent_form_completed(array $person): bool
+{
+    return !empty($person['parent_form_completed_at']) || !empty($person['parent_onboarding_completed_at']);
+}
+
+function person_age(?string $dob): string
+{
+    if (!$dob) {
+        return 'Date of birth not recorded';
+    }
+
+    try {
+        $birth = new DateTime($dob);
+        $today = new DateTime('today');
+        $age = $birth->diff($today)->y;
+
+        return date('d M Y', strtotime($dob)) . ' - ' . $age . ' years old';
+    } catch (Throwable $exception) {
+        return date('d M Y', strtotime($dob));
+    }
+}
+
+function get_latest_parent_onboarding_submission(PDO $pdo, int $personId): ?array
+{
+    if (!table_exists($pdo, 'parent_onboarding_submissions')) {
+        return null;
+    }
+
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT *
+             FROM parent_onboarding_submissions
+             WHERE person_id = ?
+             ORDER BY submitted_at DESC, id DESC
+             LIMIT 1'
+        );
+        $stmt->execute([$personId]);
+        $submission = $stmt->fetch();
+
+        return $submission ?: null;
+    } catch (Throwable $exception) {
+        return null;
+    }
+}
+
+function latest_submission_snapshot(?array $submission): array
+{
+    if (!$submission || empty($submission['snapshot_json'])) {
+        return [];
+    }
+
+    $decoded = json_decode((string)$submission['snapshot_json'], true);
+
+    return is_array($decoded) ? $decoded : [];
+}
+
+function snapshot_value(array $snapshot, array $path): string
+{
+    $value = $snapshot;
+
+    foreach ($path as $key) {
+        if (!is_array($value) || !array_key_exists($key, $value)) {
+            return '';
+        }
+
+        $value = $value[$key];
+    }
+
+    if (is_array($value)) {
+        return implode(', ', array_filter(array_map('strval', $value)));
+    }
+
+    return trim((string)$value);
+}
+
+function display_value($value, string $fallback = 'Not recorded'): string
+{
+    $value = trim((string)$value);
+
+    return $value === '' ? $fallback : $value;
+}
+
+function value_from_person_or_snapshot(array $person, array $snapshot, string $column, array $snapshotPath = []): string
+{
+    $personValue = trim((string)($person[$column] ?? ''));
+
+    if ($personValue !== '') {
+        return $personValue;
+    }
+
+    return $snapshotPath ? snapshot_value($snapshot, $snapshotPath) : '';
+}
+
+function emergency_contact_phone(array $contact): string
+{
+    $mobile = trim((string)($contact['mobile_phone'] ?? ''));
+    $home = trim((string)($contact['home_phone'] ?? ''));
+    $legacy = trim((string)($contact['phone'] ?? ''));
+
+    if ($mobile !== '' && $home !== '') {
+        return 'Mobile: ' . $mobile . ' | Home/other: ' . $home;
+    }
+
+    if ($mobile !== '') {
+        return 'Mobile: ' . $mobile;
+    }
+
+    if ($home !== '') {
+        return 'Home/other: ' . $home;
+    }
+
+    return $legacy;
+}
+
+function health_pdf_clean_text(string $text): string
+{
+    $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $text = str_replace(["\r\n", "\r"], "\n", $text);
+    $text = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $text);
+    $converted = @iconv('UTF-8', 'Windows-1252//TRANSLIT//IGNORE', $text);
+
+    return $converted === false ? $text : $converted;
+}
+
+function health_pdf_escape(string $text): string
+{
+    return str_replace(['\\', '(', ')'], ['\\\\', '\\(', '\\)'], health_pdf_clean_text($text));
+}
+
+function health_pdf_lines_from_text(string $text, int $maxChars): array
+{
+    $lines = [];
+    $paragraphs = explode("\n", $text);
+
+    foreach ($paragraphs as $paragraph) {
+        $paragraph = trim($paragraph);
+
+        if ($paragraph === '') {
+            $lines[] = '';
+            continue;
+        }
+
+        $wrapped = wordwrap($paragraph, $maxChars, "\n", true);
+
+        foreach (explode("\n", $wrapped) as $line) {
+            $lines[] = $line;
+        }
+    }
+
+    return $lines;
+}
+
+function health_pdf_build_lines(array $person, array $snapshot, ?array $submission = null): array
+{
+    $contacts = json_items($person['emergency_contacts_json'] ?? null);
+    $parentEmails = json_items($person['parent_emails_json'] ?? null);
+    $medications = json_items($person['medications_json'] ?? null);
+    $allergies = json_items($person['allergies_json'] ?? null);
+    $additionalInfo = snapshot_value($snapshot, ['health', 'additional_information']);
+
+    $lines = [];
+    $lines[] = ['text' => 'Explorer Belt health and emergency information', 'size' => 18, 'bold' => true];
+    $lines[] = ['text' => 'Generated: ' . people_now()->format('d M Y H:i'), 'size' => 9, 'bold' => false];
+    $lines[] = ['text' => '', 'size' => 9, 'bold' => false];
+
+    $addSection = static function (string $title) use (&$lines): void {
+        $lines[] = ['text' => '', 'size' => 8, 'bold' => false];
+        $lines[] = ['text' => $title, 'size' => 13, 'bold' => true];
+    };
+
+    $addField = static function (string $label, $value) use (&$lines): void {
+        $value = trim((string)$value);
+        $lines[] = ['text' => $label . ': ' . ($value !== '' ? $value : 'Not recorded'), 'size' => 10, 'bold' => false];
+    };
+
+    $addList = static function (string $label, array $items) use (&$lines): void {
+        $lines[] = ['text' => $label . ':', 'size' => 10, 'bold' => true];
+
+        if (empty($items)) {
+            $lines[] = ['text' => '  None recorded', 'size' => 10, 'bold' => false];
+            return;
+        }
+
+        foreach ($items as $item) {
+            if (is_array($item)) {
+                $item = implode(' | ', array_filter(array_map('strval', $item)));
+            }
+
+            $lines[] = ['text' => '  - ' . (string)$item, 'size' => 10, 'bold' => false];
+        }
+    };
+
+    $addSection('Participant details');
+    $addField('Name', $person['name'] ?? '');
+    $addField('Team', $person['team_name'] ?? '');
+    $addField('Date of birth', !empty($person['dob']) ? person_age($person['dob']) : '');
+    $addField('Gender', $person['gender'] ?? '');
+    $addField('Participant email', $person['participant_email'] ?? '');
+    $addField('Participant phone', $person['participant_phone'] ?? '');
+    $addField('Home address', $person['home_address'] ?? '');
+
+    $addSection('Travel documents');
+    $addField('Passport number', value_from_person_or_snapshot($person, $snapshot, 'passport_number', ['personal', 'passport_number']));
+    $addField('Passport expiry date', value_from_person_or_snapshot($person, $snapshot, 'passport_expiry_date', ['personal', 'passport_expiry_date']));
+    $addField('Passport nationality', value_from_person_or_snapshot($person, $snapshot, 'passport_nationality', ['personal', 'passport_nationality']));
+    $addField('EHIC/GHIC number', value_from_person_or_snapshot($person, $snapshot, 'ehic_ghic_number', ['personal', 'ehic_ghic_number']));
+    $addField('EHIC/GHIC expiry date', value_from_person_or_snapshot($person, $snapshot, 'ehic_ghic_expiry_date', ['personal', 'ehic_ghic_expiry_date']));
+
+    $addSection('Emergency contacts');
+    if (empty($contacts)) {
+        $lines[] = ['text' => 'No emergency contacts recorded.', 'size' => 10, 'bold' => false];
+    } else {
+        foreach ($contacts as $index => $contact) {
+            if (!is_array($contact)) {
+                continue;
+            }
+
+            $lines[] = ['text' => 'Contact ' . ($index + 1), 'size' => 11, 'bold' => true];
+            $addField('Name', $contact['name'] ?? '');
+            $addField('Relationship', $contact['relationship'] ?? '');
+            $addField('Address', $contact['address'] ?? '');
+            $addField('Home or other contact number', $contact['home_phone'] ?? '');
+            $addField('Mobile phone', $contact['mobile_phone'] ?? ($contact['phone'] ?? ''));
+            $addField('Email', $contact['email'] ?? '');
+        }
+    }
+
+    $addSection('Update emails');
+    $addList('Email addresses with access to trip updates', $parentEmails);
+
+    $addSection('Health data');
+    $addList('Medications', $medications);
+    $addList('Allergies, intolerances and dietary needs', $allergies);
+    $addField('Physical condition, injury or incapacity', value_from_person_or_snapshot($person, $snapshot, 'health_physical_restriction_details', ['health', 'physical_restriction_details']));
+    $addField('Additional medical or welfare information', $additionalInfo);
+
+    $addSection('Doctor details');
+    $addField('Family doctor name', value_from_person_or_snapshot($person, $snapshot, 'family_doctor_name', ['health', 'family_doctor_name']));
+    $addField('Family doctor telephone number', value_from_person_or_snapshot($person, $snapshot, 'family_doctor_phone', ['health', 'family_doctor_phone']));
+    $addField('Family doctor address', value_from_person_or_snapshot($person, $snapshot, 'family_doctor_address', ['health', 'family_doctor_address']));
+
+    $addSection('Submission details');
+    $addField('Parent form status', parent_form_completed($person) ? 'Completed' : 'Not completed');
+    $addField('Submitted at', $submission['submitted_at'] ?? ($person['parent_form_completed_at'] ?? ''));
+
+    return $lines;
+}
+
+function send_health_form_pdf(array $person, array $snapshot = [], ?array $submission = null): void
+{
+    $lineSpecs = health_pdf_build_lines($person, $snapshot, $submission);
+    $pageWidth = 595;
+    $pageHeight = 842;
+    $margin = 42;
+    $y = $pageHeight - $margin;
+    $pages = [];
+    $current = [];
+
+    $newPage = static function () use (&$pages, &$current, &$y, $pageHeight, $margin): void {
+        if (!empty($current)) {
+            $pages[] = $current;
+        }
+        $current = [];
+        $y = $pageHeight - $margin;
+    };
+
+    foreach ($lineSpecs as $spec) {
+        $text = (string)($spec['text'] ?? '');
+        $size = (int)($spec['size'] ?? 10);
+        $bold = !empty($spec['bold']);
+        $maxChars = max(35, (int)floor(($pageWidth - ($margin * 2)) / max(4.8, $size * 0.50)));
+        $wrappedLines = health_pdf_lines_from_text($text, $maxChars);
+
+        foreach ($wrappedLines as $line) {
+            $lineHeight = max(12, $size + 4);
+
+            if ($y < $margin + $lineHeight) {
+                $newPage();
+            }
+
+            $current[] = [
+                'x' => $margin,
+                'y' => $y,
+                'size' => $size,
+                'bold' => $bold,
+                'text' => $line,
+            ];
+            $y -= $lineHeight;
+        }
+    }
+
+    if (!empty($current)) {
+        $pages[] = $current;
+    }
+
+    if (empty($pages)) {
+        $pages[] = [];
+    }
+
+    $objects = [];
+    $objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+
+    $fontRegularId = 3;
+    $fontBoldId = 4;
+    $objects[$fontRegularId] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+    $objects[$fontBoldId] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+
+    $pageObjectIds = [];
+    $nextObjectId = 5;
+
+    foreach ($pages as $pageLines) {
+        $content = '';
+
+        foreach ($pageLines as $line) {
+            $font = $line['bold'] ? 'F2' : 'F1';
+            $content .= 'BT /' . $font . ' ' . (int)$line['size'] . ' Tf 1 0 0 1 ' . (int)$line['x'] . ' ' . (int)$line['y'] . ' Tm (' . health_pdf_escape((string)$line['text']) . ") Tj ET\n";
+        }
+
+        $contentId = $nextObjectId++;
+        $pageId = $nextObjectId++;
+        $objects[$contentId] = '<< /Length ' . strlen($content) . " >>\nstream\n" . $content . "endstream";
+        $objects[$pageId] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' . $pageWidth . ' ' . $pageHeight . '] /Resources << /Font << /F1 ' . $fontRegularId . ' 0 R /F2 ' . $fontBoldId . ' 0 R >> >> /Contents ' . $contentId . ' 0 R >>';
+        $pageObjectIds[] = $pageId;
+    }
+
+    $kids = implode(' ', array_map(static fn($id) => $id . ' 0 R', $pageObjectIds));
+    $objects[2] = '<< /Type /Pages /Kids [' . $kids . '] /Count ' . count($pageObjectIds) . ' >>';
+    ksort($objects);
+
+    $pdf = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
+    $offsets = [0 => 0];
+
+    foreach ($objects as $id => $body) {
+        $offsets[$id] = strlen($pdf);
+        $pdf .= $id . " 0 obj\n" . $body . "\nendobj\n";
+    }
+
+    $xrefOffset = strlen($pdf);
+    $pdf .= "xref\n0 " . (count($objects) + 1) . "\n";
+    $pdf .= "0000000000 65535 f \n";
+
+    for ($i = 1; $i <= count($objects); $i++) {
+        $pdf .= sprintf("%010d 00000 n \n", $offsets[$i]);
+    }
+
+    $pdf .= "trailer\n<< /Size " . (count($objects) + 1) . " /Root 1 0 R >>\nstartxref\n" . $xrefOffset . "\n%%EOF";
+
+    $filenameName = preg_replace('/[^A-Za-z0-9_-]+/', '_', (string)($person['name'] ?? 'participant'));
+    $filename = trim($filenameName, '_') ?: 'participant';
+    $filename .= '_health_form.pdf';
+
+    header('Content-Type: application/pdf');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Content-Length: ' . strlen($pdf));
+    echo $pdf;
+    exit;
+}
+
 /**
  * Upload helper
  */
@@ -1165,6 +1530,35 @@ function build_young_person_updates(PDO $pdo, array $person, ?string $photoPath,
 }
 
 /**
+ * Parent download of completed health form PDF.
+ * This is deliberately session-token based so the completed form is available
+ * immediately after submission without making health data publicly accessible.
+ */
+if (isset($_GET['download_health_form'])) {
+    $token = trim((string)$_GET['download_health_form']);
+    $downloads = $_SESSION['parent_onboarding_downloads'] ?? [];
+    $download = is_array($downloads) ? ($downloads[$token] ?? null) : null;
+
+    if (!is_array($download) || (int)($download['expires'] ?? 0) < time()) {
+        http_response_code(403);
+        echo 'This completed health form download link has expired. Please contact the trip team if you need a copy.';
+        exit;
+    }
+
+    $person = fetch_person($pdo, (int)($download['person_id'] ?? 0));
+
+    if (!$person) {
+        http_response_code(404);
+        echo 'Participant record not found.';
+        exit;
+    }
+
+    $latestSubmission = get_latest_parent_onboarding_submission($pdo, (int)$person['id']);
+    $latestSnapshot = latest_submission_snapshot($latestSubmission);
+    send_health_form_pdf($person, $latestSnapshot, $latestSubmission);
+}
+
+/**
  * Reset onboarding session
  */
 if (isset($_GET['reset'])) {
@@ -1279,6 +1673,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
                 );
 
                 $pdo->commit();
+
+                $downloadToken = bin2hex(random_bytes(16));
+                $_SESSION['parent_onboarding_downloads'][$downloadToken] = [
+                    'person_id' => $personId,
+                    'expires' => time() + 86400,
+                ];
 
                 unset($_SESSION['parent_onboarding_person_id']);
 
@@ -1440,7 +1840,18 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
             <?php else: ?>
                 <p>The details were saved. A confirmation email could not be queued automatically, so please contact the trip team if you need confirmation.</p>
             <?php endif; ?>
-            <p class="mb-0">If you do not receive an email within the next hour, please check your junk or spam folder.</p>
+            <p>If you do not receive an email within the next hour, please check your junk or spam folder.</p>
+
+            <?php if ($downloadToken !== ''): ?>
+                <p class="mb-0">
+                    <a class="btn btn-primary" href="<?= e(url('parent_onboarding.php?download_health_form=' . urlencode($downloadToken))) ?>">
+                        Download completed health form PDF
+                    </a>
+                </p>
+                <p class="muted mt-2 mb-0">
+                    This download link is available in this browser session for 24 hours.
+                </p>
+            <?php endif; ?>
         </section>
 
         <section class="onboarding-panel">
