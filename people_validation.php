@@ -1286,7 +1286,7 @@ include __DIR__ . '/header.php';
         overflow: auto;
         border: 2px solid #1d1d1d;
         background: #ffffff;
-        max-height: 76vh;
+        max-height: 84vh;
     }
 
     .validation-table {
@@ -1301,14 +1301,14 @@ include __DIR__ . '/header.php';
     .validation-table td {
         border-right: 1px solid #d8d8d8;
         border-bottom: 1px solid #d8d8d8;
-        padding: 0.3rem 0.4rem;
+        padding: 0.22rem 0.35rem;
         vertical-align: middle;
         background: #ffffff;
         min-width: 140px;
         max-width: 260px;
         white-space: nowrap;
         overflow: visible;
-        font-size: 0.86rem;
+        font-size: 0.82rem;
         line-height: 1.15;
     }
 
@@ -1334,20 +1334,20 @@ include __DIR__ . '/header.php';
         position: sticky;
         left: 0;
         z-index: 3;
-        min-width: 58px;
-        max-width: 58px;
-        width: 58px;
+        min-width: 54px;
+        max-width: 54px;
+        width: 54px;
         text-align: center;
         background: inherit;
     }
 
     .validation-table .sticky-name {
         position: sticky;
-        left: 58px;
+        left: 54px;
         z-index: 3;
-        min-width: 190px;
-        max-width: 190px;
-        width: 190px;
+        min-width: 180px;
+        max-width: 180px;
+        width: 180px;
         background: inherit;
         font-weight: 900;
     }
@@ -1361,8 +1361,8 @@ include __DIR__ . '/header.php';
 
     .validation-photo,
     .validation-photo-placeholder {
-        width: 38px;
-        height: 38px;
+        width: 34px;
+        height: 34px;
         border-radius: 50%;
         border: 2px solid #1d1d1d;
         object-fit: cover;
@@ -1389,8 +1389,8 @@ include __DIR__ . '/header.php';
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 42px;
-        height: 42px;
+        width: 38px;
+        height: 38px;
         outline: none;
     }
 
@@ -1454,7 +1454,44 @@ include __DIR__ . '/header.php';
     .validation-photo-wrap:hover .validation-face-tooltip,
     .validation-photo-wrap:focus .validation-face-tooltip,
     .validation-photo-wrap:focus-within .validation-face-tooltip {
+        display: none;
+    }
+
+    .validation-floating-tooltip {
+        position: fixed;
+        z-index: 99999;
+        display: none;
+        min-width: 280px;
+        max-width: min(440px, calc(100vw - 32px));
+        max-height: min(420px, calc(100vh - 32px));
+        overflow: auto;
+        padding: 0.75rem;
+        border: 2px solid #1d1d1d;
+        background: #ffffff;
+        color: #1d1d1d;
+        text-align: left;
+        white-space: normal;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+        font-size: 0.9rem;
+        line-height: 1.25;
+    }
+
+    .validation-floating-tooltip.is-visible {
         display: block;
+    }
+
+    .validation-floating-tooltip strong {
+        display: block;
+        margin-bottom: 0.45rem;
+    }
+
+    .validation-floating-tooltip ul {
+        margin: 0;
+        padding-left: 1.15rem;
+    }
+
+    .validation-floating-tooltip li {
+        margin-bottom: 0.25rem;
     }
 
     .validation-pill {
@@ -1528,69 +1565,7 @@ include __DIR__ . '/header.php';
     </div>
 
     <section class="validation-panel">
-        <h2>Validation settings</h2>
-
-        <form method="get" class="validation-actions mb-0">
-            <div class="form-group mb-0">
-                <label for="schengen_exit_date"><strong>Planned Schengen exit date</strong></label>
-                <input
-                    class="form-control"
-                    id="schengen_exit_date"
-                    name="schengen_exit_date"
-                    type="date"
-                    value="<?= e($schengenExitDate) ?>"
-                >
-            </div>
-
-            <div class="form-group mb-0">
-                <label for="show"><strong>Show</strong></label>
-                <select class="form-control" id="show" name="show">
-                    <option value="all" <?= $show === 'all' ? 'selected' : '' ?>>All participants</option>
-                    <option value="attention" <?= $show === 'attention' ? 'selected' : '' ?>>Attention only</option>
-                    <option value="complete" <?= $show === 'complete' ? 'selected' : '' ?>>No attention flags</option>
-                </select>
-            </div>
-
-            <button class="btn btn-primary" type="submit">Apply</button>
-        </form>
-    </section>
-
-    <section class="validation-panel">
-        <div class="validation-summary-grid">
-            <div class="validation-summary-box">
-                <strong><?= (int)$totalCount ?></strong>
-                Total participants
-            </div>
-
-            <div class="validation-summary-box">
-                <strong><?= (int)$attentionCount ?></strong>
-                With attention flags
-            </div>
-
-            <div class="validation-summary-box">
-                <strong><?= (int)$completeCount ?></strong>
-                No attention flags
-            </div>
-
-            <div class="validation-summary-box">
-                <strong><?= e($requiredPassportDate) ?></strong>
-                Minimum passport expiry date
-            </div>
-        </div>
-    </section>
-
-    <div class="validation-note">
-        <strong>Passport validation:</strong>
-        nationality is flagged where it is not GB / British / UK / England / Britain or equivalent wording.
-        Passport expiry is flagged unless it is at least 3 months after the planned Schengen exit date.
-        The 10-year issue-date rule is not checked because the current onboarding data does not capture passport issue date.
-    </div>
-
-    <section class="validation-panel">
         <h2>Validation sheet</h2>
-        <p class="validation-muted">
-            Hover over, or tab to, a participant photo to see that participant’s attention flags without adding a tall attention column.
-        </p>
 
         <?php if (empty($displayRows)): ?>
             <p class="validation-muted mb-0">No participants match the current filter.</p>
@@ -1646,7 +1621,8 @@ include __DIR__ . '/header.php';
                                             <span
                                                 class="validation-photo-wrap <?= $flagCount > 0 ? 'validation-photo-has-flags' : 'validation-photo-ok' ?>"
                                                 tabindex="0"
-                                                title="<?= e($flagTooltip) ?>"
+                                                data-participant-name="<?= e($person['name'] ?? 'Participant') ?>"
+                                                data-flags="<?= e($flagTooltip) ?>"
                                                 aria-label="<?= e(($person['name'] ?? 'Participant') . ': ' . $flagTooltip) ?>"
                                             >
                                                 <?php if (pv_photo_src($person) !== ''): ?>
@@ -1659,21 +1635,6 @@ include __DIR__ . '/header.php';
                                                     <span class="validation-photo-count" aria-hidden="true"><?= (int)$flagCount ?></span>
                                                 <?php endif; ?>
 
-                                                <span class="validation-face-tooltip" role="tooltip">
-                                                    <strong>
-                                                        <?= $flagCount === 0 ? 'No attention flags' : e($flagCount . ' attention ' . ($flagCount === 1 ? 'flag' : 'flags')) ?>
-                                                    </strong>
-
-                                                    <?php if ($flagCount > 0): ?>
-                                                        <ul>
-                                                            <?php foreach ($row['flags'] as $flag): ?>
-                                                                <li><?= e($flag) ?></li>
-                                                            <?php endforeach; ?>
-                                                        </ul>
-                                                    <?php else: ?>
-                                                        <span class="validation-muted">No validation issues found.</span>
-                                                    <?php endif; ?>
-                                                </span>
                                             </span>
                                         <?php elseif ($header === 'Participant'): ?>
                                             <a href="<?= e(url('people.php?person_id=' . (int)$row['person_id'])) ?>">
@@ -1707,5 +1668,107 @@ include __DIR__ . '/header.php';
         <?php endif; ?>
     </section>
 </main>
+
+<div class="validation-floating-tooltip" id="validationFloatingTooltip" role="tooltip" aria-hidden="true"></div>
+
+<script>
+    (function () {
+        var tooltip = document.getElementById('validationFloatingTooltip');
+
+        if (!tooltip) {
+            return;
+        }
+
+        function escapeHtml(value) {
+            return String(value || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function buildTooltipHtml(trigger) {
+            var participantName = trigger.getAttribute('data-participant-name') || 'Participant';
+            var flagsText = trigger.getAttribute('data-flags') || 'No attention flags';
+            var flags = flagsText.split(/
++/).map(function (flag) {
+                return flag.trim();
+            }).filter(Boolean);
+
+            if (!flags.length || flagsText === 'No attention flags') {
+                return '<strong>' + escapeHtml(participantName) + '</strong><span class="validation-muted">No validation issues found.</span>';
+            }
+
+            return '<strong>' + escapeHtml(participantName) + ' — ' + flags.length + ' attention ' + (flags.length === 1 ? 'flag' : 'flags') + '</strong>' +
+                '<ul>' + flags.map(function (flag) {
+                    return '<li>' + escapeHtml(flag) + '</li>';
+                }).join('') + '</ul>';
+        }
+
+        function positionTooltip(trigger) {
+            var rect = trigger.getBoundingClientRect();
+            var spacing = 10;
+
+            tooltip.style.left = '0px';
+            tooltip.style.top = '0px';
+            tooltip.classList.add('is-visible');
+
+            var tooltipRect = tooltip.getBoundingClientRect();
+            var left = rect.right + spacing;
+            var top = rect.top + (rect.height / 2) - (tooltipRect.height / 2);
+
+            if (left + tooltipRect.width + spacing > window.innerWidth) {
+                left = rect.left - tooltipRect.width - spacing;
+            }
+
+            if (left < spacing) {
+                left = spacing;
+            }
+
+            if (top + tooltipRect.height + spacing > window.innerHeight) {
+                top = window.innerHeight - tooltipRect.height - spacing;
+            }
+
+            if (top < spacing) {
+                top = spacing;
+            }
+
+            tooltip.style.left = left + 'px';
+            tooltip.style.top = top + 'px';
+        }
+
+        function showTooltip(trigger) {
+            tooltip.innerHTML = buildTooltipHtml(trigger);
+            tooltip.setAttribute('aria-hidden', 'false');
+            positionTooltip(trigger);
+        }
+
+        function hideTooltip() {
+            tooltip.classList.remove('is-visible');
+            tooltip.setAttribute('aria-hidden', 'true');
+            tooltip.innerHTML = '';
+        }
+
+        document.querySelectorAll('.validation-photo-wrap').forEach(function (trigger) {
+            trigger.addEventListener('mouseenter', function () {
+                showTooltip(trigger);
+            });
+
+            trigger.addEventListener('mousemove', function () {
+                positionTooltip(trigger);
+            });
+
+            trigger.addEventListener('mouseleave', hideTooltip);
+            trigger.addEventListener('focus', function () {
+                showTooltip(trigger);
+            });
+            trigger.addEventListener('blur', hideTooltip);
+        });
+
+        window.addEventListener('scroll', hideTooltip, true);
+        window.addEventListener('resize', hideTooltip);
+    })();
+</script>
 
 <?php include __DIR__ . '/footer.php'; ?>
