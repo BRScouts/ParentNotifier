@@ -2511,6 +2511,7 @@ include __DIR__ . '/header.php';
         <a class="btn btn-outline-primary" href="<?= e(url('people.php')) ?>">All people</a>
         <a class="btn btn-outline-primary" href="<?= e(url('people.php?view=add')) ?>">Add person</a>
         <a class="btn btn-outline-primary" href="<?= e(url('team_links.php')) ?>">Teams</a>
+        <a class="btn btn-outline-primary" href="<?= e(url('people_validation.php')) ?>">Excel View</a>
 
         <?php if ($currentPerson): ?>
             <a class="btn btn-outline-primary" href="<?= e(url('people.php?view=edit&person_id=' . (int)$currentPerson['id'])) ?>">Edit details</a>
