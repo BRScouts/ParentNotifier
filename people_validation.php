@@ -785,7 +785,7 @@ function pv_xlsx_cell(int $row, int $col, string $value, int $style = 0): string
 
 function pv_xlsx_row(int $rowNumber, array $values, int $style, array $cellStyles = []): string
 {
-    $height = $rowNumber === 1 ? 26 : 48;
+    $height = $rowNumber === 1 ? 24 : 30;
     $xml = '<row r="' . $rowNumber . '" ht="' . $height . '" customHeight="1">';
 
     foreach ($values as $col => $value) {
@@ -901,7 +901,7 @@ function pv_xlsx_sheet_xml(array $headers, array $rows, array $imageRefs): strin
     $maxCol = count($headers) - 1;
     $dimension = 'A1:' . pv_xlsx_col_name($maxCol) . max(1, count($rows) + 1);
 
-    $widths = [10, 28, 16, 45, 15, 15, 17, 32, 36, 30, 18, 22, 16, 18, 16, 18, 24, 32, 34, 24, 34, 34, 34, 34, 34, 34, 22, 20, 34];
+    $widths = [8, 26, 16, 42, 15, 15, 17, 32, 36, 30, 18, 22, 16, 18, 16, 18, 24, 32, 34, 24, 34, 34, 34, 34, 34, 34, 22, 20, 34];
     $cols = '<cols>';
 
     for ($i = 0; $i <= $maxCol; $i++) {
@@ -958,8 +958,8 @@ function pv_xlsx_drawing_xml(array $imageRefs): string
         $rid = 'rId' . ($index + 1);
 
         $xml .= '<xdr:oneCellAnchor>' .
-            '<xdr:from><xdr:col>0</xdr:col><xdr:colOff>95250</xdr:colOff><xdr:row>' . $rowZero . '</xdr:row><xdr:rowOff>95250</xdr:rowOff></xdr:from>' .
-            '<xdr:ext cx="457200" cy="457200"/>' .
+            '<xdr:from><xdr:col>0</xdr:col><xdr:colOff>57150</xdr:colOff><xdr:row>' . $rowZero . '</xdr:row><xdr:rowOff>57150</xdr:rowOff></xdr:from>' .
+            '<xdr:ext cx="323850" cy="323850"/>' .
             '<xdr:pic>' .
             '<xdr:nvPicPr><xdr:cNvPr id="' . ($index + 1) . '" name="' . pv_xlsx_xml($name) . '"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>' .
             '<xdr:blipFill><a:blip r:embed="' . $rid . '"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>' .
@@ -1187,6 +1187,9 @@ if (($_GET['download'] ?? '') === 'excel') {
 }
 
 $headers = !empty($allRows) ? array_keys($allRows[0]['columns']) : [];
+$displayHeaders = array_values(array_filter($headers, static function (string $header): bool {
+    return $header !== 'Attention';
+}));
 $totalCount = count($allRows);
 $attentionCount = pv_count_attention($allRows);
 $completeCount = $totalCount - $attentionCount;
@@ -1298,12 +1301,15 @@ include __DIR__ . '/header.php';
     .validation-table td {
         border-right: 1px solid #d8d8d8;
         border-bottom: 1px solid #d8d8d8;
-        padding: 0.55rem;
-        vertical-align: top;
+        padding: 0.3rem 0.4rem;
+        vertical-align: middle;
         background: #ffffff;
-        min-width: 160px;
-        max-width: 340px;
-        white-space: pre-wrap;
+        min-width: 140px;
+        max-width: 260px;
+        white-space: nowrap;
+        overflow: visible;
+        font-size: 0.86rem;
+        line-height: 1.15;
     }
 
     .validation-table th {
@@ -1328,20 +1334,20 @@ include __DIR__ . '/header.php';
         position: sticky;
         left: 0;
         z-index: 3;
-        min-width: 84px;
-        max-width: 84px;
-        width: 84px;
+        min-width: 58px;
+        max-width: 58px;
+        width: 58px;
         text-align: center;
         background: inherit;
     }
 
     .validation-table .sticky-name {
         position: sticky;
-        left: 84px;
+        left: 58px;
         z-index: 3;
-        min-width: 240px;
-        max-width: 240px;
-        width: 240px;
+        min-width: 190px;
+        max-width: 190px;
+        width: 190px;
         background: inherit;
         font-weight: 900;
     }
@@ -1355,10 +1361,10 @@ include __DIR__ . '/header.php';
 
     .validation-photo,
     .validation-photo-placeholder {
-        width: 56px;
-        height: 56px;
+        width: 38px;
+        height: 38px;
         border-radius: 50%;
-        border: 3px solid #1d1d1d;
+        border: 2px solid #1d1d1d;
         object-fit: cover;
         background: #7413dc;
         color: #ffffff;
@@ -1366,7 +1372,89 @@ include __DIR__ . '/header.php';
         align-items: center;
         justify-content: center;
         font-weight: 900;
-        font-size: 1rem;
+        font-size: 0.8rem;
+    }
+
+    .validation-cell-text,
+    .validation-small {
+        display: block;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .validation-photo-wrap {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 42px;
+        height: 42px;
+        outline: none;
+    }
+
+    .validation-photo-has-flags .validation-photo,
+    .validation-photo-has-flags .validation-photo-placeholder {
+        border-color: #d4351c;
+        box-shadow: 0 0 0 2px #fff1f0;
+    }
+
+    .validation-photo-count {
+        position: absolute;
+        right: -4px;
+        bottom: -3px;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 4px;
+        border-radius: 999px;
+        background: #d4351c;
+        color: #ffffff;
+        border: 2px solid #ffffff;
+        font-size: 0.68rem;
+        font-weight: 900;
+        line-height: 14px;
+        text-align: center;
+    }
+
+    .validation-face-tooltip {
+        position: absolute;
+        left: 48px;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 50;
+        display: none;
+        min-width: 280px;
+        max-width: 420px;
+        max-height: 360px;
+        overflow: auto;
+        padding: 0.75rem;
+        border: 2px solid #1d1d1d;
+        background: #ffffff;
+        color: #1d1d1d;
+        text-align: left;
+        white-space: normal;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.22);
+    }
+
+    .validation-face-tooltip strong {
+        display: block;
+        margin-bottom: 0.4rem;
+    }
+
+    .validation-face-tooltip ul {
+        padding-left: 1.1rem;
+        margin: 0;
+    }
+
+    .validation-face-tooltip li {
+        margin-bottom: 0.25rem;
+    }
+
+    .validation-photo-wrap:hover .validation-face-tooltip,
+    .validation-photo-wrap:focus .validation-face-tooltip,
+    .validation-photo-wrap:focus-within .validation-face-tooltip {
+        display: block;
     }
 
     .validation-pill {
@@ -1418,7 +1506,8 @@ include __DIR__ . '/header.php';
     }
 
     .validation-small {
-        font-size: 0.9rem;
+        font-size: 0.78rem;
+        margin-top: 0.15rem;
     }
 </style>
 
@@ -1499,6 +1588,9 @@ include __DIR__ . '/header.php';
 
     <section class="validation-panel">
         <h2>Validation sheet</h2>
+        <p class="validation-muted">
+            Hover over, or tab to, a participant photo to see that participant’s attention flags without adding a tall attention column.
+        </p>
 
         <?php if (empty($displayRows)): ?>
             <p class="validation-muted mb-0">No participants match the current filter.</p>
@@ -1507,7 +1599,7 @@ include __DIR__ . '/header.php';
                 <table class="validation-table">
                     <thead>
                         <tr>
-                            <?php foreach ($headers as $index => $header): ?>
+                            <?php foreach ($displayHeaders as $index => $header): ?>
                                 <?php
                                 $classes = [];
 
@@ -1527,7 +1619,7 @@ include __DIR__ . '/header.php';
                         <?php foreach ($displayRows as $row): ?>
                             <?php $person = $row['person']; ?>
                             <tr>
-                                <?php foreach ($headers as $header): ?>
+                                <?php foreach ($displayHeaders as $header): ?>
                                     <?php
                                     $classes = [];
 
@@ -1547,11 +1639,42 @@ include __DIR__ . '/header.php';
                                     ?>
                                     <td class="<?= e(implode(' ', $classes)) ?>">
                                         <?php if ($header === 'Photo'): ?>
-                                            <?php if (pv_photo_src($person) !== ''): ?>
-                                                <img class="validation-photo" src="<?= e(pv_photo_src($person)) ?>" alt="Photo of <?= e($person['name'] ?? 'participant') ?>">
-                                            <?php else: ?>
-                                                <span class="validation-photo-placeholder" aria-hidden="true"><?= e(pv_initials($person['name'] ?? '')) ?></span>
-                                            <?php endif; ?>
+                                            <?php
+                                            $flagCount = count($row['flags']);
+                                            $flagTooltip = $flagCount === 0 ? 'No attention flags' : implode("\n", $row['flags']);
+                                            ?>
+                                            <span
+                                                class="validation-photo-wrap <?= $flagCount > 0 ? 'validation-photo-has-flags' : 'validation-photo-ok' ?>"
+                                                tabindex="0"
+                                                title="<?= e($flagTooltip) ?>"
+                                                aria-label="<?= e(($person['name'] ?? 'Participant') . ': ' . $flagTooltip) ?>"
+                                            >
+                                                <?php if (pv_photo_src($person) !== ''): ?>
+                                                    <img class="validation-photo" src="<?= e(pv_photo_src($person)) ?>" alt="Photo of <?= e($person['name'] ?? 'participant') ?>">
+                                                <?php else: ?>
+                                                    <span class="validation-photo-placeholder" aria-hidden="true"><?= e(pv_initials($person['name'] ?? '')) ?></span>
+                                                <?php endif; ?>
+
+                                                <?php if ($flagCount > 0): ?>
+                                                    <span class="validation-photo-count" aria-hidden="true"><?= (int)$flagCount ?></span>
+                                                <?php endif; ?>
+
+                                                <span class="validation-face-tooltip" role="tooltip">
+                                                    <strong>
+                                                        <?= $flagCount === 0 ? 'No attention flags' : e($flagCount . ' attention ' . ($flagCount === 1 ? 'flag' : 'flags')) ?>
+                                                    </strong>
+
+                                                    <?php if ($flagCount > 0): ?>
+                                                        <ul>
+                                                            <?php foreach ($row['flags'] as $flag): ?>
+                                                                <li><?= e($flag) ?></li>
+                                                            <?php endforeach; ?>
+                                                        </ul>
+                                                    <?php else: ?>
+                                                        <span class="validation-muted">No validation issues found.</span>
+                                                    <?php endif; ?>
+                                                </span>
+                                            </span>
                                         <?php elseif ($header === 'Participant'): ?>
                                             <a href="<?= e(url('people.php?person_id=' . (int)$row['person_id'])) ?>">
                                                 <?= e($row['columns'][$header] ?? '') ?>
@@ -1565,10 +1688,14 @@ include __DIR__ . '/header.php';
                                         <?php elseif ($header === 'EHIC/GHIC check'): ?>
                                             <?= pv_status_badge($row['status']['ehic']) ?>
                                             <div class="validation-small"><?= e($row['status']['ehic']['details'] ?? '') ?></div>
-                                        <?php elseif ($header === 'Attention' && empty($row['flags'])): ?>
-                                            <span class="validation-pill validation-pill-ok">No attention flags</span>
                                         <?php else: ?>
-                                            <?= nl2br(e((string)($row['columns'][$header] ?? ''))) ?>
+                                            <?php
+                                            $cellValue = (string)($row['columns'][$header] ?? '');
+                                            $compactCellValue = preg_replace('/\s*\n+\s*/', ' · ', $cellValue);
+                                            ?>
+                                            <span class="validation-cell-text" title="<?= e($cellValue) ?>">
+                                                <?= e((string)$compactCellValue) ?>
+                                            </span>
                                         <?php endif; ?>
                                     </td>
                                 <?php endforeach; ?>
