@@ -11,7 +11,7 @@ const PEOPLE_UPLOAD_DIR = '/home/brscouts/exbelt2026.irvalscouts.org.uk/assets/p
 const PEOPLE_UPLOAD_PUBLIC_PATH = 'assets/people/';
 const ONBOARDING_CONFIRMATION_FROM_EMAIL = 'noreply@app.irvalscouts.org.uk';
 const DATA_PROTECTION_EMAIL = 'rammyexplorers@gmail.com';
-const ONBOARDING_VERSION = 'explorer-belt-2026-consent-v5';
+const ONBOARDING_VERSION = 'explorer-belt-2026-consent-v6';
 
 $error = '';
 $success = '';
@@ -837,7 +837,7 @@ function health_pdf_escape(string $text): string
 function health_pdf_lines_from_text(string $text, int $maxChars): array
 {
     $lines = [];
-    $paragraphs = explode("\n", $text);
+    $paragraphs = explode("\n", str_replace(["\r\n", "\r"], "\n", trim($text)));
 
     foreach ($paragraphs as $paragraph) {
         $paragraph = trim($paragraph);
@@ -847,187 +847,758 @@ function health_pdf_lines_from_text(string $text, int $maxChars): array
             continue;
         }
 
-        $wrapped = wordwrap($paragraph, $maxChars, "\n", true);
-
-        foreach (explode("\n", $wrapped) as $line) {
+        foreach (explode("\n", wordwrap($paragraph, $maxChars, "\n", true)) as $line) {
             $lines[] = $line;
         }
     }
 
-    return $lines;
+    return empty($lines) ? [''] : $lines;
 }
 
-function health_pdf_build_lines(array $person, array $snapshot, ?array $submission = null): array
+function health_pdf_template_paths(): array
 {
-    $contacts = json_items($person['emergency_contacts_json'] ?? null);
-    $parentEmails = json_items($person['parent_emails_json'] ?? null);
-    $medications = json_items($person['medications_json'] ?? null);
-    $allergies = json_items($person['allergies_json'] ?? null);
-    $additionalInfo = snapshot_value($snapshot, ['health', 'additional_information']);
+    return [
+        __DIR__ . '/assets/pdf_templates/parental-consent-page-1.jpg',
+        __DIR__ . '/assets/pdf_templates/parental-consent-page-2.jpg',
+        __DIR__ . '/assets/pdf_templates/parental-consent-page-3.jpg',
+    ];
+}
+
+function health_pdf_template_available(): bool
+{
+    foreach (health_pdf_template_paths() as $path) {
+        if (!is_file($path) || !is_readable($path)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function health_pdf_pdf_date(?string $value): string
+{
+    $value = trim((string)$value);
+
+    if ($value === '') {
+        return '';
+    }
+
+    $timestamp = strtotime($value);
+
+    return $timestamp === false ? $value : date('d/m/Y', $timestamp);
+}
+
+function health_pdf_person_age_date(?string $dob): string
+{
+    $dob = trim((string)$dob);
+
+    if ($dob === '') {
+        return '';
+    }
+
+    $timestamp = strtotime($dob);
+
+    return $timestamp === false ? $dob : date('d/m/Y', $timestamp);
+}
+
+function health_pdf_snapshot_path(array $snapshot, array $path): string
+{
+    $value = $snapshot;
+
+    foreach ($path as $key) {
+        if (!is_array($value) || !array_key_exists($key, $value)) {
+            return '';
+        }
+
+        $value = $value[$key];
+    }
+
+    if (is_array($value)) {
+        return implode("\n", array_filter(array_map('strval', $value)));
+    }
+
+    return trim((string)$value);
+}
+
+function health_pdf_value(array $person, array $snapshot, string $column, array $snapshotPaths = []): string
+{
+    $personValue = trim((string)($person[$column] ?? ''));
+
+    if ($personValue !== '') {
+        return $personValue;
+    }
+
+    foreach ($snapshotPaths as $path) {
+        $snapshotValue = health_pdf_snapshot_path($snapshot, $path);
+
+        if ($snapshotValue !== '') {
+            return $snapshotValue;
+        }
+    }
+
+    return '';
+}
+
+function health_pdf_array_from_person_or_snapshot(array $person, array $snapshot, string $column, array $snapshotPath): array
+{
+    $items = json_items($person[$column] ?? null);
+
+    if (!empty($items)) {
+        return $items;
+    }
+
+    $value = $snapshot;
+
+    foreach ($snapshotPath as $key) {
+        if (!is_array($value) || !array_key_exists($key, $value)) {
+            return [];
+        }
+
+        $value = $value[$key];
+    }
+
+    return is_array($value) ? $value : [];
+}
+
+function health_pdf_contact_value(array $contact, array $keys): string
+{
+    foreach ($keys as $key) {
+        $value = trim((string)($contact[$key] ?? ''));
+
+        if ($value !== '') {
+            return $value;
+        }
+    }
+
+    return '';
+}
+
+function health_pdf_items_to_text(array $items): string
+{
+    $lines = [];
+
+    foreach ($items as $item) {
+        if (is_array($item)) {
+            $item = implode(' | ', array_filter(array_map('strval', $item)));
+        }
+
+        $item = trim((string)$item);
+
+        if ($item !== '') {
+            $lines[] = $item;
+        }
+    }
+
+    return implode("\n", $lines);
+}
+
+function health_pdf_contains_meaningful_text(string $value): bool
+{
+    $value = trim(strtolower($value));
+
+    return $value !== '' && !in_array($value, ['none', 'no', 'n/a', 'na', 'not applicable', 'none recorded'], true);
+}
+
+function health_pdf_medication_allergy_text(array $allergies, string $explicit): string
+{
+    $lines = [];
+
+    if (health_pdf_contains_meaningful_text($explicit)) {
+        $lines[] = $explicit;
+    }
+
+    foreach ($allergies as $item) {
+        if (is_array($item)) {
+            $item = implode(' | ', array_filter(array_map('strval', $item)));
+        }
+
+        $item = trim((string)$item);
+
+        if ($item !== '' && stripos($item, 'medication allergy') !== false) {
+            $lines[] = $item;
+        }
+    }
+
+    return implode("\n", array_unique($lines));
+}
+
+function health_pdf_submission_value(?array $submission, array $person, string $submissionColumn, string $personColumn): string
+{
+    $value = trim((string)($submission[$submissionColumn] ?? ''));
+
+    if ($value !== '') {
+        return $value;
+    }
+
+    return trim((string)($person[$personColumn] ?? ''));
+}
+
+function health_pdf_signature_data_url(?array $submission, array $person, string $submissionColumn, string $personColumn): string
+{
+    $value = trim((string)($submission[$submissionColumn] ?? ''));
+
+    if ($value !== '') {
+        return $value;
+    }
+
+    return trim((string)($person[$personColumn] ?? ''));
+}
+
+function health_pdf_template_data(array $person, array $snapshot, ?array $submission = null): array
+{
+    $contacts = health_pdf_array_from_person_or_snapshot($person, $snapshot, 'emergency_contacts_json', ['emergency_contacts']);
+    $parentEmails = health_pdf_array_from_person_or_snapshot($person, $snapshot, 'parent_emails_json', ['update_emails']);
+    $medications = health_pdf_array_from_person_or_snapshot($person, $snapshot, 'medications_json', ['health', 'medications']);
+    $allergies = health_pdf_array_from_person_or_snapshot($person, $snapshot, 'allergies_json', ['health', 'allergies']);
+
+    $additionalInfo = health_pdf_snapshot_path($snapshot, ['health', 'additional_information']);
+    $medicalConditionDetails = health_pdf_value($person, $snapshot, 'health_medical_condition_details', [['health', 'medical_condition_details']]);
+    $physicalRestrictionDetails = health_pdf_value($person, $snapshot, 'health_physical_restriction_details', [['health', 'physical_restriction_details']]);
+    $medicationAllergyDetails = health_pdf_medication_allergy_text(
+        $allergies,
+        health_pdf_value($person, $snapshot, 'health_medication_allergy_details', [['health', 'medication_allergy_details']])
+    );
+
+    $healthLines = [];
+
+    if (health_pdf_contains_meaningful_text($medicalConditionDetails)) {
+        $healthLines[] = 'Medical condition: ' . $medicalConditionDetails;
+    }
+
+    if (!empty($medications)) {
+        $healthLines[] = 'Medication: ' . str_replace("\n", '; ', health_pdf_items_to_text($medications));
+    }
+
+    if (!empty($allergies)) {
+        $healthLines[] = 'Allergy/intolerance/dietary: ' . str_replace("\n", '; ', health_pdf_items_to_text($allergies));
+    }
+
+    if (health_pdf_contains_meaningful_text($additionalInfo)) {
+        $healthLines[] = 'Additional welfare/medical information: ' . $additionalInfo;
+    }
+
+    $healthDetails = implode("\n", $healthLines);
+    $healthAnswer = health_pdf_contains_meaningful_text($healthDetails) ? 'Yes' : 'No';
+    $physicalAnswer = health_pdf_contains_meaningful_text($physicalRestrictionDetails) ? 'Yes' : 'No';
+    $medicationAllergyAnswer = health_pdf_contains_meaningful_text($medicationAllergyDetails) ? 'Yes' : 'No';
+
+    $submittedAt = trim((string)($submission['submitted_at'] ?? ''));
+
+    if ($submittedAt === '') {
+        $submittedAt = trim((string)($person['parent_form_completed_at'] ?? ''));
+    }
+
+    if ($submittedAt === '') {
+        $submittedAt = health_pdf_snapshot_path($snapshot, ['submitted', 'submitted_at']);
+    }
+
+    return [
+        'participant_name' => health_pdf_value($person, $snapshot, 'name', [['participant', 'name']]),
+        'dob' => health_pdf_person_age_date(health_pdf_value($person, $snapshot, 'dob', [['participant', 'dob']])),
+        'participant_phone' => health_pdf_value($person, $snapshot, 'participant_phone', [['participant', 'participant_phone']]),
+        'passport_number' => health_pdf_value($person, $snapshot, 'passport_number', [['participant', 'passport_number'], ['personal', 'passport_number']]),
+        'passport_expiry_date' => health_pdf_pdf_date(health_pdf_value($person, $snapshot, 'passport_expiry_date', [['participant', 'passport_expiry_date'], ['personal', 'passport_expiry_date']])),
+        'passport_nationality' => health_pdf_value($person, $snapshot, 'passport_nationality', [['participant', 'passport_nationality'], ['personal', 'passport_nationality']]),
+        'ehic_ghic_number' => health_pdf_value($person, $snapshot, 'ehic_ghic_number', [['participant', 'ehic_ghic_number'], ['personal', 'ehic_ghic_number']]),
+        'ehic_ghic_expiry_date' => health_pdf_pdf_date(health_pdf_value($person, $snapshot, 'ehic_ghic_expiry_date', [['participant', 'ehic_ghic_expiry_date'], ['personal', 'ehic_ghic_expiry_date']])),
+        'contacts' => $contacts,
+        'update_emails' => $parentEmails,
+        'health_answer' => $healthAnswer,
+        'health_details' => $healthAnswer . ($healthDetails !== '' ? " - " . $healthDetails : ''),
+        'physical_answer' => $physicalAnswer,
+        'physical_details' => $physicalAnswer . ($physicalRestrictionDetails !== '' ? " - " . $physicalRestrictionDetails : ''),
+        'medication_allergy_answer' => $medicationAllergyAnswer,
+        'medication_allergy_details' => $medicationAllergyAnswer . ($medicationAllergyDetails !== '' ? " - " . $medicationAllergyDetails : ''),
+        'family_doctor_name' => health_pdf_value($person, $snapshot, 'family_doctor_name', [['health', 'family_doctor_name']]),
+        'family_doctor_phone' => health_pdf_value($person, $snapshot, 'family_doctor_phone', [['health', 'family_doctor_phone']]),
+        'family_doctor_address' => health_pdf_value($person, $snapshot, 'family_doctor_address', [['health', 'family_doctor_address']]),
+        'parent_guardian_name' => health_pdf_submission_value($submission, $person, 'parent_guardian_name', 'parent_guardian_name'),
+        'parent_signature_data_url' => health_pdf_signature_data_url($submission, $person, 'parent_signature_data_url', 'parent_signature_data_url'),
+        'young_person_name' => health_pdf_submission_value($submission, $person, 'young_person_name', 'young_person_declaration_name'),
+        'young_person_signature_data_url' => health_pdf_signature_data_url($submission, $person, 'young_person_signature_data_url', 'young_person_signature_data_url'),
+        'submitted_date' => health_pdf_pdf_date($submittedAt) ?: people_now()->format('d/m/Y'),
+    ];
+}
+
+function health_pdf_image_object_from_jpeg_binary(array &$objects, int &$nextObjectId, string $binary): ?array
+{
+    $info = @getimagesizefromstring($binary);
+
+    if (!$info || empty($info[0]) || empty($info[1])) {
+        return null;
+    }
+
+    $objectId = $nextObjectId++;
+    $objects[$objectId] = '<< /Type /XObject /Subtype /Image /Width ' . (int)$info[0] . ' /Height ' . (int)$info[1] . ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' . strlen($binary) . " >>\nstream\n" . $binary . "\nendstream";
+
+    return ['object_id' => $objectId, 'width' => (int)$info[0], 'height' => (int)$info[1]];
+}
+
+function health_pdf_png_paeth(int $a, int $b, int $c): int
+{
+    $p = $a + $b - $c;
+    $pa = abs($p - $a);
+    $pb = abs($p - $b);
+    $pc = abs($p - $c);
+
+    if ($pa <= $pb && $pa <= $pc) {
+        return $a;
+    }
+
+    return $pb <= $pc ? $b : $c;
+}
+
+function health_pdf_image_object_from_png_binary(array &$objects, int &$nextObjectId, string $binary): ?array
+{
+    if (substr($binary, 0, 8) !== "\x89PNG\r\n\x1a\n") {
+        return null;
+    }
+
+    $offset = 8;
+    $width = 0;
+    $height = 0;
+    $bitDepth = 0;
+    $colorType = 0;
+    $interlace = 0;
+    $idat = '';
+
+    while ($offset + 8 <= strlen($binary)) {
+        $length = unpack('N', substr($binary, $offset, 4))[1];
+        $type = substr($binary, $offset + 4, 4);
+        $data = substr($binary, $offset + 8, $length);
+        $offset += 12 + $length;
+
+        if ($type === 'IHDR') {
+            $parts = unpack('Nwidth/Nheight/CbitDepth/CcolorType/Ccompression/Cfilter/Cinterlace', $data);
+            $width = (int)$parts['width'];
+            $height = (int)$parts['height'];
+            $bitDepth = (int)$parts['bitDepth'];
+            $colorType = (int)$parts['colorType'];
+            $interlace = (int)$parts['interlace'];
+        } elseif ($type === 'IDAT') {
+            $idat .= $data;
+        } elseif ($type === 'IEND') {
+            break;
+        }
+    }
+
+    if ($width <= 0 || $height <= 0 || $bitDepth !== 8 || $interlace !== 0 || $idat === '') {
+        return null;
+    }
+
+    $channels = $colorType === 6 ? 4 : ($colorType === 2 ? 3 : ($colorType === 4 ? 2 : ($colorType === 0 ? 1 : 0)));
+
+    if ($channels === 0) {
+        return null;
+    }
+
+    $decoded = @zlib_decode($idat);
+
+    if ($decoded === false) {
+        return null;
+    }
+
+    $rowLength = $width * $channels;
+    $pos = 0;
+    $prev = array_fill(0, $rowLength, 0);
+    $rgb = '';
+    $alpha = '';
+    $hasAlpha = $colorType === 6 || $colorType === 4;
+
+    for ($y = 0; $y < $height; $y++) {
+        if ($pos >= strlen($decoded)) {
+            return null;
+        }
+
+        $filter = ord($decoded[$pos++]);
+        $scan = [];
+
+        for ($i = 0; $i < $rowLength; $i++) {
+            $raw = $pos < strlen($decoded) ? ord($decoded[$pos++]) : 0;
+            $left = $i >= $channels ? $scan[$i - $channels] : 0;
+            $up = $prev[$i] ?? 0;
+            $upperLeft = $i >= $channels ? ($prev[$i - $channels] ?? 0) : 0;
+
+            if ($filter === 1) {
+                $value = ($raw + $left) & 0xff;
+            } elseif ($filter === 2) {
+                $value = ($raw + $up) & 0xff;
+            } elseif ($filter === 3) {
+                $value = ($raw + intdiv($left + $up, 2)) & 0xff;
+            } elseif ($filter === 4) {
+                $value = ($raw + health_pdf_png_paeth($left, $up, $upperLeft)) & 0xff;
+            } else {
+                $value = $raw;
+            }
+
+            $scan[$i] = $value;
+        }
+
+        for ($x = 0; $x < $width; $x++) {
+            $base = $x * $channels;
+
+            if ($colorType === 6) {
+                $rgb .= chr($scan[$base]) . chr($scan[$base + 1]) . chr($scan[$base + 2]);
+                $alpha .= chr($scan[$base + 3]);
+            } elseif ($colorType === 2) {
+                $rgb .= chr($scan[$base]) . chr($scan[$base + 1]) . chr($scan[$base + 2]);
+            } elseif ($colorType === 4) {
+                $v = chr($scan[$base]);
+                $rgb .= $v . $v . $v;
+                $alpha .= chr($scan[$base + 1]);
+            } elseif ($colorType === 0) {
+                $v = chr($scan[$base]);
+                $rgb .= $v . $v . $v;
+            }
+        }
+
+        $prev = $scan;
+    }
+
+    $maskObjectId = null;
+
+    if ($hasAlpha && $alpha !== '') {
+        $compressedAlpha = gzcompress($alpha);
+        $maskObjectId = $nextObjectId++;
+        $objects[$maskObjectId] = '<< /Type /XObject /Subtype /Image /Width ' . $width . ' /Height ' . $height . ' /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length ' . strlen($compressedAlpha) . " >>\nstream\n" . $compressedAlpha . "\nendstream";
+    }
+
+    $compressedRgb = gzcompress($rgb);
+    $objectId = $nextObjectId++;
+    $smask = $maskObjectId ? ' /SMask ' . $maskObjectId . ' 0 R' : '';
+    $objects[$objectId] = '<< /Type /XObject /Subtype /Image /Width ' . $width . ' /Height ' . $height . ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode' . $smask . ' /Length ' . strlen($compressedRgb) . " >>\nstream\n" . $compressedRgb . "\nendstream";
+
+    return ['object_id' => $objectId, 'width' => $width, 'height' => $height];
+}
+
+function health_pdf_image_object_from_path(array &$objects, int &$nextObjectId, string $path): ?array
+{
+    if (!is_file($path) || !is_readable($path)) {
+        return null;
+    }
+
+    $binary = file_get_contents($path);
+
+    if ($binary === false) {
+        return null;
+    }
+
+    $info = @getimagesizefromstring($binary);
+    $mime = $info['mime'] ?? '';
+
+    if ($mime === 'image/jpeg') {
+        return health_pdf_image_object_from_jpeg_binary($objects, $nextObjectId, $binary);
+    }
+
+    if ($mime === 'image/png') {
+        return health_pdf_image_object_from_png_binary($objects, $nextObjectId, $binary);
+    }
+
+    return null;
+}
+
+function health_pdf_image_object_from_data_url(array &$objects, int &$nextObjectId, string $dataUrl): ?array
+{
+    $dataUrl = trim($dataUrl);
+
+    if ($dataUrl === '' || !preg_match('/^data:image\/(png|jpe?g);base64,/i', $dataUrl, $matches)) {
+        return null;
+    }
+
+    $binary = base64_decode(substr($dataUrl, strpos($dataUrl, ',') + 1), true);
+
+    if ($binary === false || $binary === '') {
+        return null;
+    }
+
+    $type = strtolower($matches[1]);
+
+    if ($type === 'jpg' || $type === 'jpeg') {
+        return health_pdf_image_object_from_jpeg_binary($objects, $nextObjectId, $binary);
+    }
+
+    return health_pdf_image_object_from_png_binary($objects, $nextObjectId, $binary);
+}
+
+function health_pdf_text_command(float $x, float $y, int $size, string $text, string $font = 'F1'): string
+{
+    return 'BT /' . $font . ' ' . $size . ' Tf 1 0 0 1 ' . number_format($x, 2, '.', '') . ' ' . number_format($y, 2, '.', '') . ' Tm (' . health_pdf_escape($text) . ") Tj ET\n";
+}
+
+function health_pdf_wrapped_text_commands(float $x, float $topY, float $width, float $height, string $text, int $size = 9, float $lineHeight = 10.5, int $maxLinesOverride = 0): string
+{
+    $maxChars = max(8, (int)floor($width / max(3.4, $size * 0.47)));
+    $lines = health_pdf_lines_from_text($text, $maxChars);
+    $maxLines = $maxLinesOverride > 0 ? $maxLinesOverride : max(1, (int)floor($height / $lineHeight));
+
+    if (count($lines) > $maxLines) {
+        $lines = array_slice($lines, 0, $maxLines);
+        $last = rtrim((string)end($lines));
+        $lines[$maxLines - 1] = strlen($last) > 3 ? substr($last, 0, max(1, $maxChars - 3)) . '...' : $last;
+    }
+
+    $content = '';
+    $y = $topY - $size;
+
+    foreach ($lines as $line) {
+        $content .= health_pdf_text_command($x, $y, $size, (string)$line);
+        $y -= $lineHeight;
+    }
+
+    return $content;
+}
+
+function health_pdf_draw_image_command(string $name, float $x, float $y, float $width, float $height): string
+{
+    return 'q ' . number_format($width, 2, '.', '') . ' 0 0 ' . number_format($height, 2, '.', '') . ' ' . number_format($x, 2, '.', '') . ' ' . number_format($y, 2, '.', '') . ' cm /' . $name . " Do Q\n";
+}
+
+function health_pdf_legacy_lines(array $person, array $snapshot, ?array $submission = null): array
+{
+    $data = health_pdf_template_data($person, $snapshot, $submission);
+    $contacts = $data['contacts'];
+    $updateEmails = $data['update_emails'];
 
     $lines = [];
-    $lines[] = ['text' => 'Explorer Belt health and emergency information', 'size' => 18, 'bold' => true];
+    $lines[] = ['text' => 'Explorer Belt completed consent and health form', 'size' => 18, 'bold' => true];
     $lines[] = ['text' => 'Generated: ' . people_now()->format('d M Y H:i'), 'size' => 9, 'bold' => false];
     $lines[] = ['text' => '', 'size' => 9, 'bold' => false];
-
-    $addSection = static function (string $title) use (&$lines): void {
-        $lines[] = ['text' => '', 'size' => 8, 'bold' => false];
-        $lines[] = ['text' => $title, 'size' => 13, 'bold' => true];
-    };
 
     $addField = static function (string $label, $value) use (&$lines): void {
         $value = trim((string)$value);
         $lines[] = ['text' => $label . ': ' . ($value !== '' ? $value : 'Not recorded'), 'size' => 10, 'bold' => false];
     };
 
-    $addList = static function (string $label, array $items) use (&$lines): void {
-        $lines[] = ['text' => $label . ':', 'size' => 10, 'bold' => true];
+    $addField('Name', $data['participant_name']);
+    $addField('Date of birth', $data['dob']);
+    $addField('Explorer mobile number', $data['participant_phone']);
+    $addField('Passport no', $data['passport_number']);
+    $addField('Passport expiry date', $data['passport_expiry_date']);
+    $addField('Passport nationality', $data['passport_nationality']);
+    $addField('EHIC/GHIC no', $data['ehic_ghic_number']);
+    $addField('EHIC/GHIC expiry date', $data['ehic_ghic_expiry_date']);
+    $lines[] = ['text' => '', 'size' => 9, 'bold' => false];
+    $lines[] = ['text' => 'Emergency contacts', 'size' => 13, 'bold' => true];
 
-        if (empty($items)) {
-            $lines[] = ['text' => '  None recorded', 'size' => 10, 'bold' => false];
-            return;
+    foreach ($contacts as $index => $contact) {
+        if (!is_array($contact)) {
+            continue;
         }
 
-        foreach ($items as $item) {
-            if (is_array($item)) {
-                $item = implode(' | ', array_filter(array_map('strval', $item)));
-            }
-
-            $lines[] = ['text' => '  - ' . (string)$item, 'size' => 10, 'bold' => false];
-        }
-    };
-
-    $addSection('Participant details');
-    $addField('Name', $person['name'] ?? '');
-    $addField('Team', $person['team_name'] ?? '');
-    $addField('Date of birth', !empty($person['dob']) ? person_age($person['dob']) : '');
-    $addField('Gender', $person['gender'] ?? '');
-    $addField('Participant email', $person['participant_email'] ?? '');
-    $addField('Participant phone', $person['participant_phone'] ?? '');
-    $addField('Home address', $person['home_address'] ?? '');
-
-    $addSection('Travel documents');
-    $addField('Passport number', value_from_person_or_snapshot($person, $snapshot, 'passport_number', ['personal', 'passport_number']));
-    $addField('Passport expiry date', value_from_person_or_snapshot($person, $snapshot, 'passport_expiry_date', ['personal', 'passport_expiry_date']));
-    $addField('Passport nationality', value_from_person_or_snapshot($person, $snapshot, 'passport_nationality', ['personal', 'passport_nationality']));
-    $addField('EHIC/GHIC number', value_from_person_or_snapshot($person, $snapshot, 'ehic_ghic_number', ['personal', 'ehic_ghic_number']));
-    $addField('EHIC/GHIC expiry date', value_from_person_or_snapshot($person, $snapshot, 'ehic_ghic_expiry_date', ['personal', 'ehic_ghic_expiry_date']));
-
-    $addSection('Emergency contacts');
-    if (empty($contacts)) {
-        $lines[] = ['text' => 'No emergency contacts recorded.', 'size' => 10, 'bold' => false];
-    } else {
-        foreach ($contacts as $index => $contact) {
-            if (!is_array($contact)) {
-                continue;
-            }
-
-            $lines[] = ['text' => 'Contact ' . ($index + 1), 'size' => 11, 'bold' => true];
-            $addField('Name', $contact['name'] ?? '');
-            $addField('Relationship', $contact['relationship'] ?? '');
-            $addField('Address', $contact['address'] ?? '');
-            $addField('Home or other contact number', $contact['home_phone'] ?? '');
-            $addField('Mobile phone', $contact['mobile_phone'] ?? ($contact['phone'] ?? ''));
-            $addField('Email', $contact['email'] ?? '');
-        }
+        $addField('Contact ' . ($index + 1) . ' name', $contact['name'] ?? '');
+        $addField('Contact ' . ($index + 1) . ' address', $contact['address'] ?? '');
+        $addField('Contact ' . ($index + 1) . ' home/other number', $contact['home_phone'] ?? '');
+        $addField('Contact ' . ($index + 1) . ' mobile number', health_pdf_contact_value($contact, ['mobile_phone', 'phone']));
+        $addField('Contact ' . ($index + 1) . ' email', $contact['email'] ?? '');
     }
 
-    $addSection('Update emails');
-    $addList('Email addresses with access to trip updates', $parentEmails);
-
-    $addSection('Health data');
-    $addList('Medications', $medications);
-    $addList('Allergies, intolerances and dietary needs', $allergies);
-    $addField('Physical condition, injury or incapacity', value_from_person_or_snapshot($person, $snapshot, 'health_physical_restriction_details', ['health', 'physical_restriction_details']));
-    $addField('Additional medical or welfare information', $additionalInfo);
-
-    $addSection('Doctor details');
-    $addField('Family doctor name', value_from_person_or_snapshot($person, $snapshot, 'family_doctor_name', ['health', 'family_doctor_name']));
-    $addField('Family doctor telephone number', value_from_person_or_snapshot($person, $snapshot, 'family_doctor_phone', ['health', 'family_doctor_phone']));
-    $addField('Family doctor address', value_from_person_or_snapshot($person, $snapshot, 'family_doctor_address', ['health', 'family_doctor_address']));
-
-    $addSection('Submission details');
-    $addField('Parent form status', parent_form_completed($person) ? 'Completed' : 'Not completed');
-    $addField('Submitted at', $submission['submitted_at'] ?? ($person['parent_form_completed_at'] ?? ''));
+    $lines[] = ['text' => '', 'size' => 9, 'bold' => false];
+    $lines[] = ['text' => 'Health declaration', 'size' => 13, 'bold' => true];
+    $addField('Medical condition, allergy, intolerance or medication', $data['health_details']);
+    $addField('Physical condition, injury or incapacity', $data['physical_details']);
+    $addField('Medication allergy', $data['medication_allergy_details']);
+    $addField('Family doctor', $data['family_doctor_name']);
+    $addField('Doctor phone', $data['family_doctor_phone']);
+    $addField('Doctor address', $data['family_doctor_address']);
+    $addField('Parent/guardian name', $data['parent_guardian_name']);
+    $addField('Young person name', $data['young_person_name']);
+    $addField('Submitted date', $data['submitted_date']);
+    $addField('Update emails', implode(', ', array_map('strval', $updateEmails)));
 
     return $lines;
 }
 
-function send_health_form_pdf(array $person, array $snapshot = [], ?array $submission = null): void
+function health_pdf_append_text_page(array &$objects, int &$nextObjectId, array &$pageObjectIds, array $resources, array $lineSpecs, float $pageWidth, float $pageHeight): void
 {
-    $lineSpecs = health_pdf_build_lines($person, $snapshot, $submission);
-    $pageWidth = 595;
-    $pageHeight = 842;
     $margin = 42;
     $y = $pageHeight - $margin;
-    $pages = [];
-    $current = [];
-
-    $newPage = static function () use (&$pages, &$current, &$y, $pageHeight, $margin): void {
-        if (!empty($current)) {
-            $pages[] = $current;
-        }
-        $current = [];
-        $y = $pageHeight - $margin;
-    };
+    $content = '';
 
     foreach ($lineSpecs as $spec) {
         $text = (string)($spec['text'] ?? '');
         $size = (int)($spec['size'] ?? 10);
         $bold = !empty($spec['bold']);
+        $font = $bold ? 'F2' : 'F1';
+        $lineHeight = max(12, $size + 4);
         $maxChars = max(35, (int)floor(($pageWidth - ($margin * 2)) / max(4.8, $size * 0.50)));
-        $wrappedLines = health_pdf_lines_from_text($text, $maxChars);
 
-        foreach ($wrappedLines as $line) {
-            $lineHeight = max(12, $size + 4);
-
+        foreach (health_pdf_lines_from_text($text, $maxChars) as $line) {
             if ($y < $margin + $lineHeight) {
-                $newPage();
+                $contentId = $nextObjectId++;
+                $pageId = $nextObjectId++;
+                $objects[$contentId] = '<< /Length ' . strlen($content) . " >>\nstream\n" . $content . "endstream";
+                $objects[$pageId] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' . $pageWidth . ' ' . $pageHeight . '] /Resources ' . $resources['resource_dict'] . ' /Contents ' . $contentId . ' 0 R >>';
+                $pageObjectIds[] = $pageId;
+                $content = '';
+                $y = $pageHeight - $margin;
             }
 
-            $current[] = [
-                'x' => $margin,
-                'y' => $y,
-                'size' => $size,
-                'bold' => $bold,
-                'text' => $line,
-            ];
+            $content .= health_pdf_text_command($margin, $y, $size, $line, $font);
             $y -= $lineHeight;
         }
     }
 
-    if (!empty($current)) {
-        $pages[] = $current;
-    }
-
-    if (empty($pages)) {
-        $pages[] = [];
-    }
-
-    $objects = [];
-    $objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';
-
-    $fontRegularId = 3;
-    $fontBoldId = 4;
-    $objects[$fontRegularId] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
-    $objects[$fontBoldId] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
-
-    $pageObjectIds = [];
-    $nextObjectId = 5;
-
-    foreach ($pages as $pageLines) {
-        $content = '';
-
-        foreach ($pageLines as $line) {
-            $font = $line['bold'] ? 'F2' : 'F1';
-            $content .= 'BT /' . $font . ' ' . (int)$line['size'] . ' Tf 1 0 0 1 ' . (int)$line['x'] . ' ' . (int)$line['y'] . ' Tm (' . health_pdf_escape((string)$line['text']) . ") Tj ET\n";
-        }
-
+    if ($content !== '') {
         $contentId = $nextObjectId++;
         $pageId = $nextObjectId++;
         $objects[$contentId] = '<< /Length ' . strlen($content) . " >>\nstream\n" . $content . "endstream";
-        $objects[$pageId] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' . $pageWidth . ' ' . $pageHeight . '] /Resources << /Font << /F1 ' . $fontRegularId . ' 0 R /F2 ' . $fontBoldId . ' 0 R >> >> /Contents ' . $contentId . ' 0 R >>';
+        $objects[$pageId] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' . $pageWidth . ' ' . $pageHeight . '] /Resources ' . $resources['resource_dict'] . ' /Contents ' . $contentId . ' 0 R >>';
         $pageObjectIds[] = $pageId;
+    }
+}
+
+function send_health_form_pdf(array $person, array $snapshot = [], ?array $submission = null): void
+{
+    $pageWidth = 595.28;
+    $pageHeight = 841.89;
+    $objects = [];
+    $objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+    $objects[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+    $objects[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+    $nextObjectId = 5;
+
+    $imageResources = [];
+    $backgrounds = [];
+
+    foreach (health_pdf_template_paths() as $index => $path) {
+        $image = health_pdf_image_object_from_path($objects, $nextObjectId, $path);
+
+        if ($image) {
+            $name = 'BG' . ($index + 1);
+            $image['name'] = $name;
+            $backgrounds[$index + 1] = $image;
+            $imageResources[$name] = $image['object_id'];
+        }
+    }
+
+    $data = health_pdf_template_data($person, $snapshot, $submission);
+    $parentSignatureImage = health_pdf_image_object_from_data_url($objects, $nextObjectId, $data['parent_signature_data_url']);
+
+    if ($parentSignatureImage) {
+        $parentSignatureImage['name'] = 'SIGP';
+        $imageResources['SIGP'] = $parentSignatureImage['object_id'];
+    }
+
+    $youngSignatureImage = health_pdf_image_object_from_data_url($objects, $nextObjectId, $data['young_person_signature_data_url']);
+
+    if ($youngSignatureImage) {
+        $youngSignatureImage['name'] = 'SIGY';
+        $imageResources['SIGY'] = $youngSignatureImage['object_id'];
+    }
+
+    $xObjectEntries = '';
+
+    foreach ($imageResources as $name => $objectId) {
+        $xObjectEntries .= ' /' . $name . ' ' . $objectId . ' 0 R';
+    }
+
+    $resourceDict = '<< /Font << /F1 3 0 R /F2 4 0 R >>' . ($xObjectEntries !== '' ? ' /XObject <<' . $xObjectEntries . ' >>' : '') . ' >>';
+    $resources = ['resource_dict' => $resourceDict];
+    $pageObjectIds = [];
+
+    if (count($backgrounds) < 3) {
+        health_pdf_append_text_page($objects, $nextObjectId, $pageObjectIds, $resources, health_pdf_legacy_lines($person, $snapshot, $submission), $pageWidth, $pageHeight);
+    } else {
+        $contacts = $data['contacts'];
+        $firstContact = is_array($contacts[0] ?? null) ? $contacts[0] : [];
+        $secondContact = is_array($contacts[1] ?? null) ? $contacts[1] : [];
+
+        $pages = [];
+
+        $content = health_pdf_draw_image_command('BG1', 0, 0, $pageWidth, $pageHeight);
+        $content .= health_pdf_wrapped_text_commands(170, 690, 360, 34, $data['participant_name'], 11, 12, 2);
+        $content .= health_pdf_text_command(170, 657, 10, $data['dob']);
+        $content .= health_pdf_text_command(170, 634, 10, $data['participant_phone']);
+        $content .= health_pdf_text_command(155, 598, 9, $data['passport_number']);
+        $content .= health_pdf_text_command(398, 598, 9, $data['ehic_ghic_number']);
+        $content .= health_pdf_text_command(205, 571, 9, $data['passport_expiry_date']);
+        $content .= health_pdf_text_command(398, 571, 9, $data['ehic_ghic_expiry_date']);
+        $content .= health_pdf_text_command(205, 544, 9, $data['passport_nationality']);
+
+        $content .= health_pdf_text_command(135, 433, 9, health_pdf_contact_value($firstContact, ['name']));
+        $content .= health_pdf_wrapped_text_commands(135, 405, 405, 32, health_pdf_contact_value($firstContact, ['address']), 8.5, 10, 3);
+        $content .= health_pdf_text_command(206, 369, 9, health_pdf_contact_value($firstContact, ['home_phone']));
+        $content .= health_pdf_text_command(206, 333, 9, health_pdf_contact_value($firstContact, ['mobile_phone', 'phone']));
+        $content .= health_pdf_text_command(206, 308, 9, health_pdf_contact_value($firstContact, ['email']));
+
+        $content .= health_pdf_text_command(135, 264, 9, health_pdf_contact_value($secondContact, ['name']));
+        $content .= health_pdf_wrapped_text_commands(135, 230, 405, 34, health_pdf_contact_value($secondContact, ['address']), 8.5, 10, 3);
+        $content .= health_pdf_text_command(206, 172, 9, health_pdf_contact_value($secondContact, ['mobile_phone', 'phone']));
+        $content .= health_pdf_text_command(206, 136, 9, health_pdf_contact_value($secondContact, ['home_phone']));
+        $content .= health_pdf_text_command(206, 105, 8.5, health_pdf_contact_value($secondContact, ['email']));
+        $pages[] = $content;
+
+        $content = health_pdf_draw_image_command('BG2', 0, 0, $pageWidth, $pageHeight);
+        $content .= health_pdf_wrapped_text_commands(90, 703, 455, 48, $data['health_details'], 7.7, 9.2, 5);
+        $content .= health_pdf_wrapped_text_commands(90, 590, 455, 47, $data['physical_details'], 8, 9.5, 5);
+        $content .= health_pdf_wrapped_text_commands(90, 477, 455, 48, $data['medication_allergy_details'], 8, 9.5, 5);
+        $content .= health_pdf_text_command(200, 398, 10, $data['family_doctor_name']);
+        $content .= health_pdf_text_command(200, 380, 10, $data['family_doctor_phone']);
+        $content .= health_pdf_wrapped_text_commands(200, 355, 280, 52, $data['family_doctor_address'], 9, 11, 4);
+        $pages[] = $content;
+
+        $content = health_pdf_draw_image_command('BG3', 0, 0, $pageWidth, $pageHeight);
+        $content .= health_pdf_text_command(210, 396, 10, $data['parent_guardian_name']);
+
+        if ($parentSignatureImage) {
+            $content .= health_pdf_draw_image_command('SIGP', 210, 350, 320, 45);
+        } else {
+            $content .= health_pdf_text_command(210, 372, 10, 'Signature captured electronically');
+        }
+
+        $content .= health_pdf_text_command(115, 326, 10, $data['submitted_date']);
+        $content .= health_pdf_text_command(48, 238, 10, 'Young person acknowledgement');
+        $content .= health_pdf_text_command(48, 214, 9, 'Name of young person:');
+        $content .= health_pdf_text_command(183, 214, 10, $data['young_person_name']);
+        $content .= health_pdf_text_command(48, 178, 9, 'Signature of young person:');
+
+        if ($youngSignatureImage) {
+            $content .= health_pdf_draw_image_command('SIGY', 183, 150, 355, 48);
+        } else {
+            $content .= health_pdf_text_command(183, 178, 10, 'Signature captured electronically');
+        }
+
+        $content .= health_pdf_text_command(48, 124, 9, 'Date:');
+        $content .= health_pdf_text_command(88, 124, 10, $data['submitted_date']);
+        $pages[] = $content;
+
+        foreach ($pages as $content) {
+            $contentId = $nextObjectId++;
+            $pageId = $nextObjectId++;
+            $objects[$contentId] = '<< /Length ' . strlen($content) . " >>\nstream\n" . $content . "endstream";
+            $objects[$pageId] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' . $pageWidth . ' ' . $pageHeight . '] /Resources ' . $resourceDict . ' /Contents ' . $contentId . ' 0 R >>';
+            $pageObjectIds[] = $pageId;
+        }
+
+        $appendixLines = [];
+
+        if (count($data['contacts']) > 2) {
+            $appendixLines[] = ['text' => 'Additional emergency contacts', 'size' => 14, 'bold' => true];
+
+            foreach (array_slice($data['contacts'], 2) as $index => $contact) {
+                if (!is_array($contact)) {
+                    continue;
+                }
+
+                $appendixLines[] = ['text' => 'Contact ' . ($index + 3) . ': ' . health_pdf_contact_value($contact, ['name']), 'size' => 11, 'bold' => true];
+                $appendixLines[] = ['text' => 'Address: ' . health_pdf_contact_value($contact, ['address']), 'size' => 10, 'bold' => false];
+                $appendixLines[] = ['text' => 'Home/other: ' . health_pdf_contact_value($contact, ['home_phone']) . ' | Mobile: ' . health_pdf_contact_value($contact, ['mobile_phone', 'phone']) . ' | Email: ' . health_pdf_contact_value($contact, ['email']), 'size' => 10, 'bold' => false];
+            }
+        }
+
+        if (!empty($data['update_emails'])) {
+            $appendixLines[] = ['text' => '', 'size' => 10, 'bold' => false];
+            $appendixLines[] = ['text' => 'Email addresses with access to Explorer Belt updates', 'size' => 14, 'bold' => true];
+            $appendixLines[] = ['text' => implode(', ', array_map('strval', $data['update_emails'])), 'size' => 10, 'bold' => false];
+        }
+
+        if (!empty($appendixLines)) {
+            health_pdf_append_text_page($objects, $nextObjectId, $pageObjectIds, $resources, $appendixLines, $pageWidth, $pageHeight);
+        }
+    }
+
+    if (empty($pageObjectIds)) {
+        health_pdf_append_text_page($objects, $nextObjectId, $pageObjectIds, $resources, health_pdf_legacy_lines($person, $snapshot, $submission), $pageWidth, $pageHeight);
     }
 
     $kids = implode(' ', array_map(static fn($id) => $id . ' 0 R', $pageObjectIds));
@@ -1036,25 +1607,34 @@ function send_health_form_pdf(array $person, array $snapshot = [], ?array $submi
 
     $pdf = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
     $offsets = [0 => 0];
+    $maxObjectId = max(array_keys($objects));
 
-    foreach ($objects as $id => $body) {
-        $offsets[$id] = strlen($pdf);
-        $pdf .= $id . " 0 obj\n" . $body . "\nendobj\n";
+    for ($i = 1; $i <= $maxObjectId; $i++) {
+        if (!array_key_exists($i, $objects)) {
+            continue;
+        }
+
+        $offsets[$i] = strlen($pdf);
+        $pdf .= $i . " 0 obj\n" . $objects[$i] . "\nendobj\n";
     }
 
     $xrefOffset = strlen($pdf);
-    $pdf .= "xref\n0 " . (count($objects) + 1) . "\n";
+    $pdf .= "xref\n0 " . ($maxObjectId + 1) . "\n";
     $pdf .= "0000000000 65535 f \n";
 
-    for ($i = 1; $i <= count($objects); $i++) {
-        $pdf .= sprintf("%010d 00000 n \n", $offsets[$i]);
+    for ($i = 1; $i <= $maxObjectId; $i++) {
+        if (array_key_exists($i, $offsets)) {
+            $pdf .= sprintf("%010d 00000 n \n", $offsets[$i]);
+        } else {
+            $pdf .= "0000000000 65535 f \n";
+        }
     }
 
-    $pdf .= "trailer\n<< /Size " . (count($objects) + 1) . " /Root 1 0 R >>\nstartxref\n" . $xrefOffset . "\n%%EOF";
+    $pdf .= "trailer\n<< /Size " . ($maxObjectId + 1) . " /Root 1 0 R >>\nstartxref\n" . $xrefOffset . "\n%%EOF";
 
     $filenameName = preg_replace('/[^A-Za-z0-9_-]+/', '_', (string)($person['name'] ?? 'participant'));
     $filename = trim($filenameName, '_') ?: 'participant';
-    $filename .= '_health_form.pdf';
+    $filename .= '_completed_consent_form.pdf';
 
     header('Content-Type: application/pdf');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
@@ -1845,7 +2425,7 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
             <?php if ($downloadToken !== ''): ?>
                 <p class="mb-0">
                     <a class="btn btn-primary" href="<?= e(url('parent_onboarding.php?download_health_form=' . urlencode($downloadToken))) ?>">
-                        Download completed health form PDF
+                        Download completed consent form PDF
                     </a>
                 </p>
                 <p class="muted mt-2 mb-0">
