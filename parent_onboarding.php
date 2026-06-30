@@ -503,6 +503,19 @@ function posted_signature_data_url(string $key): ?string
     return $value;
 }
 
+function signature_text_from_post(string $signatureKey, string $nameKey): string
+{
+    $signature = clean_text($_POST[$signatureKey] ?? '');
+
+    if ($signature !== '') {
+        return $signature;
+    }
+
+    $name = clean_text($_POST[$nameKey] ?? '');
+
+    return $name !== '' ? $name . ' (drawn signature captured)' : '';
+}
+
 function build_submission_snapshot(array $person, array $contacts, array $updateEmails): array
 {
     return [
@@ -540,26 +553,16 @@ function build_submission_snapshot(array $person, array $contacts, array $update
             'additional_information' => clean_text($_POST['additional_information'] ?? ''),
         ],
         'declarations' => [
-            'medical_information_true' => !empty($_POST['medical_information_true']),
-            'emergency_treatment_consent' => !empty($_POST['emergency_treatment_consent']),
-            'health_data_disclosure' => !empty($_POST['health_data_disclosure']),
-            'medical_changes_commitment' => !empty($_POST['medical_changes_commitment']),
-            'activity_consent' => !empty($_POST['activity_consent']),
-            'responsible_behaviour_acknowledgement' => !empty($_POST['responsible_behaviour_acknowledgement']),
-            'funds_withdrawal_acknowledgement' => !empty($_POST['funds_withdrawal_acknowledgement']),
-            'fundraising_retention_acknowledgement' => !empty($_POST['fundraising_retention_acknowledgement']),
-            'safety_withdrawal_acknowledgement' => !empty($_POST['safety_withdrawal_acknowledgement']),
-            'alcohol_policy_acknowledgement' => !empty($_POST['alcohol_policy_acknowledgement']),
-            'insurance_acknowledgement' => !empty($_POST['insurance_acknowledgement']),
+            'medical_declaration_agreement' => !empty($_POST['medical_declaration_agreement']),
+            'final_declaration_agreement' => !empty($_POST['final_declaration_agreement']),
             'privacy_acknowledgement' => !empty($_POST['privacy_acknowledgement']),
-            'electronic_signature_consent' => !empty($_POST['electronic_signature_consent']),
         ],
         'signatures' => [
             'parent_guardian_name' => clean_text($_POST['parent_guardian_name'] ?? ''),
-            'parent_guardian_signature' => clean_text($_POST['parent_guardian_signature'] ?? ''),
+            'parent_guardian_signature' => signature_text_from_post('parent_guardian_signature', 'parent_guardian_name'),
             'parent_signature_data_url_present' => posted_signature_data_url('parent_signature_data_url') !== null,
             'young_person_name' => clean_text($_POST['young_person_name'] ?? ''),
-            'young_person_signature' => clean_text($_POST['young_person_signature'] ?? ''),
+            'young_person_signature' => signature_text_from_post('young_person_signature', 'young_person_name'),
             'young_person_signature_data_url_present' => posted_signature_data_url('young_person_signature_data_url') !== null,
         ],
         'submitted' => [
@@ -782,8 +785,8 @@ function insert_parent_audit_log(PDO $pdo, int $personId, string $additionalInfo
             $body .= implode("\n", $updateEmails) . "\n\n";
         }
 
-        $body .= "Parent/guardian signature: " . clean_text($_POST['parent_guardian_signature'] ?? '') . "\n";
-        $body .= "Young person signature: " . clean_text($_POST['young_person_signature'] ?? '') . "\n";
+        $body .= "Parent/guardian signature: " . signature_text_from_post('parent_guardian_signature', 'parent_guardian_name') . "\n";
+        $body .= "Young person signature: " . signature_text_from_post('young_person_signature', 'young_person_name') . "\n";
         $body .= "Signature hash: " . $signatureHash . "\n\n";
 
         if (trim($additionalInformation) !== '') {
@@ -835,10 +838,10 @@ function insert_onboarding_submission(PDO $pdo, int $personId, array $snapshot, 
         $personId,
         json_encode($snapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         clean_text($_POST['parent_guardian_name'] ?? ''),
-        clean_text($_POST['parent_guardian_signature'] ?? ''),
+        signature_text_from_post('parent_guardian_signature', 'parent_guardian_name'),
         posted_signature_data_url('parent_signature_data_url'),
         clean_text($_POST['young_person_name'] ?? ''),
-        clean_text($_POST['young_person_signature'] ?? ''),
+        signature_text_from_post('young_person_signature', 'young_person_name'),
         posted_signature_data_url('young_person_signature_data_url'),
         $signatureHash,
         $_SERVER['REMOTE_ADDR'] ?? null,
@@ -872,8 +875,24 @@ function validate_parent_form(PDO $pdo, ?array $person): array
             $errors[] = 'Each emergency contact must have a name.';
         }
 
-        if ($homePhone === '' && $mobilePhone === '' && $email === '') {
-            $errors[] = 'Each emergency contact must have at least a home phone, mobile phone or email address.';
+        if (trim((string)($contact['relationship'] ?? '')) === '') {
+            $errors[] = 'Each emergency contact must have a relationship.';
+        }
+
+        if (trim((string)($contact['address'] ?? '')) === '') {
+            $errors[] = 'Each emergency contact must have an address.';
+        }
+
+        if ($homePhone === '') {
+            $errors[] = 'Each emergency contact must have a home telephone number.';
+        }
+
+        if ($mobilePhone === '') {
+            $errors[] = 'Each emergency contact must have a mobile telephone number.';
+        }
+
+        if ($email === '') {
+            $errors[] = 'Each emergency contact must have an email address.';
         }
 
         if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -901,6 +920,30 @@ function validate_parent_form(PDO $pdo, ?array $person): array
 
     if ($participantEmail !== '' && !filter_var($participantEmail, FILTER_VALIDATE_EMAIL)) {
         $errors[] = 'The participant contact email address is not valid.';
+    }
+
+    if (empty($_FILES['profile_image']) || !is_array($_FILES['profile_image']) || (($_FILES['profile_image']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE)) {
+        $errors[] = 'Please upload a clear, recent photo of the participant.';
+    }
+
+    $requiredTextFields = [
+        'participant_email' => 'Participant contact email',
+        'participant_phone' => 'Participant mobile number',
+        'home_address' => 'Home address',
+        'gender' => 'Gender',
+        'passport_number' => 'Passport number',
+        'passport_expiry_date' => 'Passport expiry date',
+        'passport_nationality' => 'Passport nationality',
+        'ehic_ghic_number' => 'EHIC/GHIC number',
+        'ehic_ghic_expiry_date' => 'EHIC/GHIC expiry date',
+        'family_doctor_address' => 'Family doctor address',
+        'additional_information' => 'Additional medical or welfare information',
+    ];
+
+    foreach ($requiredTextFields as $field => $label) {
+        if (clean_text($_POST[$field] ?? '') === '') {
+            $errors[] = $label . ' is required.';
+        }
     }
 
     $dateFields = [
@@ -944,19 +987,9 @@ function validate_parent_form(PDO $pdo, ?array $person): array
     }
 
     $requiredChecks = [
-        'medical_information_true' => 'Please confirm that the medical information is true.',
-        'emergency_treatment_consent' => 'Please confirm emergency medical treatment consent.',
-        'health_data_disclosure' => 'Please confirm health data disclosure consent.',
-        'medical_changes_commitment' => 'Please confirm that you will tell the organiser about medical changes.',
-        'activity_consent' => 'Please confirm participation consent.',
-        'responsible_behaviour_acknowledgement' => 'Please acknowledge the responsible behaviour requirement.',
-        'funds_withdrawal_acknowledgement' => 'Please acknowledge the withdrawal funding statement.',
-        'fundraising_retention_acknowledgement' => 'Please acknowledge the fundraising retention statement.',
-        'safety_withdrawal_acknowledgement' => 'Please acknowledge the safety/well-being withdrawal statement.',
-        'alcohol_policy_acknowledgement' => 'Please acknowledge the alcohol policy statement.',
-        'insurance_acknowledgement' => 'Please acknowledge the insurance statement.',
+        'medical_declaration_agreement' => 'Please confirm the medical consent declaration.',
+        'final_declaration_agreement' => 'Please confirm the final Explorer Belt declaration.',
         'privacy_acknowledgement' => 'Please confirm that you have read the privacy notice.',
-        'electronic_signature_consent' => 'Please consent to using typed/drawn electronic signatures.',
     ];
 
     foreach ($requiredChecks as $field => $message) {
@@ -969,16 +1002,16 @@ function validate_parent_form(PDO $pdo, ?array $person): array
         $errors[] = 'Please enter the parent/guardian name.';
     }
 
-    if (clean_text($_POST['parent_guardian_signature'] ?? '') === '') {
-        $errors[] = 'Please enter the parent/guardian digital signature.';
+    if (posted_signature_data_url('parent_signature_data_url') === null) {
+        $errors[] = 'Please draw the parent/guardian signature in the signature box.';
     }
 
     if (clean_text($_POST['young_person_name'] ?? '') === '') {
         $errors[] = 'Please enter the young person name for the declaration.';
     }
 
-    if (clean_text($_POST['young_person_signature'] ?? '') === '') {
-        $errors[] = 'Please enter the young person digital signature.';
+    if (posted_signature_data_url('young_person_signature_data_url') === null) {
+        $errors[] = 'Please draw the young person signature in the signature box.';
     }
 
     return array_values(array_unique($errors));
@@ -999,8 +1032,6 @@ function build_young_person_updates(PDO $pdo, array $person, ?string $photoPath,
         'photo_url' => $photoPath,
         'emergency_contacts_json' => empty($contacts) ? null : json_encode($contacts, JSON_UNESCAPED_UNICODE),
         'parent_emails_json' => json_list_from_array($mergedEmails),
-        'medications_json' => json_list_from_array(medications_from_post()),
-        'allergies_json' => json_list_from_array(allergies_from_post()),
         'passport_number' => clean_text_or_null($_POST['passport_number'] ?? ''),
         'passport_expiry_date' => clean_date_or_null($_POST['passport_expiry_date'] ?? ''),
         'passport_nationality' => clean_text_or_null($_POST['passport_nationality'] ?? ''),
@@ -1018,10 +1049,10 @@ function build_young_person_updates(PDO $pdo, array $person, ?string $photoPath,
         'medical_consent_given_at' => $now,
         'final_consent_given_at' => $now,
         'parent_guardian_name' => clean_text_or_null($_POST['parent_guardian_name'] ?? ''),
-        'parent_guardian_signature' => clean_text_or_null($_POST['parent_guardian_signature'] ?? ''),
+        'parent_guardian_signature' => signature_text_from_post('parent_guardian_signature', 'parent_guardian_name'),
         'parent_signature_data_url' => posted_signature_data_url('parent_signature_data_url'),
         'young_person_declaration_name' => clean_text_or_null($_POST['young_person_name'] ?? ''),
-        'young_person_signature' => clean_text_or_null($_POST['young_person_signature'] ?? ''),
+        'young_person_signature' => signature_text_from_post('young_person_signature', 'young_person_name'),
         'young_person_signature_data_url' => posted_signature_data_url('young_person_signature_data_url'),
         'onboarding_declaration_ip' => $_SERVER['REMOTE_ADDR'] ?? null,
         'onboarding_declaration_user_agent' => substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255),
@@ -1216,9 +1247,7 @@ if ($matchedPerson) {
         }
     }
 
-    $parentEmails = ensure_rows(array_slice($additionalOnlyEmails, 0, 5), 1, '');
-    $medications = ensure_rows(json_items($matchedPerson['medications_json'] ?? null), 1, '');
-    $allergies = ensure_rows(json_items($matchedPerson['allergies_json'] ?? null), 1, '');
+    $parentEmails = array_slice($additionalOnlyEmails, 0, 5);
 }
 
 $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
@@ -1263,8 +1292,10 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
         .current-photo { width: 120px; height: 120px; object-fit: cover; border: 2px solid #1d1d1d; background: #f3f2f1; }
         .private-link-box { border: 2px solid #00703c; background: #e9f8ef; padding: 1rem; word-break: break-all; margin: 1rem 0; }
         .signature-pad { border: 2px solid #1d1d1d; background: #fff; width: 100%; height: 180px; touch-action: none; display: block; }
-        .declaration-list { padding-left: 1rem; }
-        .declaration-list .form-check { margin-bottom: .9rem; }
+        .signature-pad.signature-error { border-color: #d4351c; box-shadow: 0 0 0 3px rgba(212, 53, 28, .2); }
+        .declaration-list { padding-left: 1.2rem; margin-bottom: 1rem; }
+        .declaration-list li { margin-bottom: .65rem; }
+        .signature-help { font-size: .95rem; color: #505a5f; margin-top: .35rem; }
         .yes-no-group { display: flex; gap: 1.5rem; flex-wrap: wrap; }
     </style>
 </head>
@@ -1357,6 +1388,8 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
             <input type="hidden" name="person_id" value="<?= (int)$matchedPerson['id'] ?>">
             <input type="hidden" name="parent_signature_data_url" id="parent_signature_data_url">
             <input type="hidden" name="young_person_signature_data_url" id="young_person_signature_data_url">
+            <input type="hidden" name="parent_guardian_signature" id="parent_guardian_signature">
+            <input type="hidden" name="young_person_signature" id="young_person_signature">
 
             <ol class="step-indicator" aria-label="Onboarding steps">
                 <li class="active" data-step-label="1">1. Personal details</li>
@@ -1369,9 +1402,9 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
                     <h2>Personal details</h2>
                     <div class="form-group">
                         <label for="gender">Gender</label>
-                        <select class="form-control" id="gender" name="gender">
+                        <select class="form-control" id="gender" name="gender" required>
                             <?php $genderValue = $matchedPerson['gender'] ?? ''; ?>
-                            <option value="" <?= old_selected('gender', '', $genderValue) ?>>Prefer not to say / not recorded</option>
+                            <option value="Prefer not to say" <?= old_selected('gender', 'Prefer not to say', $genderValue) ?>>Prefer not to say / not recorded</option>
                             <option value="Female" <?= old_selected('gender', 'Female', $genderValue) ?>>Female</option>
                             <option value="Male" <?= old_selected('gender', 'Male', $genderValue) ?>>Male</option>
                             <option value="Non-binary" <?= old_selected('gender', 'Non-binary', $genderValue) ?>>Non-binary</option>
@@ -1382,55 +1415,55 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
                     <div class="form-row">
                         <div class="form-group col-md-6">
                             <label for="participant_email">Participant contact email</label>
-                            <input class="form-control" id="participant_email" name="participant_email" type="email" value="<?= e(old_value('participant_email', $matchedPerson['participant_email'] ?? '')) ?>">
+                            <input class="form-control" id="participant_email" name="participant_email" type="email" required value="<?= e(old_value('participant_email', $matchedPerson['participant_email'] ?? '')) ?>">
                         </div>
                         <div class="form-group col-md-6">
                             <label for="participant_phone">Participant mobile number</label>
-                            <input class="form-control" id="participant_phone" name="participant_phone" value="<?= e(old_value('participant_phone', $matchedPerson['participant_phone'] ?? '')) ?>">
+                            <input class="form-control" id="participant_phone" name="participant_phone" required value="<?= e(old_value('participant_phone', $matchedPerson['participant_phone'] ?? '')) ?>">
                         </div>
                     </div>
 
                     <div class="form-group">
                         <label for="home_address">Home address</label>
-                        <textarea class="form-control" id="home_address" name="home_address" rows="3"><?= e(old_value('home_address', $matchedPerson['home_address'] ?? '')) ?></textarea>
+                        <textarea class="form-control" id="home_address" name="home_address" rows="3" required><?= e(old_value('home_address', $matchedPerson['home_address'] ?? '')) ?></textarea>
                     </div>
 
                     <h3>Travel documents</h3>
                     <div class="form-row">
                         <div class="form-group col-md-4">
                             <label for="passport_number">Passport number</label>
-                            <input class="form-control" id="passport_number" name="passport_number" value="<?= e(old_value('passport_number', $matchedPerson['passport_number'] ?? '')) ?>">
+                            <input class="form-control" id="passport_number" name="passport_number" required value="<?= e(old_value('passport_number', $matchedPerson['passport_number'] ?? '')) ?>">
                         </div>
                         <div class="form-group col-md-4">
                             <label for="passport_expiry_date">Passport expiry date</label>
-                            <input class="form-control" id="passport_expiry_date" type="date" name="passport_expiry_date" value="<?= e(old_value('passport_expiry_date', $matchedPerson['passport_expiry_date'] ?? '')) ?>">
+                            <input class="form-control" id="passport_expiry_date" type="date" name="passport_expiry_date" required value="<?= e(old_value('passport_expiry_date', $matchedPerson['passport_expiry_date'] ?? '')) ?>">
                         </div>
                         <div class="form-group col-md-4">
                             <label for="passport_nationality">Passport nationality</label>
-                            <input class="form-control" id="passport_nationality" name="passport_nationality" value="<?= e(old_value('passport_nationality', $matchedPerson['passport_nationality'] ?? '')) ?>">
+                            <input class="form-control" id="passport_nationality" name="passport_nationality" required value="<?= e(old_value('passport_nationality', $matchedPerson['passport_nationality'] ?? '')) ?>">
                         </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group col-md-6">
                             <label for="ehic_ghic_number">EHIC/GHIC number</label>
-                            <input class="form-control" id="ehic_ghic_number" name="ehic_ghic_number" value="<?= e(old_value('ehic_ghic_number', $matchedPerson['ehic_ghic_number'] ?? '')) ?>">
+                            <input class="form-control" id="ehic_ghic_number" name="ehic_ghic_number" required value="<?= e(old_value('ehic_ghic_number', $matchedPerson['ehic_ghic_number'] ?? '')) ?>">
                         </div>
                         <div class="form-group col-md-6">
                             <label for="ehic_ghic_expiry_date">EHIC/GHIC expiry date</label>
-                            <input class="form-control" id="ehic_ghic_expiry_date" type="date" name="ehic_ghic_expiry_date" value="<?= e(old_value('ehic_ghic_expiry_date', $matchedPerson['ehic_ghic_expiry_date'] ?? '')) ?>">
+                            <input class="form-control" id="ehic_ghic_expiry_date" type="date" name="ehic_ghic_expiry_date" required value="<?= e(old_value('ehic_ghic_expiry_date', $matchedPerson['ehic_ghic_expiry_date'] ?? '')) ?>">
                         </div>
                     </div>
                 </div>
 
                 <div class="dynamic-section">
                     <h3>Photo of participant</h3>
-                    <p class="muted">Upload a clear, recent photo if the current one is missing or out of date.</p>
+                    <p class="muted">Upload a clear, recent photo for this event. A new upload is required so leaders have an up-to-date identification photo.</p>
                     <?php if (!empty($matchedPerson['photo_url'])): ?>
                         <p><img class="current-photo" src="<?= e(url($matchedPerson['photo_url'])) ?>" alt="Current photo of <?= e($matchedPerson['name']) ?>"></p>
                     <?php endif; ?>
                     <div class="form-group">
                         <label for="profile_image">Upload photo</label>
-                        <input class="form-control" id="profile_image" type="file" name="profile_image" accept="image/jpeg,image/png,image/webp,image/gif">
+                        <input class="form-control" id="profile_image" type="file" name="profile_image" accept="image/jpeg,image/png,image/webp,image/gif" required>
                         <small class="form-text text-muted">Accepted formats: JPG, PNG, WEBP or GIF. Maximum file size: 5MB.</small>
                     </div>
                 </div>
@@ -1442,12 +1475,12 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
                         <?php foreach ($contacts as $contact): ?>
                             <div class="dynamic-row contact-row">
                                 <div class="dynamic-row-grid contact">
-                                    <div class="form-group mb-0"><label>Name</label><input class="form-control" name="contact_name[]" value="<?= e($contact['name'] ?? '') ?>"></div>
-                                    <div class="form-group mb-0"><label>Relationship</label><input class="form-control" name="contact_relationship[]" value="<?= e($contact['relationship'] ?? '') ?>"></div>
-                                    <div class="form-group mb-0"><label>Address</label><input class="form-control" name="contact_address[]" value="<?= e($contact['address'] ?? '') ?>"></div>
-                                    <div class="form-group mb-0"><label>Home phone</label><input class="form-control" name="contact_home_phone[]" value="<?= e($contact['home_phone'] ?? '') ?>"></div>
-                                    <div class="form-group mb-0"><label>Mobile phone</label><input class="form-control" name="contact_mobile_phone[]" value="<?= e($contact['mobile_phone'] ?? '') ?>"></div>
-                                    <div class="form-group mb-0"><label>Email</label><input class="form-control contact-email-input" type="email" name="contact_email[]" value="<?= e($contact['email'] ?? '') ?>"></div>
+                                    <div class="form-group mb-0"><label>Name</label><input class="form-control" name="contact_name[]" required value="<?= e($contact['name'] ?? '') ?>"></div>
+                                    <div class="form-group mb-0"><label>Relationship</label><input class="form-control" name="contact_relationship[]" required value="<?= e($contact['relationship'] ?? '') ?>"></div>
+                                    <div class="form-group mb-0"><label>Address</label><input class="form-control" name="contact_address[]" required value="<?= e($contact['address'] ?? '') ?>"></div>
+                                    <div class="form-group mb-0"><label>Home phone</label><input class="form-control" name="contact_home_phone[]" required value="<?= e($contact['home_phone'] ?? '') ?>"></div>
+                                    <div class="form-group mb-0"><label>Mobile phone</label><input class="form-control" name="contact_mobile_phone[]" required value="<?= e($contact['mobile_phone'] ?? '') ?>"></div>
+                                    <div class="form-group mb-0"><label>Email</label><input class="form-control contact-email-input" type="email" name="contact_email[]" required value="<?= e($contact['email'] ?? '') ?>"></div>
                                     <button type="button" class="btn btn-outline-danger" data-remove-row>Remove</button>
                                 </div>
                             </div>
@@ -1458,6 +1491,10 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
 
                 <div class="dynamic-section">
                     <h3>Email updates</h3>
+                    <div class="info-box">
+                        <strong>Who receives updates?</strong>
+                        We will send Explorer Belt updates to these email addresses while the young people are in Finland. Updates may include where the team is, when they are safe for the evening, trip photos, general progress updates and logistical information. These addresses do not have to be parents or guardians, but anyone added here will be able to access the private trip update page, including photos and all trip updates.
+                    </div>
                     <div class="warning-box"><strong>Important:</strong> Please make sure you have permission from each person before adding their email address for updates.</div>
                     <h4>Automatically included from emergency contacts</h4>
                     <div id="autoEmailRows"></div>
@@ -1467,7 +1504,7 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
                         <?php foreach ($parentEmails as $email): ?>
                             <div class="dynamic-row additional-email-row">
                                 <div class="dynamic-row-grid simple">
-                                    <div class="form-group mb-0"><label>Additional email address</label><input class="form-control" type="email" name="parent_emails[]" value="<?= e((string)$email) ?>"></div>
+                                    <div class="form-group mb-0"><label>Additional email address</label><input class="form-control" type="email" name="parent_emails[]" required value="<?= e((string)$email) ?>"></div>
                                     <button type="button" class="btn btn-outline-danger" data-remove-row>Remove</button>
                                 </div>
                             </div>
@@ -1496,7 +1533,7 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
                     </div>
                     <div class="form-group">
                         <label for="health_medical_condition_details">Details, including medication taken</label>
-                        <textarea class="form-control" id="health_medical_condition_details" name="health_medical_condition_details" rows="4"><?= e(old_value('health_medical_condition_details', $matchedPerson['health_medical_condition_details'] ?? '')) ?></textarea>
+                        <textarea class="form-control" id="health_medical_condition_details" name="health_medical_condition_details" rows="4" data-required-if="health_medical_condition:yes"><?= e(old_value('health_medical_condition_details', $matchedPerson['health_medical_condition_details'] ?? '')) ?></textarea>
                     </div>
 
                     <?php $physicalRestriction = yes_no_from_person($matchedPerson, 'health_physical_restriction'); ?>
@@ -1509,7 +1546,7 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
                     </div>
                     <div class="form-group">
                         <label for="health_physical_restriction_details">Details</label>
-                        <textarea class="form-control" id="health_physical_restriction_details" name="health_physical_restriction_details" rows="4"><?= e(old_value('health_physical_restriction_details', $matchedPerson['health_physical_restriction_details'] ?? '')) ?></textarea>
+                        <textarea class="form-control" id="health_physical_restriction_details" name="health_physical_restriction_details" rows="4" data-required-if="health_physical_restriction:yes"><?= e(old_value('health_physical_restriction_details', $matchedPerson['health_physical_restriction_details'] ?? '')) ?></textarea>
                     </div>
 
                     <?php $medicationAllergy = yes_no_from_person($matchedPerson, 'health_medication_allergy'); ?>
@@ -1522,45 +1559,13 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
                     </div>
                     <div class="form-group">
                         <label for="health_medication_allergy_details">Medication allergy details</label>
-                        <textarea class="form-control" id="health_medication_allergy_details" name="health_medication_allergy_details" rows="4"><?= e(old_value('health_medication_allergy_details', $matchedPerson['health_medication_allergy_details'] ?? '')) ?></textarea>
+                        <textarea class="form-control" id="health_medication_allergy_details" name="health_medication_allergy_details" rows="4" data-required-if="health_medication_allergy:yes"><?= e(old_value('health_medication_allergy_details', $matchedPerson['health_medication_allergy_details'] ?? '')) ?></textarea>
                     </div>
                 </div>
 
-                <div class="dynamic-section">
-                    <h3>Medication</h3>
-                    <div id="medicationRows">
-                        <?php foreach ($medications as $medication): ?>
-                            <div class="dynamic-row medication-row">
-                                <div class="dynamic-row-grid medication">
-                                    <div class="form-group mb-0"><label>Medication name</label><input class="form-control" name="medication_name[]" value="<?= e((string)$medication) ?>"></div>
-                                    <div class="form-group mb-0"><label>Type</label><select class="form-control" name="medication_type[]"><option value="">Select</option><option value="Prescribed">Prescribed</option><option value="Non-prescribed">Non-prescribed</option><option value="Over the counter">Over the counter</option><option value="Other">Other</option></select></div>
-                                    <div class="form-group mb-0"><label>Dosage</label><input class="form-control" name="medication_dosage[]" placeholder="Example: 10mg"></div>
-                                    <div class="form-group mb-0"><label>How often?</label><select class="form-control" name="medication_frequency[]"><option value="">Select</option><option value="As and when">As and when</option><option value="Daily">Daily</option><option value="Twice a day">Twice a day</option><option value="Other">Other</option></select></div>
-                                    <div class="form-group mb-0"><label>Other / notes</label><input class="form-control" name="medication_frequency_other[]" placeholder="If other, explain"><input class="form-control mt-1" name="medication_notes[]" placeholder="Additional instructions"></div>
-                                    <button type="button" class="btn btn-outline-danger" data-remove-row>Remove</button>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
-                    <div class="dynamic-actions"><button type="button" class="btn btn-outline-primary" id="addMedicationRow">Add medication</button></div>
-                </div>
-
-                <div class="dynamic-section">
-                    <h3>Allergies, intolerances and dietary needs</h3>
-                    <div id="allergyRows">
-                        <?php foreach ($allergies as $allergy): ?>
-                            <div class="dynamic-row allergy-row">
-                                <div class="dynamic-row-grid allergy">
-                                    <div class="form-group mb-0"><label>Type</label><select class="form-control" name="allergy_type[]"><option value="">Select</option><option value="Allergy">Allergy</option><option value="Intolerance">Intolerance</option><option value="Dietary need">Dietary need</option><option value="Medication allergy">Medication allergy</option><option value="Environmental allergy">Environmental allergy</option><option value="Other">Other</option></select></div>
-                                    <div class="form-group mb-0"><label>Details</label><input class="form-control" name="allergy_detail[]" value="<?= e((string)$allergy) ?>"></div>
-                                    <div class="form-group mb-0"><label>Severity</label><select class="form-control" name="allergy_severity[]"><option value="">Select</option><option value="Mild">Mild</option><option value="Moderate">Moderate</option><option value="Severe">Severe</option><option value="Anaphylaxis risk">Anaphylaxis risk</option><option value="Not sure">Not sure</option></select></div>
-                                    <div class="form-group mb-0"><label>Notes</label><input class="form-control" name="allergy_notes[]" placeholder="Reaction, treatment or dietary instruction"></div>
-                                    <button type="button" class="btn btn-outline-danger" data-remove-row>Remove</button>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
-                    <div class="dynamic-actions"><button type="button" class="btn btn-outline-primary" id="addAllergyRow">Add allergy / intolerance / dietary need</button></div>
+                <div class="info-box">
+                    <strong>Medical information:</strong>
+                    Please use the details boxes above for medication, allergies, intolerances, dietary needs and anything that could affect participation. This avoids asking for the same medical information twice.
                 </div>
 
                 <div class="dynamic-section">
@@ -1569,12 +1574,12 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
                         <div class="form-group col-md-6"><label for="family_doctor_name">Name of family doctor</label><input class="form-control" id="family_doctor_name" name="family_doctor_name" value="<?= e(old_value('family_doctor_name', $matchedPerson['family_doctor_name'] ?? '')) ?>" required></div>
                         <div class="form-group col-md-6"><label for="family_doctor_phone">Telephone number</label><input class="form-control" id="family_doctor_phone" name="family_doctor_phone" value="<?= e(old_value('family_doctor_phone', $matchedPerson['family_doctor_phone'] ?? '')) ?>" required></div>
                     </div>
-                    <div class="form-group"><label for="family_doctor_address">Address</label><textarea class="form-control" id="family_doctor_address" name="family_doctor_address" rows="3"><?= e(old_value('family_doctor_address', $matchedPerson['family_doctor_address'] ?? '')) ?></textarea></div>
+                    <div class="form-group"><label for="family_doctor_address">Address</label><textarea class="form-control" id="family_doctor_address" name="family_doctor_address" rows="3" required><?= e(old_value('family_doctor_address', $matchedPerson['family_doctor_address'] ?? '')) ?></textarea></div>
                 </div>
 
                 <div class="dynamic-section">
                     <h3>Additional medical or welfare information</h3>
-                    <div class="form-group"><label for="additional_information">Anything else the leadership team should know?</label><textarea class="form-control" id="additional_information" name="additional_information" rows="5"><?= e(old_value('additional_information')) ?></textarea></div>
+                    <div class="form-group"><label for="additional_information">Anything else the leadership team should know?</label><textarea class="form-control" id="additional_information" name="additional_information" rows="5" required><?= e(old_value('additional_information')) ?></textarea></div>
                 </div>
 
                 <div class="wizard-actions">
@@ -1586,52 +1591,57 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
             <section class="wizard-step" data-step="3" hidden>
                 <div class="dynamic-section">
                     <h2>Medical consent</h2>
-                    <div class="declaration-list">
-                        <div class="form-check"><input class="form-check-input" type="checkbox" id="medical_information_true" name="medical_information_true" value="1" <?= old_checkbox('medical_information_true') ?> required><label class="form-check-label" for="medical_information_true">I declare that all medical information on this form is true and that I have not withheld any relevant information.</label></div>
-                        <div class="form-check"><input class="form-check-input" type="checkbox" id="emergency_treatment_consent" name="emergency_treatment_consent" value="1" <?= old_checkbox('emergency_treatment_consent') ?> required><label class="form-check-label" for="emergency_treatment_consent">In the event of an emergency, and if the Explorer Scout group are unable to contact me, I give permission for any medical treatment deemed necessary to maintain my son/daughter’s well-being.</label></div>
-                        <div class="form-check"><input class="form-check-input" type="checkbox" id="health_data_disclosure" name="health_data_disclosure" value="1" <?= old_checkbox('health_data_disclosure') ?> required><label class="form-check-label" for="health_data_disclosure">I consent to the disclosure of this health data to third parties in order to facilitate and administer this visit and for the group to comply with legal obligations.</label></div>
-                        <div class="form-check"><input class="form-check-input" type="checkbox" id="medical_changes_commitment" name="medical_changes_commitment" value="1" <?= old_checkbox('medical_changes_commitment') ?> required><label class="form-check-label" for="medical_changes_commitment">I will inform the visit organiser as soon as possible of any changes in medical condition or other circumstances that may affect participation.</label></div>
+                    <p>Please read the medical consent statements below. The parent/guardian signature captures agreement to this whole section.</p>
+                    <ul class="declaration-list">
+                        <li>I declare that all medical information on this form is true and that I have not withheld any relevant information.</li>
+                        <li>In the event of an emergency, and if the Explorer Scout group are unable to contact me, I give permission for any medical treatment deemed necessary to maintain my son/daughter’s well-being.</li>
+                        <li>I consent to the disclosure of this health data to third parties in order to facilitate and administer this visit and for the group to comply with legal obligations.</li>
+                        <li>I will inform the visit organiser as soon as possible of any changes in medical condition or other circumstances that may affect participation.</li>
+                    </ul>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="medical_declaration_agreement" name="medical_declaration_agreement" value="1" <?= old_checkbox('medical_declaration_agreement') ?> required>
+                        <label class="form-check-label" for="medical_declaration_agreement">I confirm that I have read and agree to the medical consent statements above.</label>
                     </div>
                 </div>
 
                 <div class="dynamic-section">
                     <h2>Final Explorer Belt consent</h2>
-                    <div class="declaration-list">
-                        <div class="form-check"><input class="form-check-input" type="checkbox" id="activity_consent" name="activity_consent" value="1" <?= old_checkbox('activity_consent') ?> required><label class="form-check-label" for="activity_consent">I consent to my son/daughter participating in the Explorer Belt and other activities while overseas.</label></div>
-                        <div class="form-check"><input class="form-check-input" type="checkbox" id="responsible_behaviour_acknowledgement" name="responsible_behaviour_acknowledgement" value="1" <?= old_checkbox('responsible_behaviour_acknowledgement') ?> required><label class="form-check-label" for="responsible_behaviour_acknowledgement">I acknowledge the need for my son/daughter to behave responsibly.</label></div>
-                        <div class="form-check"><input class="form-check-input" type="checkbox" id="funds_withdrawal_acknowledgement" name="funds_withdrawal_acknowledgement" value="1" <?= old_checkbox('funds_withdrawal_acknowledgement') ?> required><label class="form-check-label" for="funds_withdrawal_acknowledgement">I agree that, should my son/daughter withdraw, funds raised by them up until that date will be retained by the unit to fund this and future Explorer Belts.</label></div>
-                        <div class="form-check"><input class="form-check-input" type="checkbox" id="fundraising_retention_acknowledgement" name="fundraising_retention_acknowledgement" value="1" <?= old_checkbox('fundraising_retention_acknowledgement') ?> required><label class="form-check-label" for="fundraising_retention_acknowledgement">I am aware that any funds raised over the required amount for this expedition will be retained by the unit to fund future Explorer Belts.</label></div>
-                        <div class="form-check"><input class="form-check-input" type="checkbox" id="safety_withdrawal_acknowledgement" name="safety_withdrawal_acknowledgement" value="1" <?= old_checkbox('safety_withdrawal_acknowledgement') ?> required><label class="form-check-label" for="safety_withdrawal_acknowledgement">I am aware that if my son/daughter behaves in a way that raises safety or well-being concerns, they may be asked to withdraw.</label></div>
-                        <div class="form-check"><input class="form-check-input" type="checkbox" id="alcohol_policy_acknowledgement" name="alcohol_policy_acknowledgement" value="1" <?= old_checkbox('alcohol_policy_acknowledgement') ?> required><label class="form-check-label" for="alcohol_policy_acknowledgement">I am aware that alcohol must not be consumed during any portion of the expedition and that doing so may affect insurance cover.</label></div>
-                        <div class="form-check"><input class="form-check-input" type="checkbox" id="insurance_acknowledgement" name="insurance_acknowledgement" value="1" <?= old_checkbox('insurance_acknowledgement') ?> required><label class="form-check-label" for="insurance_acknowledgement">I understand the extent and limitations of the group’s comprehensive insurance policy, including personal belongings, personal injury and public liability cover.</label></div>
+                    <p>Please read the final Explorer Belt consent statements below. The parent/guardian and young person signatures capture agreement to this whole section.</p>
+                    <ul class="declaration-list">
+                        <li>I consent to my son/daughter participating in the Explorer Belt and other activities while overseas.</li>
+                        <li>I acknowledge the need for my son/daughter to behave responsibly.</li>
+                        <li>I agree that, should my son/daughter withdraw, funds raised by them up until that date will be retained by the unit to fund this and future Explorer Belts.</li>
+                        <li>I am aware that any funds raised over the required amount for this expedition will be retained by the unit to fund future Explorer Belts.</li>
+                        <li>I am aware that if my son/daughter behaves in a way that raises safety or well-being concerns, they may be asked to withdraw.</li>
+                        <li>I am aware that alcohol must not be consumed during any portion of the expedition and that doing so may affect insurance cover.</li>
+                        <li>I understand the extent and limitations of the group’s comprehensive insurance policy, including personal belongings, personal injury and public liability cover.</li>
+                    </ul>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="final_declaration_agreement" name="final_declaration_agreement" value="1" <?= old_checkbox('final_declaration_agreement') ?> required>
+                        <label class="form-check-label" for="final_declaration_agreement">I confirm that the parent/guardian and young person have read and agree to the final Explorer Belt consent statements above.</label>
                     </div>
                 </div>
 
                 <div class="dynamic-section">
                     <h2>Digital signatures</h2>
-                    <div class="warning-box">Typed signatures are mandatory. Drawn signatures are also captured where the browser supports it.</div>
+                    <div class="warning-box">Both the parent/guardian and the young person must draw their signature in the boxes below before the form can be submitted.</div>
 
-                    <div class="form-row">
-                        <div class="form-group col-md-6"><label for="parent_guardian_name">Name of parent/guardian</label><input class="form-control" id="parent_guardian_name" name="parent_guardian_name" value="<?= e(old_value('parent_guardian_name', $matchedPerson['parent_guardian_name'] ?? '')) ?>" required></div>
-                        <div class="form-group col-md-6"><label for="parent_guardian_signature">Digital signature of parent/guardian</label><input class="form-control" id="parent_guardian_signature" name="parent_guardian_signature" value="<?= e(old_value('parent_guardian_signature', $matchedPerson['parent_guardian_signature'] ?? '')) ?>" required></div>
-                    </div>
+                    <div class="form-group"><label for="parent_guardian_name">Name of parent/guardian</label><input class="form-control" id="parent_guardian_name" name="parent_guardian_name" value="<?= e(old_value('parent_guardian_name', $matchedPerson['parent_guardian_name'] ?? '')) ?>" required></div>
                     <div class="form-group">
-                        <label>Draw parent/guardian signature</label>
-                        <canvas class="signature-pad" id="parentSignatureCanvas" width="900" height="180"></canvas>
+                        <label for="parentSignatureCanvas">Draw parent/guardian signature</label>
+                        <canvas class="signature-pad" id="parentSignatureCanvas" width="900" height="180" data-signature-label="parent/guardian"></canvas>
+                        <div class="signature-help" id="parentSignatureHelp">Use a mouse, trackpad or finger to sign inside the box.</div>
                         <button type="button" class="btn btn-outline-secondary btn-sm mt-2" data-clear-signature="parent">Clear parent signature</button>
                     </div>
 
-                    <div class="form-row">
-                        <div class="form-group col-md-6"><label for="young_person_name">Name of young person</label><input class="form-control" id="young_person_name" name="young_person_name" value="<?= e(old_value('young_person_name', $matchedPerson['young_person_declaration_name'] ?? $matchedPerson['name'] ?? '')) ?>" required></div>
-                        <div class="form-group col-md-6"><label for="young_person_signature">Digital signature of young person</label><input class="form-control" id="young_person_signature" name="young_person_signature" value="<?= e(old_value('young_person_signature', $matchedPerson['young_person_signature'] ?? '')) ?>" required></div>
-                    </div>
+                    <div class="form-group"><label for="young_person_name">Name of young person</label><input class="form-control" id="young_person_name" name="young_person_name" value="<?= e(old_value('young_person_name', $matchedPerson['young_person_declaration_name'] ?? $matchedPerson['name'] ?? '')) ?>" required></div>
                     <div class="form-group">
-                        <label>Draw young person signature</label>
-                        <canvas class="signature-pad" id="youngSignatureCanvas" width="900" height="180"></canvas>
+                        <label for="youngSignatureCanvas">Draw young person signature</label>
+                        <canvas class="signature-pad" id="youngSignatureCanvas" width="900" height="180" data-signature-label="young person"></canvas>
+                        <div class="signature-help" id="youngSignatureHelp">Use a mouse, trackpad or finger to sign inside the box.</div>
                         <button type="button" class="btn btn-outline-secondary btn-sm mt-2" data-clear-signature="young">Clear young person signature</button>
                     </div>
 
-                    <div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="electronic_signature_consent" name="electronic_signature_consent" value="1" <?= old_checkbox('electronic_signature_consent') ?> required><label class="form-check-label" for="electronic_signature_consent">I agree that the typed and/or drawn signatures submitted on this page represent electronic signatures for these declarations.</label></div>
                     <div class="form-check"><input class="form-check-input" type="checkbox" id="privacy_acknowledgement" name="privacy_acknowledgement" value="1" <?= old_checkbox('privacy_acknowledgement') ?> required><label class="form-check-label" for="privacy_acknowledgement">I confirm that I have read the <a href="<?= e(url('privacy.php')) ?>" target="_blank" rel="noopener">privacy notice</a>.</label></div>
                 </div>
 
@@ -1652,28 +1662,24 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
 <template id="contactRowTemplate">
     <div class="dynamic-row contact-row">
         <div class="dynamic-row-grid contact">
-            <div class="form-group mb-0"><label>Name</label><input class="form-control" name="contact_name[]"></div>
-            <div class="form-group mb-0"><label>Relationship</label><input class="form-control" name="contact_relationship[]"></div>
-            <div class="form-group mb-0"><label>Address</label><input class="form-control" name="contact_address[]"></div>
-            <div class="form-group mb-0"><label>Home phone</label><input class="form-control" name="contact_home_phone[]"></div>
-            <div class="form-group mb-0"><label>Mobile phone</label><input class="form-control" name="contact_mobile_phone[]"></div>
-            <div class="form-group mb-0"><label>Email</label><input class="form-control contact-email-input" type="email" name="contact_email[]"></div>
+            <div class="form-group mb-0"><label>Name</label><input class="form-control" name="contact_name[]" required></div>
+            <div class="form-group mb-0"><label>Relationship</label><input class="form-control" name="contact_relationship[]" required></div>
+            <div class="form-group mb-0"><label>Address</label><input class="form-control" name="contact_address[]" required></div>
+            <div class="form-group mb-0"><label>Home phone</label><input class="form-control" name="contact_home_phone[]" required></div>
+            <div class="form-group mb-0"><label>Mobile phone</label><input class="form-control" name="contact_mobile_phone[]" required></div>
+            <div class="form-group mb-0"><label>Email</label><input class="form-control contact-email-input" type="email" name="contact_email[]" required></div>
             <button type="button" class="btn btn-outline-danger" data-remove-row>Remove</button>
         </div>
     </div>
 </template>
 
 <template id="simpleEmailRowTemplate">
-    <div class="dynamic-row additional-email-row"><div class="dynamic-row-grid simple"><div class="form-group mb-0"><label>Additional email address</label><input class="form-control" type="email" name="parent_emails[]"></div><button type="button" class="btn btn-outline-danger" data-remove-row>Remove</button></div></div>
+    <div class="dynamic-row additional-email-row"><div class="dynamic-row-grid simple"><div class="form-group mb-0"><label>Additional email address</label><input class="form-control" type="email" name="parent_emails[]" required></div><button type="button" class="btn btn-outline-danger" data-remove-row>Remove</button></div></div>
 </template>
 
-<template id="medicationRowTemplate">
-    <div class="dynamic-row medication-row"><div class="dynamic-row-grid medication"><div class="form-group mb-0"><label>Medication name</label><input class="form-control" name="medication_name[]"></div><div class="form-group mb-0"><label>Type</label><select class="form-control" name="medication_type[]"><option value="">Select</option><option value="Prescribed">Prescribed</option><option value="Non-prescribed">Non-prescribed</option><option value="Over the counter">Over the counter</option><option value="Other">Other</option></select></div><div class="form-group mb-0"><label>Dosage</label><input class="form-control" name="medication_dosage[]" placeholder="Example: 10mg"></div><div class="form-group mb-0"><label>How often?</label><select class="form-control" name="medication_frequency[]"><option value="">Select</option><option value="As and when">As and when</option><option value="Daily">Daily</option><option value="Twice a day">Twice a day</option><option value="Other">Other</option></select></div><div class="form-group mb-0"><label>Other / notes</label><input class="form-control" name="medication_frequency_other[]" placeholder="If other, explain"><input class="form-control mt-1" name="medication_notes[]" placeholder="Additional instructions"></div><button type="button" class="btn btn-outline-danger" data-remove-row>Remove</button></div></div>
-</template>
 
-<template id="allergyRowTemplate">
-    <div class="dynamic-row allergy-row"><div class="dynamic-row-grid allergy"><div class="form-group mb-0"><label>Type</label><select class="form-control" name="allergy_type[]"><option value="">Select</option><option value="Allergy">Allergy</option><option value="Intolerance">Intolerance</option><option value="Dietary need">Dietary need</option><option value="Medication allergy">Medication allergy</option><option value="Environmental allergy">Environmental allergy</option><option value="Other">Other</option></select></div><div class="form-group mb-0"><label>Details</label><input class="form-control" name="allergy_detail[]"></div><div class="form-group mb-0"><label>Severity</label><select class="form-control" name="allergy_severity[]"><option value="">Select</option><option value="Mild">Mild</option><option value="Moderate">Moderate</option><option value="Severe">Severe</option><option value="Anaphylaxis risk">Anaphylaxis risk</option><option value="Not sure">Not sure</option></select></div><div class="form-group mb-0"><label>Notes</label><input class="form-control" name="allergy_notes[]" placeholder="Reaction, treatment or dietary instruction"></div><button type="button" class="btn btn-outline-danger" data-remove-row>Remove</button></div></div>
-</template>
+
+
 
 <script>
 (function () {
@@ -1689,16 +1695,79 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
         document.querySelectorAll('[data-step-label]').forEach(function (label) {
             label.classList.toggle('active', Number(label.getAttribute('data-step-label')) === step);
         });
+        if (step === 3) {
+            window.setTimeout(function () {
+                if (parentPad && parentPad.resize) parentPad.resize();
+                if (youngPad && youngPad.resize) youngPad.resize();
+            }, 0);
+        }
         window.scrollTo({top: 0, behavior: 'smooth'});
     }
 
-    function validateVisibleStep() {
-        var section = document.querySelector('.wizard-step[data-step="' + currentStep + '"]');
+    function syncConditionalRequired(section) {
+        (section || document).querySelectorAll('[data-required-if]').forEach(function (field) {
+            var parts = String(field.getAttribute('data-required-if') || '').split(':');
+            var controller = document.querySelector('[name="' + parts[0] + '"]:checked');
+            field.required = !!(controller && controller.value === parts[1]);
+        });
+    }
+
+    function updateSignatureNameFields() {
+        var parentName = document.getElementById('parent_guardian_name');
+        var youngName = document.getElementById('young_person_name');
+        var parentSignature = document.getElementById('parent_guardian_signature');
+        var youngSignature = document.getElementById('young_person_signature');
+        if (parentSignature && parentName) parentSignature.value = parentName.value.trim() ? parentName.value.trim() + ' (drawn signature captured)' : '';
+        if (youngSignature && youngName) youngSignature.value = youngName.value.trim() ? youngName.value.trim() + ' (drawn signature captured)' : '';
+    }
+
+    function validateSignatureCanvas(canvasId, hiddenId) {
+        var canvas = document.getElementById(canvasId);
+        var hidden = document.getElementById(hiddenId);
+        if (!canvas || !hidden) return true;
+        var valid = hidden.value.trim() !== '';
+        canvas.classList.toggle('signature-error', !valid);
+        if (!valid) {
+            canvas.scrollIntoView({block: 'center'});
+            var label = canvas.getAttribute('data-signature-label') || 'signature';
+            alert('Please draw the ' + label + ' signature before continuing.');
+            return false;
+        }
+        return true;
+    }
+
+    function validateSection(section) {
         if (!section) return true;
+        syncConditionalRequired(section);
+        updateSignatureNameFields();
         var fields = section.querySelectorAll('input, select, textarea');
         for (var i = 0; i < fields.length; i++) {
             if (!fields[i].checkValidity()) {
                 fields[i].reportValidity();
+                return false;
+            }
+        }
+        if (section.getAttribute('data-step') === '1' && countRows('.contact-row') < 2) {
+            alert('Please provide at least two emergency contacts.');
+            return false;
+        }
+        if (section.getAttribute('data-step') === '3') {
+            if (!validateSignatureCanvas('parentSignatureCanvas', 'parent_signature_data_url')) return false;
+            if (!validateSignatureCanvas('youngSignatureCanvas', 'young_person_signature_data_url')) return false;
+        }
+        return true;
+    }
+
+    function validateVisibleStep() {
+        return validateSection(document.querySelector('.wizard-step[data-step="' + currentStep + '"]'));
+    }
+
+    function validateAllSteps() {
+        var sections = document.querySelectorAll('.wizard-step');
+        for (var i = 0; i < sections.length; i++) {
+            var step = Number(sections[i].getAttribute('data-step'));
+            showStep(step);
+            if (!validateSection(sections[i])) {
                 return false;
             }
         }
@@ -1804,91 +1873,138 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
 
     document.addEventListener('input', function (event) {
         if (event.target && event.target.classList.contains('contact-email-input')) updateAutoEmails();
+        syncConditionalRequired(document);
+        updateSignatureNameFields();
+    });
+
+    document.addEventListener('change', function () {
+        syncConditionalRequired(document);
+        updateSignatureNameFields();
     });
 
     addRow('addContactRow', 'contactsRows', 'contactRowTemplate', maxContacts, '.contact-row', 'contactLimitText', 'Maximum 5 emergency contacts reached.');
     addRow('addParentEmailRow', 'parentEmailRows', 'simpleEmailRowTemplate', maxAdditionalEmails, '.additional-email-row', 'additionalEmailLimitText', 'Maximum 5 additional email addresses reached.');
-    addUnlimitedRow('addMedicationRow', 'medicationRows', 'medicationRowTemplate');
-    addUnlimitedRow('addAllergyRow', 'allergyRows', 'allergyRowTemplate');
     updateAutoEmails();
 
     function attachSignaturePad(canvasId, hiddenId) {
         var canvas = document.getElementById(canvasId);
         var hidden = document.getElementById(hiddenId);
         if (!canvas || !hidden) return null;
+
         var ctx = canvas.getContext('2d');
         var drawing = false;
         var hasInk = false;
+        var lastPoint = null;
 
-        function resizeCanvas() {
+        function setCanvasSize() {
             var rect = canvas.getBoundingClientRect();
-            var data = hasInk ? canvas.toDataURL('image/png') : null;
-            canvas.width = Math.max(600, Math.floor(rect.width * window.devicePixelRatio));
-            canvas.height = Math.floor(180 * window.devicePixelRatio);
+            var ratio = window.devicePixelRatio || 1;
+            var previousImage = hasInk ? canvas.toDataURL('image/png') : null;
+
+            canvas.width = Math.max(1, Math.round(rect.width * ratio));
+            canvas.height = Math.max(1, Math.round(rect.height * ratio));
             ctx.setTransform(1, 0, 0, 1, 0, 0);
-            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-            ctx.lineWidth = 2;
+            ctx.lineWidth = Math.max(2, 2 * ratio);
             ctx.lineCap = 'round';
-            if (data) {
-                var image = new Image();
-                image.onload = function () { ctx.drawImage(image, 0, 0, rect.width, 180); };
-                image.src = data;
+            ctx.lineJoin = 'round';
+
+            if (previousImage) {
+                var img = new Image();
+                img.onload = function () {
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    hidden.value = canvas.toDataURL('image/png');
+                };
+                img.src = previousImage;
             }
         }
 
-        function point(event) {
+        function getPoint(event) {
             var rect = canvas.getBoundingClientRect();
             var clientX = event.clientX;
             var clientY = event.clientY;
+
             if (event.touches && event.touches.length) {
                 clientX = event.touches[0].clientX;
                 clientY = event.touches[0].clientY;
+            } else if (event.changedTouches && event.changedTouches.length) {
+                clientX = event.changedTouches[0].clientX;
+                clientY = event.changedTouches[0].clientY;
             }
-            return {x: clientX - rect.left, y: clientY - rect.top};
+
+            return {
+                x: (clientX - rect.left) * (canvas.width / rect.width),
+                y: (clientY - rect.top) * (canvas.height / rect.height)
+            };
         }
 
-        function start(event) {
+        function save() {
+            hidden.value = hasInk ? canvas.toDataURL('image/png') : '';
+            canvas.classList.toggle('signature-error', !hasInk);
+        }
+
+        function startDrawing(event) {
             event.preventDefault();
             drawing = true;
-            var p = point(event);
+            hasInk = true;
+            lastPoint = getPoint(event);
             ctx.beginPath();
-            ctx.moveTo(p.x, p.y);
+            ctx.moveTo(lastPoint.x, lastPoint.y);
+            ctx.lineTo(lastPoint.x + 0.01, lastPoint.y + 0.01);
+            ctx.stroke();
+            save();
         }
 
-        function move(event) {
+        function draw(event) {
             if (!drawing) return;
             event.preventDefault();
-            var p = point(event);
-            ctx.lineTo(p.x, p.y);
+            var point = getPoint(event);
+            ctx.beginPath();
+            ctx.moveTo(lastPoint.x, lastPoint.y);
+            ctx.lineTo(point.x, point.y);
             ctx.stroke();
-            hasInk = true;
-            hidden.value = canvas.toDataURL('image/png');
+            lastPoint = point;
+            save();
         }
 
-        function end() {
+        function stopDrawing(event) {
             if (!drawing) return;
+            if (event) event.preventDefault();
             drawing = false;
-            if (hasInk) hidden.value = canvas.toDataURL('image/png');
+            lastPoint = null;
+            save();
         }
 
-        canvas.addEventListener('mousedown', start);
-        canvas.addEventListener('mousemove', move);
-        document.addEventListener('mouseup', end);
-        canvas.addEventListener('touchstart', start, {passive: false});
-        canvas.addEventListener('touchmove', move, {passive: false});
-        canvas.addEventListener('touchend', end);
-        resizeCanvas();
-        window.addEventListener('resize', resizeCanvas);
+        if (window.PointerEvent) {
+            canvas.addEventListener('pointerdown', function (event) {
+                canvas.setPointerCapture(event.pointerId);
+                startDrawing(event);
+            });
+            canvas.addEventListener('pointermove', draw);
+            canvas.addEventListener('pointerup', stopDrawing);
+            canvas.addEventListener('pointercancel', stopDrawing);
+            canvas.addEventListener('pointerleave', stopDrawing);
+        } else {
+            canvas.addEventListener('mousedown', startDrawing);
+            canvas.addEventListener('mousemove', draw);
+            document.addEventListener('mouseup', stopDrawing);
+            canvas.addEventListener('touchstart', startDrawing, {passive: false});
+            canvas.addEventListener('touchmove', draw, {passive: false});
+            canvas.addEventListener('touchend', stopDrawing, {passive: false});
+            canvas.addEventListener('touchcancel', stopDrawing, {passive: false});
+        }
+
+        setCanvasSize();
+        window.addEventListener('resize', setCanvasSize);
 
         return {
             clear: function () {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 hidden.value = '';
                 hasInk = false;
+                canvas.classList.add('signature-error');
             },
-            save: function () {
-                if (hasInk) hidden.value = canvas.toDataURL('image/png');
-            }
+            save: save,
+            resize: setCanvasSize
         };
     }
 
@@ -1902,10 +2018,18 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
     });
 
     var form = document.getElementById('onboardingForm');
+    syncConditionalRequired(document);
+    updateSignatureNameFields();
+
     if (form) {
-        form.addEventListener('submit', function () {
+        form.addEventListener('submit', function (event) {
             if (parentPad) parentPad.save();
             if (youngPad) youngPad.save();
+            updateSignatureNameFields();
+
+            if (!validateAllSteps()) {
+                event.preventDefault();
+            }
         });
     }
 })();
