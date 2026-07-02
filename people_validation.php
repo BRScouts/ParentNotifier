@@ -1697,8 +1697,7 @@ include __DIR__ . '/header.php';
         function buildTooltipHtml(trigger) {
             var participantName = trigger.getAttribute('data-participant-name') || 'Participant';
             var flagsText = trigger.getAttribute('data-flags') || 'No attention flags';
-            var flags = flagsText.split(/
-+/).map(function (flag) {
+            var flags = flagsText.split(/\n+/).map(function (flag) {
                 return flag.trim();
             }).filter(Boolean);
 
