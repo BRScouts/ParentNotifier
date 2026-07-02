@@ -1013,6 +1013,19 @@ function health_pdf_legacy_lines(array $person, array $snapshot, ?array $submiss
     $addField('Submitted date', $data['submitted_date']);
     $addField('Update emails', implode(', ', array_map('strval', $updateEmails)));
 
+    $lines[] = ['text' => '', 'size' => 9, 'bold' => false];
+    $lines[] = ['text' => 'Explorer Belt consent declarations', 'size' => 13, 'bold' => true];
+    $lines[] = ['text' => 'By signing this form, the parent/guardian and young person confirmed agreement to the following:', 'size' => 9, 'bold' => false];
+    $lines[] = ['text' => '', 'size' => 6, 'bold' => false];
+    $lines[] = ['text' => '- I consent to my son/daughter participating in the Explorer Belt and other activities while overseas.', 'size' => 9, 'bold' => false];
+    $lines[] = ['text' => '- I acknowledge the need for my son/daughter to behave responsibly.', 'size' => 9, 'bold' => false];
+    $lines[] = ['text' => '- I agree that, should my son/daughter withdraw, funds raised by them up until that date will be retained by the unit.', 'size' => 9, 'bold' => false];
+    $lines[] = ['text' => '- I am aware that any funds raised over the required amount will be retained by the unit to fund future Explorer Belts.', 'size' => 9, 'bold' => false];
+    $lines[] = ['text' => '- I am aware that if my son/daughter behaves in a way that raises safety or well-being concerns, they may be asked to withdraw.', 'size' => 9, 'bold' => false];
+    $lines[] = ['text' => '- I am aware that alcohol must not be consumed at all during the trip (including travel days and rest days, not just the expedition itself) and that doing so may result in the participant being asked to withdraw and may affect insurance cover.', 'size' => 9, 'bold' => false];
+    $lines[] = ['text' => '- I understand that successfully completing the expedition portion of Explorer Belt 2026 in person does not automatically mean the full Explorer Belt award has been earned. The Explorer Belt is awarded based on a combination of factors including a satisfactory logbook, a presentation, an interview and the expedition itself. The County Commissioner has final approval on whether the award is granted.', 'size' => 9, 'bold' => false];
+    $lines[] = ['text' => '- I understand the extent and limitations of the group\'s comprehensive insurance policy, including personal belongings, personal injury and public liability cover.', 'size' => 9, 'bold' => false];
+
     return $lines;
 }
 
@@ -1199,6 +1212,19 @@ function send_health_form_pdf(array $person, array $snapshot = [], ?array $submi
             $appendixLines[] = ['text' => 'Email addresses with access to Explorer Belt updates', 'size' => 14, 'bold' => true];
             $appendixLines[] = ['text' => implode(', ', array_map('strval', $data['update_emails'])), 'size' => 10, 'bold' => false];
         }
+
+        $appendixLines[] = ['text' => '', 'size' => 10, 'bold' => false];
+        $appendixLines[] = ['text' => 'Explorer Belt consent declarations', 'size' => 14, 'bold' => true];
+        $appendixLines[] = ['text' => 'By signing this form, the parent/guardian and young person confirmed agreement to the following:', 'size' => 9, 'bold' => false];
+        $appendixLines[] = ['text' => '', 'size' => 6, 'bold' => false];
+        $appendixLines[] = ['text' => '- I consent to my son/daughter participating in the Explorer Belt and other activities while overseas.', 'size' => 9, 'bold' => false];
+        $appendixLines[] = ['text' => '- I acknowledge the need for my son/daughter to behave responsibly.', 'size' => 9, 'bold' => false];
+        $appendixLines[] = ['text' => '- I agree that, should my son/daughter withdraw, funds raised by them up until that date will be retained by the unit.', 'size' => 9, 'bold' => false];
+        $appendixLines[] = ['text' => '- I am aware that any funds raised over the required amount will be retained by the unit to fund future Explorer Belts.', 'size' => 9, 'bold' => false];
+        $appendixLines[] = ['text' => '- I am aware that if my son/daughter behaves in a way that raises safety or well-being concerns, they may be asked to withdraw.', 'size' => 9, 'bold' => false];
+        $appendixLines[] = ['text' => '- I am aware that alcohol must not be consumed at all during the trip (including travel days and rest days, not just the expedition itself) and that doing so may result in the participant being asked to withdraw and may affect insurance cover.', 'size' => 9, 'bold' => false];
+        $appendixLines[] = ['text' => '- I understand that successfully completing the expedition portion of Explorer Belt 2026 in person does not automatically mean the full Explorer Belt award has been earned. The Explorer Belt is awarded based on a combination of factors including a satisfactory logbook, a presentation, an interview and the expedition itself. The County Commissioner has final approval on whether the award is granted.', 'size' => 9, 'bold' => false];
+        $appendixLines[] = ['text' => '- I understand the extent and limitations of the group\'s comprehensive insurance policy, including personal belongings, personal injury and public liability cover.', 'size' => 9, 'bold' => false];
 
         if (!empty($appendixLines)) {
             health_pdf_append_text_page($objects, $nextObjectId, $pageObjectIds, $resources, $appendixLines, $pageWidth, $pageHeight);
