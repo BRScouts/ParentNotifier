@@ -1471,17 +1471,13 @@ function send_health_form_pdf(array $person, array $snapshot = [], ?array $submi
     $nextObjectId = 5;
 
     $imageResources = [];
-    $backgrounds = [];
 
-    foreach (health_pdf_template_paths() as $index => $path) {
-        $image = health_pdf_image_object_from_path($objects, $nextObjectId, $path);
+    $logoPath = __DIR__ . '/assets/logo.png';
+    $logoImage = health_pdf_image_object_from_path($objects, $nextObjectId, $logoPath);
 
-        if ($image) {
-            $name = 'BG' . ($index + 1);
-            $image['name'] = $name;
-            $backgrounds[$index + 1] = $image;
-            $imageResources[$name] = $image['object_id'];
-        }
+    if ($logoImage) {
+        $logoImage['name'] = 'LOGO';
+        $imageResources['LOGO'] = $logoImage['object_id'];
     }
 
     $data = health_pdf_template_data($person, $snapshot, $submission);
@@ -1500,132 +1496,192 @@ function send_health_form_pdf(array $person, array $snapshot = [], ?array $submi
     }
 
     $xObjectEntries = '';
-
     foreach ($imageResources as $name => $objectId) {
         $xObjectEntries .= ' /' . $name . ' ' . $objectId . ' 0 R';
     }
 
     $resourceDict = '<< /Font << /F1 3 0 R /F2 4 0 R >>' . ($xObjectEntries !== '' ? ' /XObject <<' . $xObjectEntries . ' >>' : '') . ' >>';
-    $resources = ['resource_dict' => $resourceDict];
     $pageObjectIds = [];
 
-    if (count($backgrounds) < 3) {
-        health_pdf_append_text_page($objects, $nextObjectId, $pageObjectIds, $resources, health_pdf_legacy_lines($person, $snapshot, $submission), $pageWidth, $pageHeight);
-    } else {
-        $contacts = $data['contacts'];
-        $firstContact = is_array($contacts[0] ?? null) ? $contacts[0] : [];
-        $secondContact = is_array($contacts[1] ?? null) ? $contacts[1] : [];
+    $contacts = $data['contacts'];
+    $margin = 42;
+    $headerHeight = 60;
+    $contentTopY = $pageHeight - $margin - $headerHeight - 12;
+    $rightEdge = $pageWidth - $margin;
 
-        $pages = [];
-
-        $content = health_pdf_draw_image_command('BG1', 0, 0, $pageWidth, $pageHeight);
-        $content .= health_pdf_wrapped_text_commands(170, 690, 360, 34, $data['participant_name'], 11, 12, 2);
-        $content .= health_pdf_text_command(170, 657, 10, $data['dob']);
-        $content .= health_pdf_text_command(170, 634, 10, $data['participant_phone']);
-        $content .= health_pdf_text_command(155, 598, 9, $data['passport_number']);
-        $content .= health_pdf_text_command(398, 598, 9, $data['ehic_ghic_number']);
-        $content .= health_pdf_text_command(205, 571, 9, $data['passport_expiry_date']);
-        $content .= health_pdf_text_command(398, 571, 9, $data['ehic_ghic_expiry_date']);
-        $content .= health_pdf_text_command(205, 544, 9, $data['passport_nationality']);
-
-        $content .= health_pdf_text_command(135, 433, 9, health_pdf_contact_value($firstContact, ['name']));
-        $content .= health_pdf_wrapped_text_commands(135, 405, 405, 32, health_pdf_contact_value($firstContact, ['address']), 8.5, 10, 3);
-        $content .= health_pdf_text_command(206, 369, 9, health_pdf_contact_value($firstContact, ['home_phone']));
-        $content .= health_pdf_text_command(206, 333, 9, health_pdf_contact_value($firstContact, ['mobile_phone', 'phone']));
-        $content .= health_pdf_text_command(206, 308, 9, health_pdf_contact_value($firstContact, ['email']));
-
-        $content .= health_pdf_text_command(135, 264, 9, health_pdf_contact_value($secondContact, ['name']));
-        $content .= health_pdf_wrapped_text_commands(135, 230, 405, 34, health_pdf_contact_value($secondContact, ['address']), 8.5, 10, 3);
-        $content .= health_pdf_text_command(206, 172, 9, health_pdf_contact_value($secondContact, ['mobile_phone', 'phone']));
-        $content .= health_pdf_text_command(206, 136, 9, health_pdf_contact_value($secondContact, ['home_phone']));
-        $content .= health_pdf_text_command(206, 105, 8.5, health_pdf_contact_value($secondContact, ['email']));
-        $pages[] = $content;
-
-        $content = health_pdf_draw_image_command('BG2', 0, 0, $pageWidth, $pageHeight);
-        $content .= health_pdf_wrapped_text_commands(90, 703, 455, 48, $data['health_details'], 7.7, 9.2, 5);
-        $content .= health_pdf_wrapped_text_commands(90, 590, 455, 47, $data['physical_details'], 8, 9.5, 5);
-        $content .= health_pdf_wrapped_text_commands(90, 477, 455, 48, $data['medication_allergy_details'], 8, 9.5, 5);
-        $content .= health_pdf_text_command(200, 398, 10, $data['family_doctor_name']);
-        $content .= health_pdf_text_command(200, 380, 10, $data['family_doctor_phone']);
-        $content .= health_pdf_wrapped_text_commands(200, 355, 280, 52, $data['family_doctor_address'], 9, 11, 4);
-        $pages[] = $content;
-
-        $content = health_pdf_draw_image_command('BG3', 0, 0, $pageWidth, $pageHeight);
-        $content .= health_pdf_text_command(210, 396, 10, $data['parent_guardian_name']);
-
-        if ($parentSignatureImage) {
-            $content .= health_pdf_draw_image_command('SIGP', 210, 350, 320, 45);
-        } else {
-            $content .= health_pdf_text_command(210, 372, 10, 'Signature captured electronically');
+    $drawHeader = static function () use ($pageWidth, $pageHeight, $margin, $headerHeight, $logoImage): string {
+        $headerY = $pageHeight - $margin - $headerHeight;
+        $cmd = "q 0.455 0.075 0.863 rg\n0 " . number_format($headerY, 2, '.', '') . ' ' . number_format($pageWidth, 2, '.', '') . ' ' . number_format($headerHeight, 2, '.', '') . " re f\nQ\n";
+        if ($logoImage) {
+            $h = $headerHeight - 16;
+            $w = $h * ($logoImage['width'] / max(1, $logoImage['height']));
+            $cmd .= health_pdf_draw_image_command('LOGO', $margin, $headerY + 8, $w, $h);
         }
+        return $cmd;
+    };
 
-        $content .= health_pdf_text_command(115, 326, 10, $data['submitted_date']);
-        $content .= health_pdf_text_command(48, 238, 10, 'Young person acknowledgement');
-        $content .= health_pdf_text_command(48, 214, 9, 'Name of young person:');
-        $content .= health_pdf_text_command(183, 214, 10, $data['young_person_name']);
-        $content .= health_pdf_text_command(48, 178, 9, 'Signature of young person:');
+    $drawLine = static function (float $x1, float $y, float $x2): string {
+        return "q 0.75 0.75 0.75 RG 0.5 w\n" . number_format($x1, 2, '.', '') . ' ' . number_format($y, 2, '.', '') . ' m ' . number_format($x2, 2, '.', '') . ' ' . number_format($y, 2, '.', '') . " l S\nQ\n";
+    };
 
-        if ($youngSignatureImage) {
-            $content .= health_pdf_draw_image_command('SIGY', 183, 150, 355, 48);
-        } else {
-            $content .= health_pdf_text_command(183, 178, 10, 'Signature captured electronically');
-        }
+    $drawSectionHeading = static function (string $title, float &$y, float $margin, float $rightEdge) use ($drawLine): string {
+        $cmd = health_pdf_text_command($margin, $y, 11, $title, 'F2');
+        $y -= 4;
+        $cmd .= $drawLine($margin, $y, $rightEdge);
+        $y -= 14;
+        return $cmd;
+    };
 
-        $content .= health_pdf_text_command(48, 124, 9, 'Date:');
-        $content .= health_pdf_text_command(88, 124, 10, $data['submitted_date']);
-        $pages[] = $content;
+    $drawField = static function (string $label, string $value, float &$y, float $margin) use ($drawLine, $rightEdge): string {
+        $value = $value !== '' ? $value : 'Not recorded';
+        $cmd = health_pdf_text_command($margin, $y, 8, $label, 'F2');
+        $cmd .= health_pdf_text_command($margin + 140, $y, 9, $value, 'F1');
+        $y -= 4;
+        $cmd .= $drawLine($margin + 140, $y, $rightEdge);
+        $y -= 12;
+        return $cmd;
+    };
 
-        foreach ($pages as $content) {
+    $y = $contentTopY;
+    $content = $drawHeader();
+
+    $ensureSpace = static function (float $needed) use (&$y, &$content, &$objects, &$nextObjectId, &$pageObjectIds, $pageWidth, $pageHeight, $resourceDict, $margin, $contentTopY, $drawHeader): void {
+        if ($y < $margin + $needed) {
             $contentId = $nextObjectId++;
             $pageId = $nextObjectId++;
             $objects[$contentId] = '<< /Length ' . strlen($content) . " >>\nstream\n" . $content . "endstream";
             $objects[$pageId] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' . $pageWidth . ' ' . $pageHeight . '] /Resources ' . $resourceDict . ' /Contents ' . $contentId . ' 0 R >>';
             $pageObjectIds[] = $pageId;
+            $content = $drawHeader();
+            $y = $contentTopY;
         }
+    };
 
-        $appendixLines = [];
+    $content .= health_pdf_text_command($margin, $y, 14, 'Parental Consent & Health Form', 'F2');
+    $y -= 16;
+    $content .= health_pdf_text_command($margin, $y, 8, 'Explorer Belt 2026  |  Generated: ' . people_now()->format('d M Y H:i'), 'F1');
+    $y -= 20;
 
-        if (count($data['contacts']) > 2) {
-            $appendixLines[] = ['text' => 'Additional emergency contacts', 'size' => 14, 'bold' => true];
+    $ensureSpace(100);
+    $content .= $drawSectionHeading('1. Personal details', $y, $margin, $rightEdge);
+    $content .= $drawField('Name', $data['participant_name'], $y, $margin);
+    $content .= $drawField('Date of birth', $data['dob'], $y, $margin);
+    $content .= $drawField('Explorer mobile', $data['participant_phone'], $y, $margin);
 
-            foreach (array_slice($data['contacts'], 2) as $index => $contact) {
-                if (!is_array($contact)) {
-                    continue;
-                }
+    $ensureSpace(100);
+    $content .= $drawSectionHeading('2. Travel documents', $y, $margin, $rightEdge);
+    $content .= $drawField('Passport number', $data['passport_number'], $y, $margin);
+    $content .= $drawField('Passport expiry', $data['passport_expiry_date'], $y, $margin);
+    $content .= $drawField('Nationality', $data['passport_nationality'], $y, $margin);
+    $content .= $drawField('EHIC/GHIC number', $data['ehic_ghic_number'], $y, $margin);
+    $content .= $drawField('EHIC/GHIC expiry', $data['ehic_ghic_expiry_date'], $y, $margin);
 
-                $appendixLines[] = ['text' => 'Contact ' . ($index + 3) . ': ' . health_pdf_contact_value($contact, ['name']), 'size' => 11, 'bold' => true];
-                $appendixLines[] = ['text' => 'Address: ' . health_pdf_contact_value($contact, ['address']), 'size' => 10, 'bold' => false];
-                $appendixLines[] = ['text' => 'Home/other: ' . health_pdf_contact_value($contact, ['home_phone']) . ' | Mobile: ' . health_pdf_contact_value($contact, ['mobile_phone', 'phone']) . ' | Email: ' . health_pdf_contact_value($contact, ['email']), 'size' => 10, 'bold' => false];
-            }
-        }
-
-        if (!empty($data['update_emails'])) {
-            $appendixLines[] = ['text' => '', 'size' => 10, 'bold' => false];
-            $appendixLines[] = ['text' => 'Email addresses with access to Explorer Belt updates', 'size' => 14, 'bold' => true];
-            $appendixLines[] = ['text' => implode(', ', array_map('strval', $data['update_emails'])), 'size' => 10, 'bold' => false];
-        }
-
-        $appendixLines[] = ['text' => '', 'size' => 10, 'bold' => false];
-        $appendixLines[] = ['text' => 'Explorer Belt consent declarations', 'size' => 14, 'bold' => true];
-        $appendixLines[] = ['text' => 'By signing this form, the parent/guardian and young person confirmed agreement to the following:', 'size' => 9, 'bold' => false];
-        $appendixLines[] = ['text' => '', 'size' => 6, 'bold' => false];
-        $appendixLines[] = ['text' => '- I consent to my son/daughter participating in the Explorer Belt and other activities while overseas.', 'size' => 9, 'bold' => false];
-        $appendixLines[] = ['text' => '- I acknowledge the need for my son/daughter to behave responsibly.', 'size' => 9, 'bold' => false];
-        $appendixLines[] = ['text' => '- I agree that, should my son/daughter withdraw, funds raised by them up until that date will be retained by the unit.', 'size' => 9, 'bold' => false];
-        $appendixLines[] = ['text' => '- I am aware that any funds raised over the required amount will be retained by the unit to fund future Explorer Belts.', 'size' => 9, 'bold' => false];
-        $appendixLines[] = ['text' => '- I am aware that if my son/daughter behaves in a way that raises safety or well-being concerns, they may be asked to withdraw.', 'size' => 9, 'bold' => false];
-        $appendixLines[] = ['text' => '- I am aware that alcohol must not be consumed at all during the trip (including travel days and rest days, not just the expedition itself) and that doing so may result in the participant being asked to withdraw and may affect insurance cover.', 'size' => 9, 'bold' => false];
-        $appendixLines[] = ['text' => '- I understand that successfully completing the expedition portion of Explorer Belt 2026 in person does not automatically mean the full Explorer Belt award has been earned. The Explorer Belt is awarded based on a combination of factors including a satisfactory logbook, a presentation, an interview and the expedition itself. The County Commissioner has final approval on whether the award is granted.', 'size' => 9, 'bold' => false];
-        $appendixLines[] = ['text' => '- I understand the extent and limitations of the group\'s comprehensive insurance policy, including personal belongings, personal injury and public liability cover.', 'size' => 9, 'bold' => false];
-
-        if (!empty($appendixLines)) {
-            health_pdf_append_text_page($objects, $nextObjectId, $pageObjectIds, $resources, $appendixLines, $pageWidth, $pageHeight);
-        }
+    $ensureSpace(80);
+    $content .= $drawSectionHeading('3. Emergency contacts', $y, $margin, $rightEdge);
+    foreach ($contacts as $index => $contact) {
+        if (!is_array($contact)) { continue; }
+        $ensureSpace(70);
+        $content .= health_pdf_text_command($margin, $y, 9, 'Contact ' . ($index + 1), 'F2');
+        $y -= 13;
+        $content .= $drawField('Name', health_pdf_contact_value($contact, ['name']), $y, $margin);
+        $content .= $drawField('Address', health_pdf_contact_value($contact, ['address']), $y, $margin);
+        $content .= $drawField('Home/other phone', health_pdf_contact_value($contact, ['home_phone']), $y, $margin);
+        $content .= $drawField('Mobile phone', health_pdf_contact_value($contact, ['mobile_phone', 'phone']), $y, $margin);
+        $content .= $drawField('Email', health_pdf_contact_value($contact, ['email']), $y, $margin);
+    }
+    if (!empty($data['update_emails'])) {
+        $ensureSpace(30);
+        $content .= $drawField('Update emails', implode(', ', array_map('strval', $data['update_emails'])), $y, $margin);
     }
 
-    if (empty($pageObjectIds)) {
-        health_pdf_append_text_page($objects, $nextObjectId, $pageObjectIds, $resources, health_pdf_legacy_lines($person, $snapshot, $submission), $pageWidth, $pageHeight);
+    $ensureSpace(100);
+    $content .= $drawSectionHeading('4. Health declaration', $y, $margin, $rightEdge);
+    $content .= $drawField('Medical/allergy/medication', $data['health_details'], $y, $margin);
+    $content .= $drawField('Physical restriction', $data['physical_details'], $y, $margin);
+    $content .= $drawField('Medication allergy', $data['medication_allergy_details'], $y, $margin);
+    $content .= $drawField('Family doctor', $data['family_doctor_name'], $y, $margin);
+    $content .= $drawField('Doctor phone', $data['family_doctor_phone'], $y, $margin);
+    $content .= $drawField('Doctor address', $data['family_doctor_address'], $y, $margin);
+
+    $ensureSpace(120);
+    $content .= $drawSectionHeading('5. Consent declarations', $y, $margin, $rightEdge);
+    $declarations = [
+        'I consent to my son/daughter participating in the Explorer Belt and other activities while overseas.',
+        'I acknowledge the need for my son/daughter to behave responsibly.',
+        'I agree that, should my son/daughter withdraw, funds raised will be retained by the unit.',
+        'I am aware that any funds raised over the required amount will be retained for future Explorer Belts.',
+        'I am aware that if my son/daughter behaves in a way that raises safety or well-being concerns, they may be asked to withdraw.',
+        'I am aware that alcohol must not be consumed at all during the trip (including travel and rest days) and that doing so may result in withdrawal and affect insurance cover.',
+        'I understand that completing the expedition does not automatically earn the full Explorer Belt award. The award is based on logbook, presentation, interview and expedition. The County Commissioner has final approval.',
+        'I understand the extent and limitations of the group\'s insurance policy, including personal belongings, personal injury and public liability cover.',
+    ];
+    foreach ($declarations as $decl) {
+        $ensureSpace(24);
+        $maxChars = (int)floor(($rightEdge - $margin - 10) / (7.5 * 0.47));
+        foreach (health_pdf_lines_from_text($decl, $maxChars) as $line) {
+            $ensureSpace(12);
+            $content .= health_pdf_text_command($margin + 8, $y, 7.5, $line, 'F1');
+            $y -= 10;
+        }
+        $y -= 3;
     }
+    $ensureSpace(16);
+    $content .= health_pdf_text_command($margin, $y, 8, 'All declarations confirmed and agreed by both parent/guardian and young person.', 'F2');
+    $y -= 20;
+
+    $ensureSpace(140);
+    $content .= $drawSectionHeading('6. Signatures', $y, $margin, $rightEdge);
+    $content .= health_pdf_text_command($margin, $y, 9, 'Parent/guardian name:', 'F2');
+    $content .= health_pdf_text_command($margin + 140, $y, 10, $data['parent_guardian_name'] ?: 'Not recorded', 'F1');
+    $y -= 16;
+    $content .= health_pdf_text_command($margin, $y, 9, 'Parent/guardian signature:', 'F2');
+    $y -= 4;
+    if ($parentSignatureImage) {
+        $ensureSpace(55);
+        $content .= $drawLine($margin + 140, $y, $rightEdge);
+        $y -= 2;
+        $content .= health_pdf_draw_image_command('SIGP', $margin + 145, $y - 42, 280, 40);
+        $y -= 48;
+        $content .= $drawLine($margin + 140, $y, $rightEdge);
+        $y -= 14;
+    } else {
+        $content .= health_pdf_text_command($margin + 140, $y, 9, 'Signature captured electronically', 'F1');
+        $y -= 16;
+    }
+    $content .= health_pdf_text_command($margin, $y, 9, 'Date signed:', 'F2');
+    $content .= health_pdf_text_command($margin + 140, $y, 9, $data['submitted_date'] ?: 'Not recorded', 'F1');
+    $y -= 24;
+
+    $ensureSpace(100);
+    $content .= health_pdf_text_command($margin, $y, 9, 'Young person name:', 'F2');
+    $content .= health_pdf_text_command($margin + 140, $y, 10, $data['young_person_name'] ?: 'Not recorded', 'F1');
+    $y -= 16;
+    $content .= health_pdf_text_command($margin, $y, 9, 'Young person signature:', 'F2');
+    $y -= 4;
+    if ($youngSignatureImage) {
+        $ensureSpace(55);
+        $content .= $drawLine($margin + 140, $y, $rightEdge);
+        $y -= 2;
+        $content .= health_pdf_draw_image_command('SIGY', $margin + 145, $y - 42, 280, 40);
+        $y -= 48;
+        $content .= $drawLine($margin + 140, $y, $rightEdge);
+        $y -= 14;
+    } else {
+        $content .= health_pdf_text_command($margin + 140, $y, 9, 'Signature captured electronically', 'F1');
+        $y -= 16;
+    }
+    $content .= health_pdf_text_command($margin, $y, 9, 'Date signed:', 'F2');
+    $content .= health_pdf_text_command($margin + 140, $y, 9, $data['submitted_date'] ?: 'Not recorded', 'F1');
+    $y -= 20;
+
+    $ensureSpace(20);
+    $content .= health_pdf_text_command($margin, $y, 7, 'This form was completed and signed electronically via the Explorer Belt parent portal.', 'F1');
+
+    $contentId = $nextObjectId++;
+    $pageId = $nextObjectId++;
+    $objects[$contentId] = '<< /Length ' . strlen($content) . " >>\nstream\n" . $content . "endstream";
+    $objects[$pageId] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' . $pageWidth . ' ' . $pageHeight . '] /Resources ' . $resourceDict . ' /Contents ' . $contentId . ' 0 R >>';
+    $pageObjectIds[] = $pageId;
 
     $kids = implode(' ', array_map(static fn($id) => $id . ' 0 R', $pageObjectIds));
     $objects[2] = '<< /Type /Pages /Kids [' . $kids . '] /Count ' . count($pageObjectIds) . ' >>';
