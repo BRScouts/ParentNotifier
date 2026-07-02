@@ -612,51 +612,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('team_links.php?view=team&team_id=' . $teamId . '&tab=links');
     }
 
-    if ($action === 'add_post') {
-        $teamId = (int)($_POST['team_id'] ?? 0);
-        $title = trim($_POST['title'] ?? '');
-        $body = trim($_POST['body'] ?? '');
-        $postType = $_POST['post_type'] ?? 'team_update';
-        $photoUrl = trim($_POST['photo_url'] ?? '');
-        $isPinned = isset($_POST['is_pinned']) ? 1 : 0;
-
-        if (!in_array($postType, ['general', 'team_update', 'check_in', 'photo', 'important'], true)) {
-            $postType = 'team_update';
-        }
-
-        if ($teamId <= 0) {
-            $error = 'Team is required.';
-        } elseif ($title === '' || $body === '') {
-            $error = 'Post title and update are required.';
-        } else {
-            if ($isPinned === 1) {
-                $pdo->exec('UPDATE posts SET is_pinned = 0');
-            }
-
-            $publishedAt = finland_now_for_database();
-
-            $stmt = $pdo->prepare(
-                'INSERT INTO posts
-                    (team_id, leader_id, title, body, post_type, visibility, photo_url, is_pinned, is_published, published_at)
-                 VALUES
-                    (?, ?, ?, ?, ?, "team", ?, ?, 1, ?)'
-            );
-
-            $stmt->execute([
-                $teamId,
-                $user['id'],
-                $title,
-                $body,
-                $postType,
-                $photoUrl,
-                $isPinned,
-                $publishedAt,
-            ]);
-
-            redirect('team_links.php?view=team&team_id=' . $teamId . '&tab=posts');
-        }
-    }
-
     if ($action === 'approve_explorer_checkin' || $action === 'manual_checkin') {
         $teamId = (int)($_POST['team_id'] ?? 0);
         $checkinId = $action === 'approve_explorer_checkin' ? (int)($_POST['checkin_id'] ?? 0) : null;
@@ -917,7 +872,6 @@ $allowedTabs = [
     'progress',
     'notes',
     'posts',
-    'add-update',
     'edit',
 ];
 
@@ -1633,7 +1587,6 @@ include __DIR__ . '/header.php';
                 'notes' => 'Notes',
                 'links' => 'Links',
                 'posts' => 'Posts',
-                'add-update' => 'Add update',
                 'edit' => 'Edit team',
             ];
             ?>
@@ -1982,6 +1935,7 @@ include __DIR__ . '/header.php';
 
                         <p class="muted">
                             Use this when a team cannot submit the Explorer check-in page or a leader needs to enter the check-in directly.
+                            This form has the same fields as the Explorer check-in form.
                         </p>
 
                         <div class="map-search-row">
@@ -2006,7 +1960,7 @@ include __DIR__ . '/header.php';
 
                             <div class="form-group">
                                 <label>Location name</label>
-                                <input class="form-control" id="manual_location_name" name="location_name" required>
+                                <input class="form-control" id="manual_location_name" name="location_name" placeholder="Example: Helsinki centre, campsite name, village name" required>
                             </div>
 
                             <div class="form-row">
@@ -2023,8 +1977,8 @@ include __DIR__ . '/header.php';
 
                             <div class="form-group">
                                 <label>Where are they staying?</label>
-                                <select class="form-control" name="accommodation_type">
-                                    <option value="">Not specified</option>
+                                <select class="form-control" name="accommodation_type" required>
+                                    <option value="">Choose one</option>
                                     <option value="Lean-to">Lean-to</option>
                                     <option value="Tent">Tent</option>
                                     <option value="With a host">With a host</option>
@@ -2032,6 +1986,11 @@ include __DIR__ . '/header.php';
                                     <option value="Campsite">Campsite</option>
                                     <option value="Other">Other</option>
                                 </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Accommodation notes</label>
+                                <textarea class="form-control" name="accommodation_notes" rows="3" placeholder="Optional. Add any useful detail about where they are staying."></textarea>
                             </div>
 
                             <div class="form-group">
@@ -2046,17 +2005,85 @@ include __DIR__ . '/header.php';
                                 </select>
                             </div>
 
+                            <h3 style="margin-top: 1.5rem;">Welfare and first aid</h3>
+
+                            <div class="form-group">
+                                <label>Has anyone had any injuries, illness, pain, blisters, or other first aid concerns today?</label>
+                                <div class="form-check">
+                                    <input class="form-check-input manual-welfare-toggle" type="radio" name="has_injuries" id="manual_has_injuries_no" value="no" checked>
+                                    <label class="form-check-label" for="manual_has_injuries_no">No</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input manual-welfare-toggle" type="radio" name="has_injuries" id="manual_has_injuries_yes" value="yes">
+                                    <label class="form-check-label" for="manual_has_injuries_yes">Yes</label>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Has anyone taken medication today?</label>
+                                <div class="form-check">
+                                    <input class="form-check-input manual-welfare-toggle" type="radio" name="has_medication" id="manual_has_medication_no" value="no" checked>
+                                    <label class="form-check-label" for="manual_has_medication_no">No</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input manual-welfare-toggle" type="radio" name="has_medication" id="manual_has_medication_yes" value="yes">
+                                    <label class="form-check-label" for="manual_has_medication_yes">Yes</label>
+                                </div>
+                            </div>
+
+                            <div id="manualMemberReportsPanel" style="display:none;">
+                                <div class="alert alert-info">
+                                    Select each person who had an injury, illness, first aid issue, or took medication. Add as much detail as possible.
+                                </div>
+
+                                <?php foreach ($teamPeople as $member): ?>
+                                    <?php $memberId = (int)$member['id']; ?>
+                                    <div class="card mb-2" data-manual-member-report>
+                                        <div class="card-body py-2 px-3">
+                                            <div class="form-check">
+                                                <input class="form-check-input manual-member-toggle" type="checkbox" id="manual_member_issue_<?= $memberId ?>" name="member_issue[<?= $memberId ?>]" value="yes">
+                                                <label class="form-check-label" for="manual_member_issue_<?= $memberId ?>">
+                                                    <strong><?= e($member['name']) ?></strong>
+                                                </label>
+                                            </div>
+
+                                            <div class="manual-member-fields" style="display:none; margin-top: 0.75rem;">
+                                                <div class="form-group mb-2">
+                                                    <label for="manual_injury_<?= $memberId ?>">Injury / illness / concern</label>
+                                                    <textarea class="form-control" id="manual_injury_<?= $memberId ?>" name="injury_description[<?= $memberId ?>]" rows="2" placeholder="Describe what happened, symptoms, severity."></textarea>
+                                                </div>
+                                                <div class="form-group mb-2">
+                                                    <label for="manual_medication_<?= $memberId ?>">Medication taken</label>
+                                                    <textarea class="form-control" id="manual_medication_<?= $memberId ?>" name="medication_detail[<?= $memberId ?>]" rows="2" placeholder="Medication name, dose, time taken."></textarea>
+                                                </div>
+                                                <div class="form-group mb-0">
+                                                    <label for="manual_firstaid_<?= $memberId ?>">First aid given</label>
+                                                    <textarea class="form-control" id="manual_firstaid_<?= $memberId ?>" name="first_aid_given[<?= $memberId ?>]" rows="2" placeholder="What first aid was given and by whom?"></textarea>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+
+                            <div class="form-group">
+                                <label>General welfare notes</label>
+                                <textarea class="form-control" name="welfare_notes" rows="3" placeholder="Optional. Anything else the leadership team should know."></textarea>
+                            </div>
+
+                            <h3 style="margin-top: 1.5rem;">Parent communication</h3>
+
                             <div class="form-group">
                                 <label>Parent-facing update</label>
-                                <textarea class="form-control" name="public_note" rows="5" placeholder="Do not include injuries, medication, welfare issues or private notes."></textarea>
+                                <textarea class="form-control" name="public_note" rows="4" placeholder="This message will be shown to parents and emailed. Do not include injuries, medication, welfare issues or private notes."></textarea>
                             </div>
 
                             <div class="form-group">
                                 <label>Internal leader note</label>
-                                <textarea class="form-control" name="internal_note" rows="4"></textarea>
+                                <textarea class="form-control" name="internal_note" rows="3" placeholder="Only visible to leaders. Not shared with parents."></textarea>
                             </div>
 
-                            <button class="btn btn-primary">
+                            <button class="btn btn-primary btn-lg">
                                 Save check-in and email parents
                             </button>
                         </form>
@@ -2220,51 +2247,6 @@ include __DIR__ . '/header.php';
                                 </article>
                             <?php endforeach; ?>
                         <?php endif; ?>
-                    </section>
-
-                <?php elseif ($currentTab === 'add-update'): ?>
-
-                    <section class="teams-panel">
-                        <h2>Add update for <?= e($currentTeam['name']) ?></h2>
-
-                        <form method="post">
-                            <input type="hidden" name="action" value="add_post">
-                            <input type="hidden" name="team_id" value="<?= (int)$currentTeam['id'] ?>">
-
-                            <div class="form-group">
-                                <label>Title</label>
-                                <input class="form-control" name="title" required>
-                            </div>
-
-                            <div class="form-group">
-                                <label>Update</label>
-                                <textarea class="form-control" name="body" rows="6" required></textarea>
-                            </div>
-
-                            <div class="form-row">
-                                <div class="form-group col-md-6">
-                                    <label>Post type</label>
-                                    <select class="form-control" name="post_type">
-                                        <option value="team_update">Team update</option>
-                                        <option value="general">General</option>
-                                        <option value="photo">Photo</option>
-                                        <option value="important">Important</option>
-                                    </select>
-                                </div>
-
-                                <div class="form-group col-md-6">
-                                    <label>Photo URL</label>
-                                    <input class="form-control" type="url" name="photo_url">
-                                </div>
-                            </div>
-
-                            <div class="form-check mb-3">
-                                <input class="form-check-input" type="checkbox" name="is_pinned">
-                                <label class="form-check-label">Pin this update</label>
-                            </div>
-
-                            <button class="btn btn-primary">Publish team update</button>
-                        </form>
                     </section>
 
                 <?php elseif ($currentTab === 'edit'): ?>
@@ -2773,6 +2755,38 @@ include __DIR__ . '/header.php';
             map.invalidateSize();
         }, 300);
     })();
+</script>
+
+<script>
+(function () {
+    var welfareToggles = document.querySelectorAll('.manual-welfare-toggle');
+    var memberPanel = document.getElementById('manualMemberReportsPanel');
+
+    function updateWelfarePanel() {
+        if (!memberPanel) return;
+        var hasInjuries = document.querySelector('input[name="has_injuries"]:checked');
+        var hasMedication = document.querySelector('input[name="has_medication"]:checked');
+        var show = (hasInjuries && hasInjuries.value === 'yes') || (hasMedication && hasMedication.value === 'yes');
+        memberPanel.style.display = show ? 'block' : 'none';
+    }
+
+    welfareToggles.forEach(function (input) {
+        input.addEventListener('change', updateWelfarePanel);
+    });
+
+    updateWelfarePanel();
+
+    document.querySelectorAll('.manual-member-toggle').forEach(function (checkbox) {
+        checkbox.addEventListener('change', function () {
+            var card = checkbox.closest('[data-manual-member-report]');
+            if (!card) return;
+            var fields = card.querySelector('.manual-member-fields');
+            if (fields) {
+                fields.style.display = checkbox.checked ? 'block' : 'none';
+            }
+        });
+    });
+})();
 </script>
 
 <?php include __DIR__ . '/footer.php'; ?>

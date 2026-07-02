@@ -1392,6 +1392,12 @@ include __DIR__ . '/header.php';
         width: 38px;
         height: 38px;
         outline: none;
+        cursor: pointer;
+    }
+
+    .validation-photo-wrap:hover .validation-photo,
+    .validation-photo-wrap:hover .validation-photo-placeholder {
+        box-shadow: 0 0 0 3px #ffdd00;
     }
 
     .validation-photo-has-flags .validation-photo,
@@ -1745,29 +1751,100 @@ include __DIR__ . '/header.php';
         }
 
         function hideTooltip() {
+            if (pinnedTrigger) return;
+            tooltip.classList.remove('is-visible');
+            tooltip.setAttribute('aria-hidden', 'true');
+            tooltip.innerHTML = '';
+            activeTrigger = null;
+        }
+
+        function forceHideTooltip() {
+            pinnedTrigger = null;
+            activeTrigger = null;
             tooltip.classList.remove('is-visible');
             tooltip.setAttribute('aria-hidden', 'true');
             tooltip.innerHTML = '';
         }
 
+        var activeTrigger = null;
+        var pinnedTrigger = null;
+
         document.querySelectorAll('.validation-photo-wrap').forEach(function (trigger) {
             trigger.addEventListener('mouseenter', function () {
+                if (pinnedTrigger && pinnedTrigger !== trigger) return;
+                activeTrigger = trigger;
                 showTooltip(trigger);
             });
 
             trigger.addEventListener('mousemove', function () {
-                positionTooltip(trigger);
+                if (pinnedTrigger && pinnedTrigger !== trigger) return;
+                if (activeTrigger === trigger) positionTooltip(trigger);
             });
 
-            trigger.addEventListener('mouseleave', hideTooltip);
-            trigger.addEventListener('focus', function () {
+            trigger.addEventListener('mouseleave', function () {
+                if (pinnedTrigger === trigger) return;
+                if (activeTrigger === trigger) {
+                    activeTrigger = null;
+                    tooltip.classList.remove('is-visible');
+                    tooltip.setAttribute('aria-hidden', 'true');
+                    tooltip.innerHTML = '';
+                }
+            });
+
+            trigger.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                if (pinnedTrigger === trigger) {
+                    forceHideTooltip();
+                    return;
+                }
+
+                pinnedTrigger = trigger;
+                activeTrigger = trigger;
                 showTooltip(trigger);
             });
-            trigger.addEventListener('blur', hideTooltip);
+
+            trigger.addEventListener('focus', function () {
+                if (!pinnedTrigger) {
+                    activeTrigger = trigger;
+                    showTooltip(trigger);
+                }
+            });
+
+            trigger.addEventListener('blur', function () {
+                if (pinnedTrigger !== trigger) {
+                    activeTrigger = null;
+                    tooltip.classList.remove('is-visible');
+                    tooltip.setAttribute('aria-hidden', 'true');
+                    tooltip.innerHTML = '';
+                }
+            });
         });
 
-        window.addEventListener('scroll', hideTooltip, true);
-        window.addEventListener('resize', hideTooltip);
+        document.addEventListener('click', function (e) {
+            if (!pinnedTrigger) return;
+            if (tooltip.contains(e.target)) return;
+            if (e.target.closest('.validation-photo-wrap')) return;
+            forceHideTooltip();
+        });
+
+        window.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') forceHideTooltip();
+        });
+
+        var scrollContainer = document.querySelector('.validation-scroll');
+        if (scrollContainer) {
+            scrollContainer.addEventListener('scroll', function () {
+                if (pinnedTrigger) {
+                    positionTooltip(pinnedTrigger);
+                } else if (activeTrigger) {
+                    positionTooltip(activeTrigger);
+                }
+            });
+        }
+
+        window.addEventListener('resize', forceHideTooltip);
     })();
 </script>
 
