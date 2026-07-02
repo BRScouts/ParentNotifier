@@ -1133,7 +1133,7 @@ include __DIR__ . '/header.php';
                 <?= e(analytics_percent((int)$summary['emails_opened'], (int)$summary['emails_sent'])) ?>
             </p>
             <p class="metric-sub">
-                <?= (int)$summary['total_opens'] ?> total opens
+                <?= (int)$summary['emails_opened'] ?> of <?= (int)$summary['emails_sent'] ?> opened
             </p>
         </div>
 
@@ -1226,9 +1226,13 @@ include __DIR__ . '/header.php';
                                     <?php endif; ?>
                                 </td>
                                 <td>
-                                    <strong><?= $openCount ?></strong>
-                                    <?php if (!empty($row['first_opened_at'])): ?>
-                                        <br><span class="muted">First: <?= e(analytics_safe_datetime($row['first_opened_at'])) ?></span>
+                                    <?php if ($openCount > 0): ?>
+                                        <span class="rate-pill rate-good">Opened</span>
+                                        <?php if (!empty($row['first_opened_at'])): ?>
+                                            <br><span class="muted"><?= e(analytics_safe_datetime($row['first_opened_at'])) ?></span>
+                                        <?php endif; ?>
+                                    <?php else: ?>
+                                        <span class="rate-pill rate-muted">Not opened</span>
                                     <?php endif; ?>
                                 </td>
                                 <td>
@@ -1527,7 +1531,13 @@ include __DIR__ . '/header.php';
                                 <td><?= e($row['to_email'] ?? '') ?></td>
                                 <td><?= e($attribution['label'] ?? 'Not attributed') ?></td>
                                 <td><?= e($row['subject'] ?? '') ?></td>
-                                <td><?= (int)($row['open_count'] ?? 0) ?></td>
+                                <td>
+                                    <?php if ((int)($row['open_count'] ?? 0) > 0): ?>
+                                        <span class="rate-pill rate-good">Opened</span>
+                                    <?php else: ?>
+                                        <span class="rate-pill rate-muted">Not opened</span>
+                                    <?php endif; ?>
+                                </td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>

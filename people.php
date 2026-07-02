@@ -1079,17 +1079,13 @@ function send_health_form_pdf(array $person, array $snapshot = [], ?array $submi
     $nextObjectId = 5;
 
     $imageResources = [];
-    $backgrounds = [];
 
-    foreach (health_pdf_template_paths() as $index => $path) {
-        $image = health_pdf_image_object_from_path($objects, $nextObjectId, $path);
+    $logoPath = __DIR__ . '/assets/logo.png';
+    $logoImage = health_pdf_image_object_from_path($objects, $nextObjectId, $logoPath);
 
-        if ($image) {
-            $name = 'BG' . ($index + 1);
-            $image['name'] = $name;
-            $backgrounds[$index + 1] = $image;
-            $imageResources[$name] = $image['object_id'];
-        }
+    if ($logoImage) {
+        $logoImage['name'] = 'LOGO';
+        $imageResources['LOGO'] = $logoImage['object_id'];
     }
 
     $data = health_pdf_template_data($person, $snapshot, $submission);
@@ -1117,122 +1113,83 @@ function send_health_form_pdf(array $person, array $snapshot = [], ?array $submi
     $resources = ['resource_dict' => $resourceDict];
     $pageObjectIds = [];
 
-    if (count($backgrounds) < 3) {
-        health_pdf_append_text_page($objects, $nextObjectId, $pageObjectIds, $resources, health_pdf_legacy_lines($person, $snapshot, $submission), $pageWidth, $pageHeight);
-    } else {
-        $contacts = $data['contacts'];
-        $firstContact = is_array($contacts[0] ?? null) ? $contacts[0] : [];
-        $secondContact = is_array($contacts[1] ?? null) ? $contacts[1] : [];
+    $contacts = $data['contacts'];
+    $allLines = health_pdf_legacy_lines($person, $snapshot, $submission);
 
-        $pages = [];
+    // Add signature info
+    $allLines[] = ['text' => '', 'size' => 8, 'bold' => false];
+    $allLines[] = ['text' => 'Signatures and consent', 'size' => 13, 'bold' => true];
+    $allLines[] = ['text' => 'Parent/guardian name: ' . ($data['parent_guardian_name'] ?: 'Not recorded'), 'size' => 10, 'bold' => false];
+    $allLines[] = ['text' => 'Parent/guardian signature: Captured electronically', 'size' => 10, 'bold' => false];
+    $allLines[] = ['text' => 'Young person name: ' . ($data['young_person_name'] ?: 'Not recorded'), 'size' => 10, 'bold' => false];
+    $allLines[] = ['text' => 'Young person signature: Captured electronically', 'size' => 10, 'bold' => false];
+    $allLines[] = ['text' => 'Date submitted: ' . ($data['submitted_date'] ?: 'Not recorded'), 'size' => 10, 'bold' => false];
 
-        $content = health_pdf_draw_image_command('BG1', 0, 0, $pageWidth, $pageHeight);
-        $content .= health_pdf_wrapped_text_commands(170, 690, 360, 34, $data['participant_name'], 11, 12, 2);
-        $content .= health_pdf_text_command(170, 657, 10, $data['dob']);
-        $content .= health_pdf_text_command(170, 634, 10, $data['participant_phone']);
-        $content .= health_pdf_text_command(155, 598, 9, $data['passport_number']);
-        $content .= health_pdf_text_command(398, 598, 9, $data['ehic_ghic_number']);
-        $content .= health_pdf_text_command(205, 571, 9, $data['passport_expiry_date']);
-        $content .= health_pdf_text_command(398, 571, 9, $data['ehic_ghic_expiry_date']);
-        $content .= health_pdf_text_command(205, 544, 9, $data['passport_nationality']);
+    // Render pages with purple header and logo
+    $margin = 42;
+    $headerHeight = 60;
+    $contentTopY = $pageHeight - $margin - $headerHeight - 10;
 
-        $content .= health_pdf_text_command(135, 433, 9, health_pdf_contact_value($firstContact, ['name']));
-        $content .= health_pdf_wrapped_text_commands(135, 405, 405, 32, health_pdf_contact_value($firstContact, ['address']), 8.5, 10, 3);
-        $content .= health_pdf_text_command(206, 369, 9, health_pdf_contact_value($firstContact, ['home_phone']));
-        $content .= health_pdf_text_command(206, 333, 9, health_pdf_contact_value($firstContact, ['mobile_phone', 'phone']));
-        $content .= health_pdf_text_command(206, 308, 9, health_pdf_contact_value($firstContact, ['email']));
-
-        $content .= health_pdf_text_command(135, 264, 9, health_pdf_contact_value($secondContact, ['name']));
-        $content .= health_pdf_wrapped_text_commands(135, 230, 405, 34, health_pdf_contact_value($secondContact, ['address']), 8.5, 10, 3);
-        $content .= health_pdf_text_command(206, 172, 9, health_pdf_contact_value($secondContact, ['mobile_phone', 'phone']));
-        $content .= health_pdf_text_command(206, 136, 9, health_pdf_contact_value($secondContact, ['home_phone']));
-        $content .= health_pdf_text_command(206, 105, 8.5, health_pdf_contact_value($secondContact, ['email']));
-        $pages[] = $content;
-
-        $content = health_pdf_draw_image_command('BG2', 0, 0, $pageWidth, $pageHeight);
-        $content .= health_pdf_wrapped_text_commands(90, 703, 455, 48, $data['health_details'], 7.7, 9.2, 5);
-        $content .= health_pdf_wrapped_text_commands(90, 590, 455, 47, $data['physical_details'], 8, 9.5, 5);
-        $content .= health_pdf_wrapped_text_commands(90, 477, 455, 48, $data['medication_allergy_details'], 8, 9.5, 5);
-        $content .= health_pdf_text_command(200, 398, 10, $data['family_doctor_name']);
-        $content .= health_pdf_text_command(200, 380, 10, $data['family_doctor_phone']);
-        $content .= health_pdf_wrapped_text_commands(200, 355, 280, 52, $data['family_doctor_address'], 9, 11, 4);
-        $pages[] = $content;
-
-        $content = health_pdf_draw_image_command('BG3', 0, 0, $pageWidth, $pageHeight);
-        $content .= health_pdf_text_command(210, 396, 10, $data['parent_guardian_name']);
-
-        if ($parentSignatureImage) {
-            $content .= health_pdf_draw_image_command('SIGP', 210, 350, 320, 45);
-        } else {
-            $content .= health_pdf_text_command(210, 372, 10, 'Signature captured electronically');
+    $drawHeader = static function () use ($pageWidth, $pageHeight, $margin, $headerHeight, $logoImage): string {
+        $headerY = $pageHeight - $margin - $headerHeight;
+        $cmd = "q 0.455 0.075 0.863 rg\n";
+        $cmd .= '0 ' . number_format($headerY, 2, '.', '') . ' ' . number_format($pageWidth, 2, '.', '') . ' ' . number_format($headerHeight, 2, '.', '') . " re f\n";
+        $cmd .= "Q\n";
+        if ($logoImage) {
+            $logoDisplayHeight = $headerHeight - 16;
+            $logoAspect = $logoImage['width'] / max(1, $logoImage['height']);
+            $logoDisplayWidth = $logoDisplayHeight * $logoAspect;
+            $logoX = $margin;
+            $logoY = $headerY + 8;
+            $cmd .= health_pdf_draw_image_command('LOGO', $logoX, $logoY, $logoDisplayWidth, $logoDisplayHeight);
         }
+        return $cmd;
+    };
 
-        $content .= health_pdf_text_command(115, 326, 10, $data['submitted_date']);
-        $content .= health_pdf_text_command(48, 238, 10, 'Young person acknowledgement');
-        $content .= health_pdf_text_command(48, 214, 9, 'Name of young person:');
-        $content .= health_pdf_text_command(183, 214, 10, $data['young_person_name']);
-        $content .= health_pdf_text_command(48, 178, 9, 'Signature of young person:');
+    $y = $contentTopY;
+    $currentPageContent = $drawHeader();
 
-        if ($youngSignatureImage) {
-            $content .= health_pdf_draw_image_command('SIGY', 183, 150, 355, 48);
-        } else {
-            $content .= health_pdf_text_command(183, 178, 10, 'Signature captured electronically');
-        }
+    foreach ($allLines as $spec) {
+        $text = (string)($spec['text'] ?? '');
+        $size = (int)($spec['size'] ?? 10);
+        $bold = !empty($spec['bold']);
+        $font = $bold ? 'F2' : 'F1';
+        $lineHeight = max(12, $size + 4);
+        $maxChars = max(35, (int)floor(($pageWidth - ($margin * 2)) / max(4.8, $size * 0.50)));
 
-        $content .= health_pdf_text_command(48, 124, 9, 'Date:');
-        $content .= health_pdf_text_command(88, 124, 10, $data['submitted_date']);
-        $pages[] = $content;
-
-        foreach ($pages as $content) {
-            $contentId = $nextObjectId++;
-            $pageId = $nextObjectId++;
-            $objects[$contentId] = '<< /Length ' . strlen($content) . " >>\nstream\n" . $content . "endstream";
-            $objects[$pageId] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' . $pageWidth . ' ' . $pageHeight . '] /Resources ' . $resourceDict . ' /Contents ' . $contentId . ' 0 R >>';
-            $pageObjectIds[] = $pageId;
-        }
-
-        $appendixLines = [];
-
-        if (count($data['contacts']) > 2) {
-            $appendixLines[] = ['text' => 'Additional emergency contacts', 'size' => 14, 'bold' => true];
-
-            foreach (array_slice($data['contacts'], 2) as $index => $contact) {
-                if (!is_array($contact)) {
-                    continue;
-                }
-
-                $appendixLines[] = ['text' => 'Contact ' . ($index + 3) . ': ' . health_pdf_contact_value($contact, ['name']), 'size' => 11, 'bold' => true];
-                $appendixLines[] = ['text' => 'Address: ' . health_pdf_contact_value($contact, ['address']), 'size' => 10, 'bold' => false];
-                $appendixLines[] = ['text' => 'Home/other: ' . health_pdf_contact_value($contact, ['home_phone']) . ' | Mobile: ' . health_pdf_contact_value($contact, ['mobile_phone', 'phone']) . ' | Email: ' . health_pdf_contact_value($contact, ['email']), 'size' => 10, 'bold' => false];
+        foreach (health_pdf_lines_from_text($text, $maxChars) as $line) {
+            if ($y < $margin + $lineHeight) {
+                $contentId = $nextObjectId++;
+                $pageId = $nextObjectId++;
+                $objects[$contentId] = '<< /Length ' . strlen($currentPageContent) . " >>\nstream\n" . $currentPageContent . "endstream";
+                $objects[$pageId] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' . $pageWidth . ' ' . $pageHeight . '] /Resources ' . $resourceDict . ' /Contents ' . $contentId . ' 0 R >>';
+                $pageObjectIds[] = $pageId;
+                $currentPageContent = $drawHeader();
+                $y = $contentTopY;
             }
-        }
-
-        if (!empty($data['update_emails'])) {
-            $appendixLines[] = ['text' => '', 'size' => 10, 'bold' => false];
-            $appendixLines[] = ['text' => 'Email addresses with access to Explorer Belt updates', 'size' => 14, 'bold' => true];
-            $appendixLines[] = ['text' => implode(', ', array_map('strval', $data['update_emails'])), 'size' => 10, 'bold' => false];
-        }
-
-        $appendixLines[] = ['text' => '', 'size' => 10, 'bold' => false];
-        $appendixLines[] = ['text' => 'Explorer Belt consent declarations', 'size' => 14, 'bold' => true];
-        $appendixLines[] = ['text' => 'By signing this form, the parent/guardian and young person confirmed agreement to the following:', 'size' => 9, 'bold' => false];
-        $appendixLines[] = ['text' => '', 'size' => 6, 'bold' => false];
-        $appendixLines[] = ['text' => '- I consent to my son/daughter participating in the Explorer Belt and other activities while overseas.', 'size' => 9, 'bold' => false];
-        $appendixLines[] = ['text' => '- I acknowledge the need for my son/daughter to behave responsibly.', 'size' => 9, 'bold' => false];
-        $appendixLines[] = ['text' => '- I agree that, should my son/daughter withdraw, funds raised by them up until that date will be retained by the unit.', 'size' => 9, 'bold' => false];
-        $appendixLines[] = ['text' => '- I am aware that any funds raised over the required amount will be retained by the unit to fund future Explorer Belts.', 'size' => 9, 'bold' => false];
-        $appendixLines[] = ['text' => '- I am aware that if my son/daughter behaves in a way that raises safety or well-being concerns, they may be asked to withdraw.', 'size' => 9, 'bold' => false];
-        $appendixLines[] = ['text' => '- I am aware that alcohol must not be consumed at all during the trip (including travel days and rest days, not just the expedition itself) and that doing so may result in the participant being asked to withdraw and may affect insurance cover.', 'size' => 9, 'bold' => false];
-        $appendixLines[] = ['text' => '- I understand that successfully completing the expedition portion of Explorer Belt 2026 in person does not automatically mean the full Explorer Belt award has been earned. The Explorer Belt is awarded based on a combination of factors including a satisfactory logbook, a presentation, an interview and the expedition itself. The County Commissioner has final approval on whether the award is granted.', 'size' => 9, 'bold' => false];
-        $appendixLines[] = ['text' => '- I understand the extent and limitations of the group\'s comprehensive insurance policy, including personal belongings, personal injury and public liability cover.', 'size' => 9, 'bold' => false];
-
-        if (!empty($appendixLines)) {
-            health_pdf_append_text_page($objects, $nextObjectId, $pageObjectIds, $resources, $appendixLines, $pageWidth, $pageHeight);
+            $currentPageContent .= health_pdf_text_command($margin, $y, $size, (string)$line, $font);
+            $y -= $lineHeight;
         }
     }
 
-    if (empty($pageObjectIds)) {
-        health_pdf_append_text_page($objects, $nextObjectId, $pageObjectIds, $resources, health_pdf_legacy_lines($person, $snapshot, $submission), $pageWidth, $pageHeight);
+    // Add signature images if captured
+    if ($parentSignatureImage && $y >= $margin + 60) {
+        $currentPageContent .= health_pdf_draw_image_command('SIGP', $margin + 10, $y - 45, 280, 40);
+        $y -= 55;
+    }
+
+    if ($youngSignatureImage && $y >= $margin + 60) {
+        $currentPageContent .= health_pdf_draw_image_command('SIGY', $margin + 10, $y - 45, 280, 40);
+        $y -= 55;
+    }
+
+    // Flush final page
+    if ($currentPageContent !== '') {
+        $contentId = $nextObjectId++;
+        $pageId = $nextObjectId++;
+        $objects[$contentId] = '<< /Length ' . strlen($currentPageContent) . " >>\nstream\n" . $currentPageContent . "endstream";
+        $objects[$pageId] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' . $pageWidth . ' ' . $pageHeight . '] /Resources ' . $resourceDict . ' /Contents ' . $contentId . ' 0 R >>';
+        $pageObjectIds[] = $pageId;
     }
 
     $kids = implode(' ', array_map(static fn($id) => $id . ' 0 R', $pageObjectIds));

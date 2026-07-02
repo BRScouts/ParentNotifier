@@ -60,12 +60,22 @@ try {
 
     $now = open_tracking_now_for_database();
 
+    /**
+     * Only record the first open. Subsequent pixel loads are ignored.
+     * This prevents inflated open counts from email clients that prefetch images
+     * or users who re-open the same email multiple times.
+     */
+    if (!empty($tracking['first_opened_at'])) {
+        output_tracking_pixel();
+    }
+
     $stmt = $pdo->prepare(
         'UPDATE email_tracking_tokens
-         SET open_count = open_count + 1,
+         SET open_count = 1,
              first_opened_at = COALESCE(first_opened_at, ?),
              last_opened_at = ?
-         WHERE id = ?'
+         WHERE id = ?
+           AND first_opened_at IS NULL'
     );
 
     $stmt->execute([
@@ -73,6 +83,10 @@ try {
         $now,
         (int)$tracking['id'],
     ]);
+
+    if ((int)$stmt->rowCount() === 0) {
+        output_tracking_pixel();
+    }
 
     $stmt = $pdo->prepare(
         'INSERT INTO email_tracking_events
