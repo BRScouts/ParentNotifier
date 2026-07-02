@@ -1506,11 +1506,11 @@ function send_health_form_pdf(array $person, array $snapshot = [], ?array $submi
     $contacts = $data['contacts'];
     $margin = 42;
     $headerHeight = 60;
-    $contentTopY = $pageHeight - $margin - $headerHeight - 12;
+    $contentTopY = $pageHeight - $headerHeight - 12;
     $rightEdge = $pageWidth - $margin;
 
     $drawHeader = static function () use ($pageWidth, $pageHeight, $margin, $headerHeight, $logoImage): string {
-        $headerY = $pageHeight - $margin - $headerHeight;
+        $headerY = $pageHeight - $headerHeight;
         $cmd = "q 0.455 0.075 0.863 rg\n0 " . number_format($headerY, 2, '.', '') . ' ' . number_format($pageWidth, 2, '.', '') . ' ' . number_format($headerHeight, 2, '.', '') . " re f\nQ\n";
         if ($logoImage) {
             $h = $headerHeight - 16;
@@ -1605,6 +1605,31 @@ function send_health_form_pdf(array $person, array $snapshot = [], ?array $submi
 
     $ensureSpace(120);
     $content .= $drawSectionHeading('5. Consent declarations', $y, $margin, $rightEdge);
+
+    // Medical consent
+    $content .= health_pdf_text_command($margin, $y, 9, 'Medical consent', 'F2');
+    $y -= 13;
+    $medicalDeclarations = [
+        'I declare that all medical information on this form is true and that I have not withheld any relevant information.',
+        'In the event of an emergency, and if the Explorer Scout group are unable to contact me, I give permission for any medical treatment deemed necessary to maintain my son/daughter\'s well-being.',
+        'I consent to the disclosure of this health data to third parties in order to facilitate and administer this visit and for the group to comply with legal obligations.',
+        'I will inform the visit organiser as soon as possible of any changes in medical condition or other circumstances that may affect participation.',
+    ];
+    foreach ($medicalDeclarations as $decl) {
+        $ensureSpace(22);
+        $maxChars = (int)floor(($rightEdge - $margin - 10) / (7.5 * 0.47));
+        foreach (health_pdf_lines_from_text($decl, $maxChars) as $line) {
+            $ensureSpace(11);
+            $content .= health_pdf_text_command($margin + 8, $y, 7.5, $line, 'F1');
+            $y -= 10;
+        }
+        $y -= 2;
+    }
+
+    $y -= 6;
+    $ensureSpace(20);
+    $content .= health_pdf_text_command($margin, $y, 9, 'Explorer Belt consent', 'F2');
+    $y -= 13;
     $declarations = [
         'I consent to my son/daughter participating in the Explorer Belt and other activities while overseas.',
         'I acknowledge the need for my son/daughter to behave responsibly.',
