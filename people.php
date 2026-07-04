@@ -2295,6 +2295,28 @@ include __DIR__ . '/header.php';
         color: #ffffff !important;
     }
 
+    @media (max-width: 700px) {
+        .page-hero {
+            padding: 1rem 0;
+            margin-bottom: 0.75rem;
+        }
+
+        .page-hero h1 {
+            font-size: 1.4rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .page-hero .lead {
+            font-size: 0.9rem;
+            margin-bottom: 0;
+        }
+
+        #main-content.my-5 {
+            margin-top: 1.5rem !important;
+            margin-bottom: 1.5rem !important;
+        }
+    }
+
     .people-shell {
         max-width: 1240px;
     }
@@ -2308,12 +2330,13 @@ include __DIR__ . '/header.php';
 
     @media (max-width: 700px) {
         .people-actions {
-            gap: 0.35rem;
+            gap: 0.3rem;
+            margin-bottom: 1rem;
         }
 
         .people-actions .btn {
-            font-size: 0.85rem;
-            padding: 0.35rem 0.6rem;
+            font-size: 0.8rem;
+            padding: 0.3rem 0.5rem;
         }
     }
 
@@ -2322,6 +2345,13 @@ include __DIR__ . '/header.php';
         background: #ffffff;
         padding: 1.25rem;
         margin-bottom: 1.5rem;
+    }
+
+    @media (max-width: 700px) {
+        .people-panel {
+            padding: 0.85rem;
+            margin-bottom: 1rem;
+        }
     }
 
     .people-panel h2,
@@ -2699,7 +2729,7 @@ include __DIR__ . '/header.php';
 
         <?php if ($currentPerson): ?>
             <a class="btn btn-outline-primary" href="<?= e(url('people.php?view=edit&person_id=' . (int)$currentPerson['id'])) ?>">Edit details</a>
-            <a class="btn btn-outline-primary" href="<?= e(url('people.php?view=health_pdf&person_id=' . (int)$currentPerson['id'])) ?>">Download completed consent form PDF</a>
+            <a class="btn btn-outline-primary" href="<?= e(url('people.php?view=health_pdf&person_id=' . (int)$currentPerson['id'])) ?>"><span class="d-none d-md-inline">Download completed consent form </span>PDF</a>
             <a class="btn btn-outline-primary" href="<?= e(url('people.php?view=print&person_id=' . (int)$currentPerson['id'])) ?>" target="_blank">Print record</a>
         <?php endif; ?>
     </div>
