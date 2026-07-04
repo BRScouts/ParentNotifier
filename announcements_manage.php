@@ -33,6 +33,49 @@ try {
 $error = '';
 $success = '';
 
+// --- Handle POST for toggling pin status ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'toggle_pin') {
+    if (empty($_POST['csrf_token']) || !hash_equals($csrfToken, (string)$_POST['csrf_token'])) {
+        $error = 'Security check failed. Please refresh and try again.';
+    } else {
+        $announcementId = (int)($_POST['announcement_id'] ?? 0);
+        $newPinnedState = (int)($_POST['new_pinned_state'] ?? 0);
+
+        if ($announcementId > 0) {
+            try {
+                // Ensure is_pinned column exists
+                $hasPinnedCol = false;
+                try {
+                    $colCheck = $pdo->prepare(
+                        'SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+                         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "announcements" AND COLUMN_NAME = "is_pinned"'
+                    );
+                    $colCheck->execute();
+                    $hasPinnedCol = (int)$colCheck->fetchColumn() > 0;
+                } catch (Throwable $e) {}
+
+                if (!$hasPinnedCol) {
+                    $pdo->exec('ALTER TABLE announcements ADD COLUMN is_pinned TINYINT(1) NOT NULL DEFAULT 0');
+                }
+
+                if ($newPinnedState === 1) {
+                    // Unpin all others first
+                    $pdo->exec('UPDATE announcements SET is_pinned = 0');
+                    $stmt = $pdo->prepare('UPDATE announcements SET is_pinned = 1 WHERE id = ?');
+                    $stmt->execute([$announcementId]);
+                    $success = 'Announcement pinned to dashboard.';
+                } else {
+                    $stmt = $pdo->prepare('UPDATE announcements SET is_pinned = 0 WHERE id = ?');
+                    $stmt->execute([$announcementId]);
+                    $success = 'Announcement unpinned from dashboard.';
+                }
+            } catch (Throwable $e) {
+                $error = 'Could not update pin status: ' . $e->getMessage();
+            }
+        }
+    }
+}
+
 // --- Task 10.2: Handle POST for announcement creation ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'create_announcement') {
     // Validate CSRF
@@ -151,9 +194,32 @@ if (!empty($_SESSION['announce_success'])) {
 // --- Task 10.3: Fetch existing announcements ---
 $announcements = [];
 try {
+    // Check if is_pinned column exists
+    $hasPinnedCol = false;
+    try {
+        $colCheck = $pdo->prepare(
+            'SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "announcements" AND COLUMN_NAME = "is_pinned"'
+        );
+        $colCheck->execute();
+        $hasPinnedCol = (int)$colCheck->fetchColumn() > 0;
+    } catch (Throwable $e) {}
+
+    if (!$hasPinnedCol) {
+        // Add column if it doesn't exist
+        try {
+            $pdo->exec('ALTER TABLE announcements ADD COLUMN is_pinned TINYINT(1) NOT NULL DEFAULT 0');
+            $hasPinnedCol = true;
+        } catch (Throwable $e) {}
+    }
+
+    $pinnedSelect = $hasPinnedCol ? 'a.is_pinned,' : '0 AS is_pinned,';
+    $pinnedOrder = $hasPinnedCol ? 'a.is_pinned DESC,' : '';
+
     $announcements = $pdo->query(
         'SELECT 
             a.*,
+            ' . $pinnedSelect . '
             l.name AS sender_name,
             CASE WHEN a.team_id IS NULL THEN \'All Teams\' ELSE t.name END AS target_name,
             (SELECT COUNT(*) FROM announcement_acknowledgements WHERE announcement_id = a.id) AS ack_count,
@@ -163,7 +229,7 @@ try {
          FROM announcements a
          LEFT JOIN leaders l ON l.id = a.sender_leader_id
          LEFT JOIN teams t ON t.id = a.team_id
-         ORDER BY a.created_at DESC'
+         ORDER BY ' . $pinnedOrder . ' a.created_at DESC'
     )->fetchAll();
 } catch (Throwable $e) {
     // Fallback without is_active
@@ -171,6 +237,7 @@ try {
         $announcements = $pdo->query(
             'SELECT 
                 a.*,
+                0 AS is_pinned,
                 l.name AS sender_name,
                 CASE WHEN a.team_id IS NULL THEN \'All Teams\' ELSE t.name END AS target_name,
                 (SELECT COUNT(*) FROM announcement_acknowledgements WHERE announcement_id = a.id) AS ack_count,
@@ -379,13 +446,18 @@ include __DIR__ . '/header.php';
                             <th>Sender</th>
                             <th>Date</th>
                             <th>Acknowledgements</th>
+                            <th>Pin</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php foreach ($announcements as $a): ?>
-                            <tr>
+                            <?php $isPinned = (int)($a['is_pinned'] ?? 0) === 1; ?>
+                            <tr<?= $isPinned ? ' style="background: #faf5ff;"' : '' ?>>
                                 <td>
                                     <strong><?= e($a['title']) ?></strong>
+                                    <?php if ($isPinned): ?>
+                                        <span style="display: inline-block; background: #7413dc; color: #fff; font-size: 0.75rem; padding: 0.1rem 0.4rem; font-weight: 800; margin-left: 0.3rem;">📌 PINNED</span>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <span class="announce-target"><?= e($a['target_name'] ?? 'Unknown') ?></span>
@@ -413,6 +485,17 @@ include __DIR__ . '/header.php';
                                     <span class="ack-badge <?= $badgeClass ?>">
                                         <?= $ackCount ?>/<?= $totalTeams ?> teams acknowledged
                                     </span>
+                                </td>
+                                <td>
+                                    <form method="post" action="<?= e(url('announcements_manage.php')) ?>" style="margin: 0;">
+                                        <input type="hidden" name="action" value="toggle_pin">
+                                        <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+                                        <input type="hidden" name="announcement_id" value="<?= (int)$a['id'] ?>">
+                                        <input type="hidden" name="new_pinned_state" value="<?= $isPinned ? '0' : '1' ?>">
+                                        <button type="submit" class="btn btn-sm <?= $isPinned ? 'btn-outline-danger' : 'btn-outline-primary' ?>" style="font-size: 0.8rem; padding: 0.2rem 0.5rem;">
+                                            <?= $isPinned ? 'Unpin' : 'Pin to Dashboard' ?>
+                                        </button>
+                                    </form>
                                 </td>
                             </tr>
                         <?php endforeach; ?>

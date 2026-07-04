@@ -663,6 +663,27 @@ if ($submittedSuccess) {
     unset($_SESSION['explorer_checkin_success']);
 }
 
+// --- Check if team has already submitted a check-in today ---
+$alreadyCheckedInToday = false;
+$todayCheckinSubmittedAt = null;
+try {
+    $tz = new DateTimeZone(defined('DEFAULT_TIMEZONE') ? DEFAULT_TIMEZONE : 'Europe/London');
+    $todayDate = (new DateTime('now', $tz))->format('Y-m-d');
+    $stmt = $pdo->prepare(
+        'SELECT submitted_at FROM explorer_checkins
+         WHERE team_id = ? AND DATE(submitted_at) = ?
+         ORDER BY submitted_at DESC LIMIT 1'
+    );
+    $stmt->execute([(int)$team['id'], $todayDate]);
+    $todayRow = $stmt->fetch();
+    if ($todayRow) {
+        $alreadyCheckedInToday = true;
+        $todayCheckinSubmittedAt = $todayRow['submitted_at'];
+    }
+} catch (Throwable $e) {
+    // Graceful fallback
+}
+
 include __DIR__ . '/explorer_header.php';
 ?>
 
@@ -889,7 +910,20 @@ include __DIR__ . '/explorer_header.php';
             call <strong><?= e(explorer_contact_phone()) ?></strong>.
         </section>
 
-        <form method="post" id="checkinForm">
+        <?php if ($alreadyCheckedInToday): ?>
+        <section class="warning-box" id="duplicateCheckinWarning">
+            <strong>⚠️ You have already checked in today</strong>
+            <p style="margin: 0.5rem 0;">
+                Your team submitted a check-in at <strong><?= e(format_datetime($todayCheckinSubmittedAt)) ?></strong>.
+                You normally only need to check in once per day. Are you sure you want to submit another one?
+            </p>
+            <button type="button" class="btn btn-primary btn-sm" id="confirmDuplicateCheckin" style="margin-top: 0.5rem;">
+                Yes, I want to submit another check-in
+            </button>
+        </section>
+        <?php endif; ?>
+
+        <form method="post" id="checkinForm" <?php if ($alreadyCheckedInToday): ?>style="display:none;"<?php endif; ?>>
             <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
             <input type="hidden" id="latitude" name="latitude">
             <input type="hidden" id="longitude" name="longitude">
@@ -1191,6 +1225,18 @@ include __DIR__ . '/explorer_header.php';
 
 <script>
     window.addEventListener('load', function () {
+        // Duplicate check-in confirmation
+        var duplicateWarning = document.getElementById('duplicateCheckinWarning');
+        var confirmBtn = document.getElementById('confirmDuplicateCheckin');
+        var checkinForm = document.getElementById('checkinForm');
+
+        if (confirmBtn && duplicateWarning && checkinForm) {
+            confirmBtn.addEventListener('click', function () {
+                duplicateWarning.style.display = 'none';
+                checkinForm.style.display = 'block';
+            });
+        }
+
         var mapElement = document.getElementById('checkinMap');
 
         if (mapElement && typeof L !== 'undefined') {
