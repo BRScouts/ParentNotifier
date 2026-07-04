@@ -614,6 +614,78 @@ include __DIR__ . '/explorer_header.php';
         color: #505a5f;
         font-size: 0.95rem;
     }
+
+    .member-selector {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .member-select-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.75rem;
+        border: 3px solid #d8d8d8;
+        border-radius: 12px;
+        background: #ffffff;
+        cursor: pointer;
+        transition: border-color 0.15s, background 0.15s, transform 0.1s;
+        width: 100px;
+        text-align: center;
+    }
+
+    .member-select-btn:hover {
+        border-color: #1d70b8;
+        background: #f0f7ff;
+    }
+
+    .member-select-btn:active {
+        transform: scale(0.95);
+    }
+
+    .member-select-btn.selected {
+        border-color: #00703c;
+        background: #e9f8ef;
+        box-shadow: 0 0 0 2px #00703c;
+    }
+
+    .member-select-photo {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        border: 2px solid #1d1d1d;
+        object-fit: cover;
+    }
+
+    .member-select-placeholder {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        border: 2px solid #1d1d1d;
+        background: #7413dc;
+        color: #ffffff;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 900;
+        font-size: 1.1rem;
+    }
+
+    .member-select-btn.selected .member-select-photo,
+    .member-select-btn.selected .member-select-placeholder {
+        border-color: #00703c;
+    }
+
+    .member-select-name {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: #1d1d1d;
+        line-height: 1.2;
+        word-break: break-word;
+    }
 </style>
 
 <div class="container mb-5">
@@ -733,14 +805,35 @@ include __DIR__ . '/explorer_header.php';
                 </div>
 
                 <div class="form-group">
-                    <label for="submitted_by">Submitted by</label>
+                    <label>Who is completing this form?</label>
+                    <p class="muted" style="margin-bottom:0.75rem;">Tap your name to select.</p>
+
+                    <div class="member-selector" id="submittedBySelector">
+                        <?php foreach ($teamMembers as $member): ?>
+                            <?php $memberPhoto = explorer_media_url($member['photo_url'] ?? ''); ?>
+                            <button
+                                type="button"
+                                class="member-select-btn"
+                                data-name="<?= e($member['name']) ?>"
+                            >
+                                <?php if ($memberPhoto !== ''): ?>
+                                    <img class="member-select-photo" src="<?= e($memberPhoto) ?>" alt="">
+                                <?php else: ?>
+                                    <span class="member-select-placeholder" aria-hidden="true">
+                                        <?= e(explorer_initials($member['name'])) ?>
+                                    </span>
+                                <?php endif; ?>
+                                <span class="member-select-name"><?= e($member['name']) ?></span>
+                            </button>
+                        <?php endforeach; ?>
+                    </div>
+
                     <input
-    class="form-control"
-    id="submitted_by"
-    name="submitted_by"
-    placeholder="Name of person completing this form"
-    required
->
+                        type="hidden"
+                        id="submitted_by"
+                        name="submitted_by"
+                        required
+                    >
             </section>
 
             <section class="checkin-panel">
@@ -1012,6 +1105,13 @@ include __DIR__ . '/explorer_header.php';
                     return;
                 }
 
+                var submittedBy = document.getElementById('submitted_by');
+                if (!submittedBy || submittedBy.value === '') {
+                    event.preventDefault();
+                    alert('Please select who is completing this form.');
+                    return;
+                }
+
                 var hasInjuries = document.querySelector('input[name="has_injuries"]:checked');
                 var hasMedication = document.querySelector('input[name="has_medication"]:checked');
 
@@ -1028,6 +1128,21 @@ include __DIR__ . '/explorer_header.php';
                 }
             });
         }
+
+        // Submitted-by member selector
+        var selectorButtons = document.querySelectorAll('.member-select-btn');
+        var submittedByInput = document.getElementById('submitted_by');
+
+        selectorButtons.forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                selectorButtons.forEach(function (b) {
+                    b.classList.remove('selected');
+                });
+
+                btn.classList.add('selected');
+                submittedByInput.value = btn.getAttribute('data-name');
+            });
+        });
     });
 </script>
 

@@ -269,6 +269,15 @@ if (schedule_table_exists($pdo, 'leader_duty_roster')) {
         $startDate = $scheduleDates[0];
         $endDate = end($scheduleDates);
 
+        // Account for 9am–9am duty cycle: if before 9am, yesterday's duty is still active
+        $tz = new DateTimeZone(defined('APP_TIMEZONE') ? APP_TIMEZONE : 'Europe/Helsinki');
+        $nowDt = new DateTime('now', $tz);
+        $currentHourSchedule = (int)$nowDt->format('G');
+        if ($currentHourSchedule < 9) {
+            $prevDay = (new DateTime($startDate))->modify('-1 day')->format('Y-m-d');
+            $startDate = $prevDay;
+        }
+
         $stmt = $pdo->prepare(
             'SELECT r.*, l.name AS leader_name, l.photo_url AS leader_photo
              FROM leader_duty_roster r

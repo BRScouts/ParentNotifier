@@ -2307,6 +2307,9 @@ include __DIR__ . '/header.php';
                     <p class="muted mb-0">
                         Shows which leaders are on/off duty while they're in country.
                     </p>
+                    <p class="muted mb-0" style="font-size: 0.85rem; margin-top: 0.25rem;">
+                        <strong>Note:</strong> Duty runs 09:00 to 09:00 the following day. Handover is at 09:00 each morning.
+                    </p>
                 </div>
                 <?php if (!empty($dutyDates)): ?>
                     <?php if ($dutyEditMode): ?>

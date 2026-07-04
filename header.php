@@ -296,6 +296,17 @@ $leaderName = $currentLeader['name'] ?? ($user['name'] ?? 'Leader');
 $leaderEmail = $currentLeader['email'] ?? ($user['email'] ?? '');
 $leaderPhoto = header_media_url($currentLeader['photo_url'] ?? '');
 $leaderBio = $leaderBioColumn ? (string)($currentLeader[$leaderBioColumn] ?? '') : '';
+
+// Check if the current leader is on duty (9am–9am cycle)
+$headerDutyStatus = null;
+if ($user && !empty($user['id'])) {
+    try {
+        $headerDutyStatus = leader_duty_status($pdo, (int)$user['id']);
+    } catch (Throwable $e) {
+        $headerDutyStatus = ['on_duty' => false, 'next_duty_start' => null, 'hours_until_next' => null];
+    }
+}
+$isLeaderOnDuty = $headerDutyStatus['on_duty'] ?? false;
 ?>
 <!doctype html>
 <html lang="en">
@@ -467,6 +478,11 @@ $leaderBio = $leaderBioColumn ? (string)($currentLeader[$leaderBioColumn] ?? '')
             font-weight: 900;
             font-size: 0.9rem;
             overflow: hidden;
+        }
+
+        .profile-avatar-on-duty {
+            border: 3px solid #00703c;
+            box-shadow: 0 0 0 2px rgba(0, 112, 60, 0.3);
         }
 
         .profile-dropdown {
@@ -814,12 +830,12 @@ $leaderBio = $leaderBioColumn ? (string)($currentLeader[$leaderBioColumn] ?? '')
                             <span class="profile-toggle-inner">
                                 <?php if ($leaderPhoto !== ''): ?>
                                     <img
-                                        class="profile-avatar"
+                                        class="profile-avatar<?= $isLeaderOnDuty ? ' profile-avatar-on-duty' : '' ?>"
                                         src="<?= e($leaderPhoto) ?>"
                                         alt="Profile photo of <?= e($leaderName) ?>"
                                     >
                                 <?php else: ?>
-                                    <span class="profile-avatar" aria-hidden="true">
+                                    <span class="profile-avatar<?= $isLeaderOnDuty ? ' profile-avatar-on-duty' : '' ?>" aria-hidden="true">
                                         <?= e(header_initials($leaderName)) ?>
                                     </span>
                                 <?php endif; ?>
@@ -835,6 +851,27 @@ $leaderBio = $leaderBioColumn ? (string)($currentLeader[$leaderBioColumn] ?? '')
                                 <?php if ($leaderEmail !== ''): ?>
                                     <span class="profile-dropdown-email">
                                         <?= e($leaderEmail) ?>
+                                    </span>
+                                <?php endif; ?>
+
+                                <?php if ($headerDutyStatus): ?>
+                                    <span style="display: block; font-size: 0.8rem; font-weight: 800; margin-top: 0.35rem; color: <?= $isLeaderOnDuty ? '#00703c' : '#505a5f' ?>;">
+                                        <?php if ($isLeaderOnDuty): ?>
+                                            🟢 On duty
+                                        <?php elseif ($headerDutyStatus['hours_until_next'] !== null): ?>
+                                            <?php
+                                            $hours = $headerDutyStatus['hours_until_next'];
+                                            if ($hours < 24) {
+                                                $dutyCountdown = 'Next on duty in ' . $hours . ' hour' . ($hours !== 1 ? 's' : '');
+                                            } else {
+                                                $days = (int)floor($hours / 24);
+                                                $dutyCountdown = 'Next on duty in ' . $days . ' day' . ($days !== 1 ? 's' : '');
+                                            }
+                                            ?>
+                                            ⚪ <?= e($dutyCountdown) ?>
+                                        <?php else: ?>
+                                            ⚪ Off duty
+                                        <?php endif; ?>
                                     </span>
                                 <?php endif; ?>
                             </div>

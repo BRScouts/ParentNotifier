@@ -62,19 +62,27 @@ function explorer_initials(string $name): string
 
 include __DIR__ . '/explorer_header.php';
 
-// --- Query on-duty leaders for today ---
+// --- Query on-duty leaders for the current duty period (09:00–09:00) ---
 $onDutyLeaders = [];
 
 try {
+    // Determine active duty date: if before 9am, duty from yesterday is still active
+    $tz = new DateTimeZone(defined('APP_TIMEZONE') ? APP_TIMEZONE : 'Europe/Helsinki');
+    $now = new DateTime('now', $tz);
+    $currentHour = (int)$now->format('G');
+    $activeDutyDate = ($currentHour < 9)
+        ? (clone $now)->modify('-1 day')->format('Y-m-d')
+        : $now->format('Y-m-d');
+
     $stmt = $pdo->prepare(
         'SELECT l.name, l.phone, l.photo_url
          FROM leader_duty_roster r
          JOIN leaders l ON l.id = r.leader_id
-         WHERE r.duty_date = CURDATE()
+         WHERE r.duty_date = ?
            AND r.status = \'on_duty\'
          ORDER BY l.name ASC'
     );
-    $stmt->execute();
+    $stmt->execute([$activeDutyDate]);
     $onDutyLeaders = $stmt->fetchAll();
 } catch (Throwable $e) {
     // Table may not exist yet — gracefully show fallback
@@ -124,6 +132,7 @@ foreach ($onDutyLeaders as $leader) {
             <strong>Then</strong> call the leadership team:
         </p>
 
+        <?php if ($emergencyPhone !== ''): ?>
         <a
             href="tel:<?= e($emergencyPhone) ?>"
             style="display: inline-block; font-size: 1.8rem; font-weight: 900; color: #ffffff; background: #7413dc; padding: 0.6rem 1.25rem; text-decoration: none; border-radius: 4px; line-height: 1.2;"
@@ -131,6 +140,7 @@ foreach ($onDutyLeaders as $leader) {
         >
             &#x1F4DE; <?= e($emergencyPhone) ?>
         </a>
+        <?php endif; ?>
     </section>
 
     <!-- Contact leaders section -->
@@ -143,24 +153,30 @@ foreach ($onDutyLeaders as $leader) {
 
         <?php if (!empty($onDutyLeaders)): ?>
 
-            <!-- Leader photos -->
-            <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; justify-content: center; margin-bottom: 1.5rem;">
+            <!-- Leader photos with names -->
+            <div style="display: flex; flex-wrap: wrap; gap: 1.25rem; justify-content: center; margin-bottom: 1.5rem;">
                 <?php foreach ($onDutyLeaders as $leader): ?>
                     <?php
                     $leaderPhotoUrl = !empty($leader['photo_url']) ? explorer_media_url($leader['photo_url']) : '';
                     $leaderInitials = explorer_initials($leader['name'] ?: 'Leader');
+                    $leaderName = $leader['name'] ?: 'Leader';
                     ?>
-                    <?php if ($leaderPhotoUrl !== ''): ?>
-                        <img
-                            src="<?= e($leaderPhotoUrl) ?>"
-                            alt=""
-                            style="width: 64px; height: 64px; border-radius: 50%; object-fit: cover; border: 3px solid #7413dc;"
-                        >
-                    <?php else: ?>
-                        <div style="width: 64px; height: 64px; border-radius: 50%; background: #7413dc; color: #ffffff; display: inline-flex; align-items: center; justify-content: center; font-size: 1.2rem; font-weight: 900; border: 3px solid #7413dc;">
-                            <?= e($leaderInitials) ?>
-                        </div>
-                    <?php endif; ?>
+                    <div style="display: flex; flex-direction: column; align-items: center; gap: 0.35rem;">
+                        <?php if ($leaderPhotoUrl !== ''): ?>
+                            <img
+                                src="<?= e($leaderPhotoUrl) ?>"
+                                alt="<?= e($leaderName) ?>"
+                                style="width: 64px; height: 64px; border-radius: 50%; object-fit: cover; border: 3px solid #7413dc;"
+                            >
+                        <?php else: ?>
+                            <div style="width: 64px; height: 64px; border-radius: 50%; background: #7413dc; color: #ffffff; display: inline-flex; align-items: center; justify-content: center; font-size: 1.2rem; font-weight: 900; border: 3px solid #7413dc;">
+                                <?= e($leaderInitials) ?>
+                            </div>
+                        <?php endif; ?>
+                        <span style="font-size: 0.85rem; font-weight: 700; color: #1d1d1d; text-align: center;">
+                            <?= e($leaderName) ?>
+                        </span>
+                    </div>
                 <?php endforeach; ?>
             </div>
 
@@ -175,10 +191,14 @@ foreach ($onDutyLeaders as $leader) {
                         </a>
                     <?php endforeach; ?>
                 </div>
+            <?php elseif ($emergencyPhone !== ''): ?>
+                <p style="font-size: 1rem; color: #505a5f;">
+                    No phone numbers currently available for on-duty leaders. For urgent support, call
+                    <a href="tel:<?= e($emergencyPhone) ?>" style="font-weight: 700;"><?= e($emergencyPhone) ?></a>.
+                </p>
             <?php else: ?>
                 <p style="font-size: 1rem; color: #505a5f;">
-                    No phone numbers currently available. For urgent support, call
-                    <a href="tel:<?= e($emergencyPhone) ?>" style="font-weight: 700;"><?= e($emergencyPhone) ?></a>.
+                    No phone numbers currently available. Please contact the on-duty leaders directly.
                 </p>
             <?php endif; ?>
 
@@ -187,8 +207,13 @@ foreach ($onDutyLeaders as $leader) {
             <div class="alert alert-warning" style="border: 2px solid #ffc107; padding: 1.5rem; font-size: 1.1rem;">
                 <p style="font-weight: 800; margin-bottom: 0.75rem;">No leaders currently on duty</p>
                 <p style="margin-bottom: 0;">
-                    No leaders are currently listed as on duty. For urgent support, call
-                    <a href="tel:<?= e($emergencyPhone) ?>" style="font-weight: 700;"><?= e($emergencyPhone) ?></a>.
+                    No leaders are currently listed as on duty.
+                    <?php if ($emergencyPhone !== ''): ?>
+                        For urgent support, call
+                        <a href="tel:<?= e($emergencyPhone) ?>" style="font-weight: 700;"><?= e($emergencyPhone) ?></a>.
+                    <?php else: ?>
+                        Please check back later or refer to the emergency numbers above.
+                    <?php endif; ?>
                 </p>
             </div>
 
