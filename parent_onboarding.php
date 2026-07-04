@@ -2500,7 +2500,7 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
 <main class="container mb-5">
     <div class="info-box">
         <strong>Privacy note:</strong>
-        This form is used to safely run Explorer Belt 2026. Information submitted here will be available to authorised leaders supporting the trip.
+        This form is used to safely run Explorer Belt 2026. Information submitted here will be available to authorised leaders supporting the trip. Full details can be found in our <a href="<?= e(url('privacy.php')) ?>" target="_blank" rel="noopener">privacy notice</a>
     </div>
 
     <?php if ($error): ?>
