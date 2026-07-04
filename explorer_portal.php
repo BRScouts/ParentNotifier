@@ -365,7 +365,7 @@ $tokenParam = urlencode($token);
 </div>
 
 <script>
-(function () {
+document.addEventListener('DOMContentLoaded', function () {
     var mapEl = document.getElementById('portalJourneyMap');
     if (!mapEl || typeof L === 'undefined') return;
 
@@ -397,7 +397,7 @@ $tokenParam = urlencode($token);
     } else {
         L.marker([lat, lng]).addTo(map);
     }
-})();
+});
 </script>
 
 <?php include __DIR__ . '/explorer_footer.php'; ?>

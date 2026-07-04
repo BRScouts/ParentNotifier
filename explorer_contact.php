@@ -97,6 +97,45 @@ foreach ($onDutyLeaders as $leader) {
         $onDutyPhones[] = $phone;
     }
 }
+
+// --- Fallback: If no duty roster leaders, show all leaders currently "in country" ---
+$inCountryLeaders = [];
+if (empty($onDutyLeaders)) {
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT l.name, l.phone, l.photo_url
+             FROM leader_schedules s
+             JOIN leaders l ON l.id = s.leader_id
+             WHERE s.status = \'in_country\'
+               AND NOW() BETWEEN s.schedule_start AND s.schedule_end
+             ORDER BY l.name ASC'
+        );
+        $stmt->execute();
+        $inCountryLeaders = $stmt->fetchAll();
+    } catch (Throwable $e) {
+        // Table may not exist — try fallback from leaders table directly
+        try {
+            $stmt = $pdo->query(
+                'SELECT name, phone, photo_url
+                 FROM leaders
+                 WHERE is_in_country = 1 AND (is_active = 1 OR is_active IS NULL)
+                 ORDER BY name ASC'
+            );
+            $inCountryLeaders = $stmt->fetchAll();
+        } catch (Throwable $e2) {
+            $inCountryLeaders = [];
+        }
+    }
+}
+
+// Collect unique phone numbers from in-country leaders (fallback)
+$inCountryPhones = [];
+foreach ($inCountryLeaders as $leader) {
+    $phone = trim($leader['phone'] ?? '');
+    if ($phone !== '' && !in_array($phone, $inCountryPhones, true)) {
+        $inCountryPhones[] = $phone;
+    }
+}
 ?>
 
 <div class="container" style="padding-top: 2rem; padding-bottom: 2rem;">
@@ -129,7 +168,7 @@ foreach ($onDutyLeaders as $leader) {
         </p>
 
         <p style="font-size: 1.1rem; margin-bottom: 0.5rem;">
-            <strong>Then</strong> call the leadership team:
+            <strong>Then</strong> call the on Duty Leader
         </p>
 
         
@@ -140,9 +179,7 @@ foreach ($onDutyLeaders as $leader) {
     <section style="background: #ffffff; border: 2px solid #d8d8d8; padding: 1.5rem; margin-bottom: 2rem;">
         <h2 style="font-weight: 900; font-size: 1.3rem; margin-top: 0; margin-bottom: 1rem;">Contact Leaders</h2>
 
-        <p style="font-size: 1.05rem; margin-bottom: 1.5rem;">
-            For non-urgent questions or support, contact the on-duty leaders below.
-        </p>
+
 
         <?php if (!empty($onDutyLeaders)): ?>
 
@@ -193,6 +230,57 @@ foreach ($onDutyLeaders as $leader) {
                 <p style="font-size: 1rem; color: #505a5f;">
                     No phone numbers currently available. Please contact the on-duty leaders directly.
                 </p>
+            <?php endif; ?>
+
+        <?php elseif (!empty($inCountryLeaders)): ?>
+
+            <!-- Fallback: show all in-country leaders -->
+            <p style="font-size: 1rem; color: #505a5f; margin-bottom: 1rem;">
+                No specific duty roster is set for today. The following leaders are currently <strong>in country</strong> and available:
+            </p>
+
+            <div style="display: flex; flex-wrap: wrap; gap: 1.25rem; justify-content: center; margin-bottom: 1.5rem;">
+                <?php foreach ($inCountryLeaders as $leader): ?>
+                    <?php
+                    $leaderPhotoUrl = !empty($leader['photo_url']) ? explorer_media_url($leader['photo_url']) : '';
+                    $leaderInitials = explorer_initials($leader['name'] ?: 'Leader');
+                    $leaderName = $leader['name'] ?: 'Leader';
+                    $leaderPhone = trim($leader['phone'] ?? '');
+                    ?>
+                    <div style="display: flex; flex-direction: column; align-items: center; gap: 0.35rem;">
+                        <?php if ($leaderPhotoUrl !== ''): ?>
+                            <img
+                                src="<?= e($leaderPhotoUrl) ?>"
+                                alt="<?= e($leaderName) ?>"
+                                style="width: 64px; height: 64px; border-radius: 50%; object-fit: cover; border: 3px solid #7413dc;"
+                            >
+                        <?php else: ?>
+                            <div style="width: 64px; height: 64px; border-radius: 50%; background: #7413dc; color: #ffffff; display: inline-flex; align-items: center; justify-content: center; font-size: 1.2rem; font-weight: 900; border: 3px solid #7413dc;">
+                                <?= e($leaderInitials) ?>
+                            </div>
+                        <?php endif; ?>
+                        <span style="font-size: 0.85rem; font-weight: 700; color: #1d1d1d; text-align: center;">
+                            <?= e($leaderName) ?>
+                        </span>
+                        <?php if ($leaderPhone !== ''): ?>
+                            <a href="tel:<?= e($leaderPhone) ?>" style="font-size: 0.85rem; font-weight: 700; color: #7413dc; text-decoration: none;">
+                                📞 <?= e($leaderPhone) ?>
+                            </a>
+                        <?php endif; ?>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+
+            <?php if (!empty($inCountryPhones)): ?>
+                <p style="font-size: 1.05rem; font-weight: 700; margin-bottom: 0.75rem;">Call any of these numbers:</p>
+                <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <?php foreach ($inCountryPhones as $phone): ?>
+                        <a href="tel:<?= e($phone) ?>"
+                           style="display: inline-block; background: #7413dc; color: #ffffff; font-weight: 800; font-size: 1.2rem; padding: 0.6rem 1.25rem; text-decoration: none; border-radius: 4px; text-align: center;">
+                            📞 <?= e($phone) ?>
+                        </a>
+                    <?php endforeach; ?>
+                </div>
             <?php endif; ?>
 
         <?php else: ?>
