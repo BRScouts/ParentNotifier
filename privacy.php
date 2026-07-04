@@ -197,8 +197,7 @@ include __DIR__ . '/header.php';
                     <td>Special category condition: vital interests, health/safety care, or substantial public interest where applicable</td>
                     <td>
                         Necessary so leaders can protect individuals, respond to illness or injury, support medical
-                        needs, and manage risk during the event. Special category data requires an Article 6 lawful
-                        basis plus an Article 9 condition. :contentReference[oaicite:1]{index=1}
+                        needs, and manage risk during the event. 
                     </td>
                 </tr>
 
@@ -208,7 +207,7 @@ include __DIR__ . '/header.php';
                     <td>
                         Necessary for safety, safeguarding, insurance, legal claims, incident management and
                         local Scout record-keeping. Scouts guidance notes that accident reporting and retention
-                        can involve legal obligation processing. :contentReference[oaicite:2]{index=2}
+                        can involve legal obligation processing. 
                     </td>
                 </tr>
             </tbody>
@@ -229,13 +228,7 @@ include __DIR__ . '/header.php';
             <li>Parents or carers, but only for appropriate parent-facing updates and team progress information.</li>
         </ul>
 
-        <div class="privacy-warning">
-            <strong>Medical and welfare information is not parent-facing team update content.</strong>
-            <p class="mb-0">
-                If an Explorer check-in includes injuries, medication, first aid or welfare notes, leaders review
-                that privately.
-            </p>
-        </div>
+        
     </section>
 
     <section class="privacy-panel">
@@ -274,12 +267,12 @@ include __DIR__ . '/header.php';
 
         <p>
             The Bury and Ramsbottom Scouts privacy notice says some limited records may be kept for up to
-            15 years, until age 21, for legal obligations, insurance and legal claims. :contentReference[oaicite:3]{index=3}
+            15 years, until age 21, for legal obligations, insurance and legal claims. 
         </p>
 
         <p class="mb-0">
             Wider Scout Association retention guidance also recognises longer retention for some personal and
-            sensitive records, particularly where insurance or claims may be involved. :contentReference[oaicite:4]{index=4}
+            sensitive records, particularly where insurance or claims may be involved.
         </p>
     </section>
 
