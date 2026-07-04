@@ -2390,7 +2390,7 @@ include __DIR__ . '/header.php';
                 <!-- VIEW MODE: week or full trip view -->
                 <?php
                 $today = date('Y-m-d');
-                $dutyViewMode = $_GET['duty_view'] ?? 'week'; // 'week' or 'trip'
+                $dutyViewMode = $_GET['duty_view'] ?? 'trip'; // 'week' or 'trip'
 
                 // Week mode: paginate by week
                 $weekOffset = (int)($_GET['week'] ?? 0);
