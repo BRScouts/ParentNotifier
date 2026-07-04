@@ -996,6 +996,7 @@ include __DIR__ . '/explorer_header.php';
                         name="submitted_by"
                         required
                     >
+                </div>
             </section>
 
             <section class="checkin-panel">

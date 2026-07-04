@@ -16,6 +16,128 @@ if (!$team) {
 
 $_SESSION['explorer_portal_token'] = $token;
 
+// Fetch team members for the face/name selector
+$teamMembers = [];
+$stmt = $pdo->prepare(
+    'SELECT id, name, photo_url
+     FROM young_people
+     WHERE team_id = ?
+       AND is_active = 1
+     ORDER BY name ASC'
+);
+$stmt->execute([(int)$team['id']]);
+$teamMembers = $stmt->fetchAll();
+
+// Helper functions for member display
+function ann_media_url(?string $path): string
+{
+    $path = trim((string)$path);
+    if ($path === '') return '';
+    if (preg_match('/^https?:\/\//i', $path)) return $path;
+    return url($path);
+}
+
+function ann_initials(string $name): string
+{
+    $parts = preg_split('/\s+/', trim($name));
+    $initials = '';
+    foreach ($parts as $part) {
+        if ($part !== '') $initials .= strtoupper(substr($part, 0, 1));
+        if (strlen($initials) >= 2) break;
+    }
+    return $initials ?: '?';
+}
+
+/**
+ * Fetch emails of leaders who are currently on-duty AND in-country.
+ */
+function ann_fetch_on_duty_in_country_leader_emails(PDO $pdo): array
+{
+    $emails = [];
+
+    try {
+        $tz = new DateTimeZone(defined('DEFAULT_TIMEZONE') ? DEFAULT_TIMEZONE : 'Europe/London');
+        $now = new DateTime('now', $tz);
+        $currentHour = (int)$now->format('G');
+        $dutyDate = ($currentHour < 9)
+            ? (clone $now)->modify('-1 day')->format('Y-m-d')
+            : $now->format('Y-m-d');
+
+        $stmt = $pdo->prepare(
+            'SELECT DISTINCT l.email
+             FROM leader_duty_roster r
+             JOIN leaders l ON l.id = r.leader_id
+             JOIN leader_schedules ls ON ls.leader_id = l.id
+             WHERE r.duty_date = ?
+               AND r.status = "on_duty"
+               AND ls.status = "in_country"
+               AND NOW() BETWEEN ls.schedule_start AND ls.schedule_end
+               AND l.email IS NOT NULL
+               AND l.email != ""'
+        );
+        $stmt->execute([$dutyDate]);
+
+        foreach ($stmt->fetchAll() as $row) {
+            $email = trim((string)$row['email']);
+            if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $emails[strtolower($email)] = $email;
+            }
+        }
+
+        // Fallback: on-duty leaders with is_in_country flag
+        if (empty($emails)) {
+            $stmt = $pdo->prepare(
+                'SELECT DISTINCT l.email
+                 FROM leader_duty_roster r
+                 JOIN leaders l ON l.id = r.leader_id
+                 WHERE r.duty_date = ?
+                   AND r.status = "on_duty"
+                   AND (l.is_in_country = 1)
+                   AND l.email IS NOT NULL
+                   AND l.email != ""'
+            );
+            $stmt->execute([$dutyDate]);
+
+            foreach ($stmt->fetchAll() as $row) {
+                $email = trim((string)$row['email']);
+                if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    $emails[strtolower($email)] = $email;
+                }
+            }
+        }
+    } catch (Throwable $e) {
+        // Fall back to all leaders
+        try {
+            $stmt = $pdo->query('SELECT email FROM leaders WHERE email IS NOT NULL AND email != "" ORDER BY name ASC');
+            foreach ($stmt->fetchAll() as $row) {
+                $email = trim((string)$row['email']);
+                if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    $emails[strtolower($email)] = $email;
+                }
+            }
+        } catch (Throwable $e2) {
+            // Nothing we can do
+        }
+    }
+
+    // Safety net: if no one found, get all leaders
+    if (empty($emails)) {
+        try {
+            $stmt = $pdo->query('SELECT email FROM leaders WHERE email IS NOT NULL AND email != "" ORDER BY name ASC');
+            foreach ($stmt->fetchAll() as $row) {
+                $email = trim((string)$row['email']);
+                if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    $emails[strtolower($email)] = $email;
+                }
+            }
+        } catch (Throwable $e) {
+            // Nothing we can do
+        }
+    }
+
+    return array_values($emails);
+}
+
 // CSRF token setup
 if (empty($_SESSION['explorer_checkin_csrf'])) {
     $_SESSION['explorer_checkin_csrf'] = bin2hex(random_bytes(32));
@@ -41,7 +163,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'ackno
         // Validate name
         $acknowledgedByName = trim($_POST['acknowledged_by_name'] ?? '');
         if ($acknowledgedByName === '') {
-            throw new RuntimeException('Please enter your name to acknowledge this announcement.');
+            throw new RuntimeException('Please select who is acknowledging this announcement.');
         }
 
         // Verify announcement exists and is targeted to this team
@@ -73,35 +195,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'ackno
             $emailContent .= '<p>Acknowledged by: ' . e($acknowledgedByName) . '</p>';
             $emailContent .= '<p>Time: ' . e(date('d M Y, H:i')) . '</p>';
 
-            // Queue email to sender leader (if has email)
-            if (!empty($announcement['sender_email']) && filter_var($announcement['sender_email'], FILTER_VALIDATE_EMAIL)) {
-                explorer_queue_email($pdo, $announcement['sender_email'], $emailSubject, $emailContent, (int)$team['id']);
-            }
-
-            // Queue emails to on-duty leaders
-            try {
-                $dutyStmt = $pdo->prepare(
-                    'SELECT l.email
-                     FROM leader_duty_roster r
-                     JOIN leaders l ON l.id = r.leader_id
-                     WHERE r.duty_date = CURDATE()
-                       AND r.status = \'on_duty\'
-                       AND l.email IS NOT NULL
-                       AND l.email != \'\''
-                );
-                $dutyStmt->execute();
-                $dutyLeaders = $dutyStmt->fetchAll();
-
-                foreach ($dutyLeaders as $leader) {
-                    $leaderEmail = trim($leader['email']);
-                    // Avoid duplicate email to sender
-                    if ($leaderEmail !== '' && filter_var($leaderEmail, FILTER_VALIDATE_EMAIL)
-                        && strtolower($leaderEmail) !== strtolower($announcement['sender_email'] ?? '')) {
-                        explorer_queue_email($pdo, $leaderEmail, $emailSubject, $emailContent, (int)$team['id']);
-                    }
-                }
-            } catch (Throwable $e) {
-                // Duty roster table may not exist — skip silently
+            // Queue emails to on-duty in-country leaders
+            $dutyEmails = ann_fetch_on_duty_in_country_leader_emails($pdo);
+            foreach ($dutyEmails as $leaderEmail) {
+                explorer_queue_email($pdo, $leaderEmail, $emailSubject, $emailContent, (int)$team['id']);
             }
         }
 
@@ -225,6 +322,78 @@ try {
         color: #505a5f;
         font-size: 1.05rem;
     }
+
+    .member-selector {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .member-select-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.75rem;
+        border: 3px solid #d8d8d8;
+        border-radius: 12px;
+        background: #ffffff;
+        cursor: pointer;
+        transition: border-color 0.15s, background 0.15s, transform 0.1s;
+        width: 100px;
+        text-align: center;
+    }
+
+    .member-select-btn:hover {
+        border-color: #1d70b8;
+        background: #f0f7ff;
+    }
+
+    .member-select-btn:active {
+        transform: scale(0.95);
+    }
+
+    .member-select-btn.selected {
+        border-color: #00703c;
+        background: #e9f8ef;
+        box-shadow: 0 0 0 2px #00703c;
+    }
+
+    .member-select-photo {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        border: 2px solid #1d1d1d;
+        object-fit: cover;
+    }
+
+    .member-select-placeholder {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        border: 2px solid #1d1d1d;
+        background: #7413dc;
+        color: #ffffff;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 900;
+        font-size: 1.1rem;
+    }
+
+    .member-select-btn.selected .member-select-photo,
+    .member-select-btn.selected .member-select-placeholder {
+        border-color: #00703c;
+    }
+
+    .member-select-name {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: #1d1d1d;
+        line-height: 1.2;
+        word-break: break-word;
+    }
 </style>
 
 <div class="container" style="padding-top: 2rem; padding-bottom: 2rem;">
@@ -276,19 +445,33 @@ try {
                             <input type="hidden" name="action" value="acknowledge_announcement">
                             <input type="hidden" name="announcement_id" value="<?= (int)$announcement['id'] ?>">
 
-                            <div class="form-group">
-                                <label for="ack-name-<?= (int)$announcement['id'] ?>">Your name</label>
-                                <input
-                                    type="text"
-                                    class="form-control"
-                                    id="ack-name-<?= (int)$announcement['id'] ?>"
-                                    name="acknowledged_by_name"
-                                    placeholder="Enter your name"
-                                    required
-                                >
+                            <label style="font-weight: 800; display: block; margin-bottom: 0.5rem;">Who is acknowledging this?</label>
+                            <p style="color: #505a5f; margin-bottom: 0.5rem; font-size: 0.9rem;">Tap to select.</p>
+
+                            <div class="member-selector ann-ack-selector" data-ann-ack-id="<?= (int)$announcement['id'] ?>">
+                                <?php foreach ($teamMembers as $member): ?>
+                                    <?php $memberPhoto = ann_media_url($member['photo_url'] ?? ''); ?>
+                                    <button
+                                        type="button"
+                                        class="member-select-btn ann-ack-select-btn"
+                                        data-name="<?= e($member['name']) ?>"
+                                        data-ann-ack-id="<?= (int)$announcement['id'] ?>"
+                                    >
+                                        <?php if ($memberPhoto !== ''): ?>
+                                            <img class="member-select-photo" src="<?= e($memberPhoto) ?>" alt="">
+                                        <?php else: ?>
+                                            <span class="member-select-placeholder" aria-hidden="true">
+                                                <?= e(ann_initials($member['name'])) ?>
+                                            </span>
+                                        <?php endif; ?>
+                                        <span class="member-select-name"><?= e($member['name']) ?></span>
+                                    </button>
+                                <?php endforeach; ?>
                             </div>
 
-                            <button type="submit" class="btn btn-success btn-sm">
+                            <input type="hidden" name="acknowledged_by_name" class="ann-ack-name-input" data-ann-ack-id="<?= (int)$announcement['id'] ?>" value="">
+
+                            <button type="submit" class="btn btn-success btn-sm" style="margin-top: 0.75rem;">
                                 Confirm Acknowledgement
                             </button>
                         </form>
@@ -315,6 +498,29 @@ try {
             }
         });
     }
+
+    // Face/name selector for acknowledgements
+    document.querySelectorAll('.ann-ack-select-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var ackId = btn.getAttribute('data-ann-ack-id');
+
+            // Deselect siblings in same group
+            var container = btn.closest('.ann-ack-selector');
+            if (container) {
+                container.querySelectorAll('.ann-ack-select-btn').forEach(function (b) {
+                    b.classList.remove('selected');
+                });
+            }
+
+            btn.classList.add('selected');
+
+            // Set the hidden name input
+            var nameInput = document.querySelector('.ann-ack-name-input[data-ann-ack-id="' + ackId + '"]');
+            if (nameInput) {
+                nameInput.value = btn.getAttribute('data-name');
+            }
+        });
+    });
 })();
 </script>
 
