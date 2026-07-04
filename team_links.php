@@ -1548,18 +1548,6 @@ include __DIR__ . '/header.php';
             All teams
         </a>
 
-        <?php if ($currentTeam): ?>
-            <a class="btn btn-outline-primary" href="<?= e(team_parent_link($currentTeam)) ?>" target="_blank" rel="noopener">
-                Open parent view
-            </a>
-
-            <?php if (!empty($currentTeam['explorer_token'])): ?>
-                <a class="btn btn-outline-primary" href="<?= e(team_explorer_link($currentTeam)) ?>" target="_blank" rel="noopener">
-                    Open Explorer check-in
-                </a>
-            <?php endif; ?>
-        <?php endif; ?>
-
         <a class="btn btn-outline-primary" href="<?= e(url('people.php')) ?>">
             People
         </a>
@@ -1574,6 +1562,7 @@ include __DIR__ . '/header.php';
         $allergyPeople = $currentTeamSummary['allergy_people'];
         $parentLink = team_parent_link($currentTeam);
         $explorerLink = !empty($currentTeam['explorer_token']) ? team_explorer_link($currentTeam) : '';
+        $portalLink = !empty($currentTeam['explorer_token']) ? url('explorer_portal.php?token=' . $currentTeam['explorer_token']) : '';
         $pendingCheckins = array_values(array_filter($teamExplorerCheckins, static function ($checkin) {
             return $checkin['status'] === 'pending';
         }));
@@ -1738,24 +1727,24 @@ include __DIR__ . '/header.php';
                         </form>
 
                         <div class="explorer-link-box">
-                            <strong>Explorer check-in link</strong><br>
+                            <strong>Explorer portal link</strong><br>
 
-                            <?php if ($explorerLink !== ''): ?>
-                                <a href="<?= e($explorerLink) ?>" target="_blank" rel="noopener">
-                                    <?= e($explorerLink) ?>
+                            <?php if ($portalLink !== ''): ?>
+                                <a href="<?= e($portalLink) ?>" target="_blank" rel="noopener">
+                                    <?= e($portalLink) ?>
                                 </a>
                             <?php else: ?>
-                                <span class="muted">No Explorer check-in link has been generated yet.</span>
+                                <span class="muted">No Explorer portal link has been generated yet.</span>
                             <?php endif; ?>
                         </div>
 
                         <form
                             method="post"
-                            onsubmit="return confirm('Regenerate this Explorer check-in link? The old Explorer link will stop working.');"
+                            onsubmit="return confirm('Regenerate this Explorer portal link? The old Explorer link will stop working.');"
                         >
                             <input type="hidden" name="action" value="regenerate_explorer_token">
                             <input type="hidden" name="team_id" value="<?= (int)$currentTeam['id'] ?>">
-                            <button class="btn btn-outline-danger btn-sm">Regenerate Explorer check-in link</button>
+                            <button class="btn btn-outline-danger btn-sm">Regenerate Explorer portal link</button>
                         </form>
                     </section>
 

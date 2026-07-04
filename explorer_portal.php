@@ -40,8 +40,7 @@ $tokenParam = urlencode($token);
         <ul style="font-size: 1.05rem; line-height: 1.8; margin-bottom: 0;">
             <li>Submit your daily check-ins with location and welfare information</li>
             <li>View announcements from the leadership team</li>
-            <li>Find contact details for on-duty leaders</li>
-            <li>Access emergency contact information</li>
+            <li>Find emergency numbers and on-duty leader contacts</li>
         </ul>
     </section>
 
@@ -66,15 +65,8 @@ $tokenParam = urlencode($token);
             <div class="col-sm-6 col-lg-3 mb-3">
                 <a href="<?= e(url('explorer_contact.php?token=' . $tokenParam)) ?>"
                    style="display: block; background: #ffffff; border: 2px solid #d8d8d8; padding: 1.25rem; text-decoration: none; color: #1d1d1d; height: 100%;">
-                    <strong style="display: block; font-size: 1.1rem; margin-bottom: 0.5rem; color: #7413dc;">Contact Leaders</strong>
-                    <span style="font-size: 0.95rem;">Find on-duty leaders and their phone numbers.</span>
-                </a>
-            </div>
-            <div class="col-sm-6 col-lg-3 mb-3">
-                <a href="<?= e(url('explorer_emergencies.php?token=' . $tokenParam)) ?>"
-                   style="display: block; background: #ffffff; border: 2px solid #d8d8d8; padding: 1.25rem; text-decoration: none; color: #1d1d1d; height: 100%;">
-                    <strong style="display: block; font-size: 1.1rem; margin-bottom: 0.5rem; color: #7413dc;">Emergencies</strong>
-                    <span style="font-size: 0.95rem;">Access emergency contact information quickly.</span>
+                    <strong style="display: block; font-size: 1.1rem; margin-bottom: 0.5rem; color: #7413dc;">Contact & Emergency</strong>
+                    <span style="font-size: 0.95rem;">Emergency numbers and on-duty leader contacts.</span>
                 </a>
             </div>
         </div>

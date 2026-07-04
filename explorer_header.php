@@ -52,8 +52,7 @@ $explorerNavLinks = [
     ['label' => 'Home',            'file' => 'explorer_portal.php'],
     ['label' => 'Check In',        'file' => 'explorer_checkin.php'],
     ['label' => 'Announcements',   'file' => 'explorer_announcements.php', 'badge' => true],
-    ['label' => 'Contact Leaders', 'file' => 'explorer_contact.php'],
-    ['label' => 'Emergencies',     'file' => 'explorer_emergencies.php'],
+    ['label' => 'Contact & Emergency', 'file' => 'explorer_contact.php'],
 ];
 ?>
 <!doctype html>

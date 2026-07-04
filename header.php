@@ -426,6 +426,25 @@ $leaderBio = $leaderBioColumn ? (string)($currentLeader[$leaderBioColumn] ?? '')
             border-radius: 0;
         }
 
+        .compact-nav .dropdown-menu {
+            border-radius: 0;
+            border: 2px solid #1d1d1d;
+            padding: 0;
+            min-width: 160px;
+        }
+
+        .compact-nav .dropdown-menu .dropdown-item {
+            font-weight: 800;
+            padding: 0.6rem 1rem;
+            color: #1d1d1d;
+        }
+
+        .compact-nav .dropdown-menu .dropdown-item:hover,
+        .compact-nav .dropdown-menu .dropdown-item:focus {
+            background: #f3f2f1;
+            color: #7413dc;
+        }
+
         .profile-menu {
             margin-left: 0.65rem;
             position: relative;
@@ -753,6 +772,12 @@ $leaderBio = $leaderBioColumn ? (string)($currentLeader[$leaderBioColumn] ?? '')
                     <?php endif; ?>
 
                     <?php if ($user): ?>
+                        <li class="nav-item<?= header_nav_active('announcements_manage.php') ?>">
+                            <a class="nav-link" href="<?= e(url('announcements_manage.php')) ?>">
+                                Announcements
+                            </a>
+                        </li>
+
                         <li class="nav-item<?= header_nav_active('team_links.php') ?>">
                             <a class="nav-link" href="<?= e(url('team_links.php')) ?>">
                                 Teams
@@ -770,15 +795,14 @@ $leaderBio = $leaderBioColumn ? (string)($currentLeader[$leaderBioColumn] ?? '')
                                 Email
                             </a>
                         </li>
-                        <li class="nav-item<?= header_nav_active('people.php') ?>">     
-                            <a class="nav-link" href="<?= e(url('people.php')) ?>">
+                        <li class="nav-item dropdown<?= header_nav_active('people.php') ?><?= header_nav_active('analytics.php') ?>">
+                            <a class="nav-link dropdown-toggle" href="#" id="peopleDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
                                 People
                             </a>
-                        </li>
-                        <li class="nav-item<?= header_nav_active('analytics.php') ?>">
-                            <a class="nav-link" href="<?= e(url('analytics.php')) ?>">
-                                Analytics
-                            </a>
+                            <div class="dropdown-menu" aria-labelledby="peopleDropdown">
+                                <a class="dropdown-item" href="<?= e(url('people.php')) ?>">People</a>
+                                <a class="dropdown-item" href="<?= e(url('analytics.php')) ?>">Analytics</a>
+                            </div>
                         </li>
                     <?php endif; ?>
 
