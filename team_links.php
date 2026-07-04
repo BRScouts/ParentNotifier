@@ -5,6 +5,7 @@ require_login();
 
 $pdo = db();
 $user = current_user();
+ensure_announcements_tables($pdo);
 
 const TEAM_CHECKIN_START_DATE = '2026-07-29';
 const TEAM_CHECKIN_DAYS = 10;

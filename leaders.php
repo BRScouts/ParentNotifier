@@ -1568,18 +1568,7 @@ include __DIR__ . '/header.php';
         }
     }
 
-    /* Duty faces view */
-    .duty-faces-nav {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 0.5rem;
-        margin-bottom: 1.25rem;
-        padding: 0.75rem;
-        background: #f3f2f1;
-        border: 2px solid #d8d8d8;
-    }
-
+    /* Duty faces view - shared */
     .duty-faces-nav-btn {
         display: flex;
         align-items: center;
@@ -1607,120 +1596,197 @@ include __DIR__ . '/header.php';
         pointer-events: none;
     }
 
-    .duty-faces-nav-date {
-        text-align: center;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 0.1rem;
-    }
-
-    .duty-faces-nav-date strong {
-        font-size: 1.1rem;
-    }
-
-    .duty-faces-nav-date span {
-        font-size: 0.9rem;
-        color: #505a5f;
-    }
-
-    .duty-faces-columns {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 1rem;
-    }
-
-    @media (max-width: 480px) {
-        .duty-faces-columns {
-            grid-template-columns: 1fr;
-        }
-    }
-
-    .duty-faces-column {
-        background: #ffffff;
-        border: 2px solid #d8d8d8;
-        padding: 1rem;
-        min-height: 120px;
-    }
-
-    .duty-faces-column-on {
-        border-top: 4px solid #00703c;
-    }
-
-    .duty-faces-column-off {
-        border-top: 4px solid #d4351c;
-    }
-
-    .duty-faces-column-heading {
-        display: flex;
-        align-items: center;
-        gap: 0.4rem;
-        margin: 0 0 0.75rem;
-        font-size: 1rem;
-        font-weight: 900;
-    }
-
     .duty-faces-dot {
         display: inline-block;
-        width: 12px;
-        height: 12px;
+        width: 10px;
+        height: 10px;
         border-radius: 50%;
     }
 
     .duty-dot-on { background: #00703c; }
     .duty-dot-off { background: #d4351c; }
 
-    .duty-faces-grid {
+    /* Week/trip navigation bar */
+    .duty-week-nav {
         display: flex;
+        align-items: center;
+        justify-content: space-between;
         flex-wrap: wrap;
-        gap: 1rem;
-        justify-content: flex-start;
+        gap: 0.75rem;
+        margin-bottom: 1.25rem;
+        padding: 0.75rem;
+        background: #f3f2f1;
+        border: 2px solid #d8d8d8;
     }
 
-    .duty-face-item {
+    .duty-week-nav-toggle {
+        display: flex;
+        gap: 0;
+    }
+
+    .duty-view-toggle-btn {
+        padding: 0.4rem 0.85rem;
+        font-size: 0.85rem;
+        font-weight: 900;
+        border: 2px solid #1d1d1d;
+        background: #ffffff;
+        color: #1d1d1d;
+        text-decoration: none;
+        cursor: pointer;
+    }
+
+    .duty-view-toggle-btn:first-child {
+        border-right: none;
+    }
+
+    .duty-view-toggle-active {
+        background: #1d1d1d;
+        color: #ffffff;
+    }
+
+    .duty-week-nav-arrows {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .duty-week-nav-label {
+        font-weight: 900;
+        font-size: 0.95rem;
+        white-space: nowrap;
+    }
+
+    /* Day cards list */
+    .duty-week-list {
         display: flex;
         flex-direction: column;
-        align-items: center;
-        gap: 0.3rem;
-        width: 72px;
+        gap: 0.6rem;
     }
 
-    .duty-face-photo {
-        width: 56px;
-        height: 56px;
+    .duty-day-card {
+        border: 2px solid #d8d8d8;
+        background: #ffffff;
+        padding: 0.75rem 1rem;
+    }
+
+    .duty-day-card-today {
+        border: 3px solid #00703c;
+        background: #f0faf4;
+    }
+
+    .duty-day-card-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .duty-day-card-dayname {
+        font-weight: 900;
+        font-size: 1rem;
+    }
+
+    .duty-day-card-datenum {
+        font-size: 0.9rem;
+        color: #505a5f;
+    }
+
+    .duty-day-card-body {
+        display: flex;
+        gap: 1.5rem;
+        flex-wrap: wrap;
+    }
+
+    .duty-day-card-section {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .duty-day-card-section-label {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        font-size: 0.8rem;
+        font-weight: 900;
+        text-transform: uppercase;
+        color: #505a5f;
+        white-space: nowrap;
+    }
+
+    .duty-day-card-faces {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    .duty-day-face {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+    }
+
+    .duty-day-face-photo {
+        width: 32px;
+        height: 32px;
         border-radius: 50%;
         object-fit: cover;
-        border: 3px solid #00703c;
+        border: 2px solid #00703c;
         background: #f3f2f1;
     }
 
-    .duty-face-photo-off {
+    .duty-day-face-photo-off {
         border-color: #d4351c;
         opacity: 0.7;
     }
 
-    .duty-face-placeholder {
+    .duty-day-face-placeholder {
         display: flex;
         align-items: center;
         justify-content: center;
         background: #7413dc;
         color: #ffffff;
-        font-size: 1.2rem;
+        font-size: 0.75rem;
         font-weight: 900;
     }
 
-    .duty-face-name {
+    .duty-day-face-name {
         font-size: 0.8rem;
         font-weight: 700;
-        text-align: center;
-        line-height: 1.2;
-        word-break: break-word;
     }
 
-    .duty-faces-empty {
-        color: #505a5f;
-        font-size: 0.9rem;
-        margin: 0;
+    .duty-day-card-none {
+        font-size: 0.85rem;
+        color: #b1b4b6;
+    }
+
+    @media (max-width: 600px) {
+        .duty-week-nav {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .duty-week-nav-arrows {
+            justify-content: space-between;
+        }
+
+        .duty-week-nav-toggle {
+            justify-content: center;
+        }
+
+        .duty-day-card-body {
+            flex-direction: column;
+            gap: 0.6rem;
+        }
+
+        .duty-day-card-section {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.35rem;
+        }
     }
 </style>
 
@@ -2318,117 +2384,162 @@ include __DIR__ . '/header.php';
 
             <?php else: ?>
 
-                <!-- VIEW MODE: face-based on/off duty columns -->
+                <!-- VIEW MODE: week or full trip view -->
                 <?php
                 $today = date('Y-m-d');
-                $dutyViewDate = $_GET['duty_date'] ?? $today;
-                // Clamp to valid range
-                if (!empty($dutyDates) && ($dutyViewDate < $dutyDates[0] || $dutyViewDate > end($dutyDates))) {
-                    $dutyViewDate = $today;
+                $dutyViewMode = $_GET['duty_view'] ?? 'week'; // 'week' or 'trip'
+
+                // Week mode: paginate by week
+                $weekOffset = (int)($_GET['week'] ?? 0);
+
+                // Find which week today falls in (or start at week 0 if trip hasn't started)
+                $todayIdx = array_search($today, $dutyDates);
+                if ($todayIdx === false) {
+                    // Today is outside the trip — start at 0
+                    $defaultWeekStart = 0;
+                } else {
+                    $defaultWeekStart = (int)floor($todayIdx / 7) * 7;
                 }
 
-                // Gather leaders for the selected day
-                $onDutyLeaders = [];
-                $offDutyLeaders = [];
-                $dayOffLeaders = [];
+                $weekStartIdx = $defaultWeekStart + ($weekOffset * 7);
+                if ($weekStartIdx < 0) $weekStartIdx = 0;
+                if ($weekStartIdx >= count($dutyDates)) $weekStartIdx = max(0, count($dutyDates) - 7);
 
-                foreach ($dutyLeaderRanges as $lid => $rangeData) {
-                    if (!in_array($dutyViewDate, $rangeData['dates'], true)) {
-                        continue;
+                $weekDates = $dutyViewMode === 'week'
+                    ? array_slice($dutyDates, $weekStartIdx, 7)
+                    : $dutyDates;
+
+                $hasPrevWeek = $weekStartIdx > 0;
+                $hasNextWeek = ($weekStartIdx + 7) < count($dutyDates);
+
+                // Build per-day data for the visible dates
+                $dayDataList = [];
+                foreach ($weekDates as $dd) {
+                    $onDuty = [];
+                    $offDuty = [];
+
+                    foreach ($dutyLeaderRanges as $lid => $rangeData) {
+                        if (!in_array($dd, $rangeData['dates'], true)) {
+                            continue;
+                        }
+                        $key = $lid . '_' . $dd;
+                        $st = $dutyRoster[$key]['status'] ?? '';
+                        $leaderInfo = [
+                            'name' => eb_leaders_val($rangeData['leader'], ['name', 'full_name'], 'Leader'),
+                            'first_name' => explode(' ', trim((string)eb_leaders_val($rangeData['leader'], ['name', 'full_name'], 'Leader')))[0],
+                            'photo' => eb_leaders_media_url((string)eb_leaders_val($rangeData['leader'], ['photo_url', 'image_url', 'avatar_url'], '')),
+                            'initials' => eb_leaders_initials((string)eb_leaders_val($rangeData['leader'], ['name', 'full_name'], 'Leader')),
+                        ];
+
+                        if ($st === 'on_duty') {
+                            $onDuty[] = $leaderInfo;
+                        } else {
+                            $offDuty[] = $leaderInfo;
+                        }
                     }
-                    $key = $lid . '_' . $dutyViewDate;
-                    $st = $dutyRoster[$key]['status'] ?? '';
-                    $leaderInfo = [
-                        'name' => eb_leaders_val($rangeData['leader'], ['name', 'full_name'], 'Leader'),
-                        'first_name' => explode(' ', trim((string)eb_leaders_val($rangeData['leader'], ['name', 'full_name'], 'Leader')))[0],
-                        'photo' => eb_leaders_media_url((string)eb_leaders_val($rangeData['leader'], ['photo_url', 'image_url', 'avatar_url'], '')),
-                        'initials' => eb_leaders_initials((string)eb_leaders_val($rangeData['leader'], ['name', 'full_name'], 'Leader')),
+
+                    $dayDataList[] = [
+                        'date' => $dd,
+                        'is_today' => ($dd === $today),
+                        'on_duty' => $onDuty,
+                        'off_duty' => $offDuty,
                     ];
-
-                    if ($st === 'on_duty') {
-                        $onDutyLeaders[] = $leaderInfo;
-                    } elseif ($st === 'off_duty' || $st === 'day_off') {
-                        $offDutyLeaders[] = $leaderInfo;
-                    } else {
-                        // Unset status — show as unassigned / off duty
-                        $offDutyLeaders[] = $leaderInfo;
-                    }
                 }
-
-                // Find previous and next dates for navigation
-                $currentIdx = array_search($dutyViewDate, $dutyDates);
-                $prevDate = ($currentIdx !== false && $currentIdx > 0) ? $dutyDates[$currentIdx - 1] : null;
-                $nextDate = ($currentIdx !== false && $currentIdx < count($dutyDates) - 1) ? $dutyDates[$currentIdx + 1] : null;
                 ?>
 
-                <!-- Day navigation -->
-                <div class="duty-faces-nav">
-                    <?php if ($prevDate): ?>
-                        <a href="<?= e(url('leaders.php?tab=duty&duty_date=' . $prevDate)) ?>" class="duty-faces-nav-btn" aria-label="Previous day">&larr;</a>
-                    <?php else: ?>
-                        <span class="duty-faces-nav-btn duty-faces-nav-disabled">&larr;</span>
-                    <?php endif; ?>
-
-                    <div class="duty-faces-nav-date">
-                        <strong><?= e(date('l', strtotime($dutyViewDate))) ?></strong>
-                        <span><?= e(date('j M Y', strtotime($dutyViewDate))) ?></span>
-                        <?php if ($dutyViewDate === $today): ?>
-                            <span class="duty-view-today-badge">Today</span>
-                        <?php endif; ?>
+                <!-- View toggle and week navigation -->
+                <div class="duty-week-nav">
+                    <div class="duty-week-nav-toggle">
+                        <a href="<?= e(url('leaders.php?tab=duty&duty_view=week&week=' . $weekOffset)) ?>"
+                           class="duty-view-toggle-btn <?= $dutyViewMode === 'week' ? 'duty-view-toggle-active' : '' ?>">
+                            Week
+                        </a>
+                        <a href="<?= e(url('leaders.php?tab=duty&duty_view=trip')) ?>"
+                           class="duty-view-toggle-btn <?= $dutyViewMode === 'trip' ? 'duty-view-toggle-active' : '' ?>">
+                            Full trip
+                        </a>
                     </div>
 
-                    <?php if ($nextDate): ?>
-                        <a href="<?= e(url('leaders.php?tab=duty&duty_date=' . $nextDate)) ?>" class="duty-faces-nav-btn" aria-label="Next day">&rarr;</a>
+                    <?php if ($dutyViewMode === 'week'): ?>
+                        <div class="duty-week-nav-arrows">
+                            <?php if ($hasPrevWeek): ?>
+                                <a href="<?= e(url('leaders.php?tab=duty&duty_view=week&week=' . ($weekOffset - 1))) ?>" class="duty-faces-nav-btn" aria-label="Previous week">&larr;</a>
+                            <?php else: ?>
+                                <span class="duty-faces-nav-btn duty-faces-nav-disabled">&larr;</span>
+                            <?php endif; ?>
+
+                            <span class="duty-week-nav-label">
+                                <?= e(date('j M', strtotime($weekDates[0]))) ?> – <?= e(date('j M', strtotime(end($weekDates)))) ?>
+                            </span>
+
+                            <?php if ($hasNextWeek): ?>
+                                <a href="<?= e(url('leaders.php?tab=duty&duty_view=week&week=' . ($weekOffset + 1))) ?>" class="duty-faces-nav-btn" aria-label="Next week">&rarr;</a>
+                            <?php else: ?>
+                                <span class="duty-faces-nav-btn duty-faces-nav-disabled">&rarr;</span>
+                            <?php endif; ?>
+                        </div>
                     <?php else: ?>
-                        <span class="duty-faces-nav-btn duty-faces-nav-disabled">&rarr;</span>
+                        <span class="duty-week-nav-label">
+                            <?= e(date('j M', strtotime($dutyDates[0]))) ?> – <?= e(date('j M', strtotime(end($dutyDates)))) ?>
+                        </span>
                     <?php endif; ?>
                 </div>
 
-                <!-- On/Off duty columns -->
-                <div class="duty-faces-columns">
-                    <div class="duty-faces-column duty-faces-column-on">
-                        <h3 class="duty-faces-column-heading duty-faces-heading-on">
-                            <span class="duty-faces-dot duty-dot-on"></span> On duty
-                        </h3>
-                        <?php if (empty($onDutyLeaders)): ?>
-                            <p class="duty-faces-empty">No one assigned</p>
-                        <?php else: ?>
-                            <div class="duty-faces-grid">
-                                <?php foreach ($onDutyLeaders as $dl): ?>
-                                    <div class="duty-face-item">
-                                        <?php if ($dl['photo'] !== ''): ?>
-                                            <img class="duty-face-photo" src="<?= e($dl['photo']) ?>" alt="<?= e($dl['name']) ?>">
-                                        <?php else: ?>
-                                            <div class="duty-face-photo duty-face-placeholder"><?= e($dl['initials']) ?></div>
-                                        <?php endif; ?>
-                                        <span class="duty-face-name"><?= e($dl['first_name']) ?></span>
-                                    </div>
-                                <?php endforeach; ?>
+                <!-- Roster cards per day -->
+                <div class="duty-week-list">
+                    <?php foreach ($dayDataList as $dayData): ?>
+                        <div class="duty-day-card <?= $dayData['is_today'] ? 'duty-day-card-today' : '' ?>">
+                            <div class="duty-day-card-header">
+                                <span class="duty-day-card-dayname"><?= e(date('l', strtotime($dayData['date']))) ?></span>
+                                <span class="duty-day-card-datenum"><?= e(date('j M', strtotime($dayData['date']))) ?></span>
+                                <?php if ($dayData['is_today']): ?>
+                                    <span class="duty-view-today-badge">Today</span>
+                                <?php endif; ?>
                             </div>
-                        <?php endif; ?>
-                    </div>
 
-                    <div class="duty-faces-column duty-faces-column-off">
-                        <h3 class="duty-faces-column-heading duty-faces-heading-off">
-                            <span class="duty-faces-dot duty-dot-off"></span> Off duty
-                        </h3>
-                        <?php if (empty($offDutyLeaders)): ?>
-                            <p class="duty-faces-empty">No one off duty</p>
-                        <?php else: ?>
-                            <div class="duty-faces-grid">
-                                <?php foreach ($offDutyLeaders as $dl): ?>
-                                    <div class="duty-face-item">
-                                        <?php if ($dl['photo'] !== ''): ?>
-                                            <img class="duty-face-photo duty-face-photo-off" src="<?= e($dl['photo']) ?>" alt="<?= e($dl['name']) ?>">
-                                        <?php else: ?>
-                                            <div class="duty-face-photo duty-face-placeholder duty-face-photo-off"><?= e($dl['initials']) ?></div>
-                                        <?php endif; ?>
-                                        <span class="duty-face-name"><?= e($dl['first_name']) ?></span>
-                                    </div>
-                                <?php endforeach; ?>
+                            <div class="duty-day-card-body">
+                                <div class="duty-day-card-section duty-day-card-section-on">
+                                    <span class="duty-day-card-section-label"><span class="duty-faces-dot duty-dot-on"></span> On duty</span>
+                                    <?php if (empty($dayData['on_duty'])): ?>
+                                        <span class="duty-day-card-none">None assigned</span>
+                                    <?php else: ?>
+                                        <div class="duty-day-card-faces">
+                                            <?php foreach ($dayData['on_duty'] as $dl): ?>
+                                                <div class="duty-day-face" title="<?= e($dl['name']) ?>">
+                                                    <?php if ($dl['photo'] !== ''): ?>
+                                                        <img class="duty-day-face-photo" src="<?= e($dl['photo']) ?>" alt="<?= e($dl['name']) ?>">
+                                                    <?php else: ?>
+                                                        <span class="duty-day-face-photo duty-day-face-placeholder"><?= e($dl['initials']) ?></span>
+                                                    <?php endif; ?>
+                                                    <span class="duty-day-face-name"><?= e($dl['first_name']) ?></span>
+                                                </div>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+
+                                <div class="duty-day-card-section duty-day-card-section-off">
+                                    <span class="duty-day-card-section-label"><span class="duty-faces-dot duty-dot-off"></span> Off</span>
+                                    <?php if (empty($dayData['off_duty'])): ?>
+                                        <span class="duty-day-card-none">—</span>
+                                    <?php else: ?>
+                                        <div class="duty-day-card-faces">
+                                            <?php foreach ($dayData['off_duty'] as $dl): ?>
+                                                <div class="duty-day-face duty-day-face-off" title="<?= e($dl['name']) ?>">
+                                                    <?php if ($dl['photo'] !== ''): ?>
+                                                        <img class="duty-day-face-photo duty-day-face-photo-off" src="<?= e($dl['photo']) ?>" alt="<?= e($dl['name']) ?>">
+                                                    <?php else: ?>
+                                                        <span class="duty-day-face-photo duty-day-face-placeholder duty-day-face-photo-off"><?= e($dl['initials']) ?></span>
+                                                    <?php endif; ?>
+                                                    <span class="duty-day-face-name"><?= e($dl['first_name']) ?></span>
+                                                </div>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
                             </div>
-                        <?php endif; ?>
-                    </div>
+                        </div>
+                    <?php endforeach; ?>
                 </div>
 
             <?php endif; ?>

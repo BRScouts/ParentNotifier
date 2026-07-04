@@ -6,6 +6,7 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 }
 
 $pdo = db();
+ensure_announcements_tables($pdo);
 
 $error = '';
 $success = '';
