@@ -23,19 +23,7 @@ function explorer_csrf_valid(): bool
         && hash_equals((string)$_SESSION['explorer_checkin_csrf'], (string)$_POST['csrf_token']);
 }
 
-function explorer_contact_phone(): string
-{
-    if (defined('EXPLORER_EMERGENCY_PHONE')) {
-        return (string)EXPLORER_EMERGENCY_PHONE;
-    }
-
-    if (defined('CONTACT_PHONE')) {
-        return (string)CONTACT_PHONE;
-    }
-
-    return 'the emergency phone number provided by the leadership team';
-}
-
+// explorer_contact_phone() is now defined in config.php for shared use across all explorer pages.
 // explorer_fetch_team() is now defined in config.php for shared use across all explorer pages.
 
 function explorer_fetch_team_members(PDO $pdo, int $teamId): array
