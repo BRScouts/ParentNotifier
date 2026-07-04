@@ -503,6 +503,9 @@ function create_reviewed_location_and_post(
  */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (is_readonly()) {
+        $error = 'Your account has read-only access and cannot modify teams.';
+    } else {
     $action = $_POST['action'] ?? '';
 
     $allowedStatuses = [
@@ -692,6 +695,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         redirect('team_links.php?view=team&team_id=' . $teamId . '&tab=pending');
     }
+    } // end else (not readonly)
 }
 
 /**
@@ -1810,7 +1814,7 @@ include __DIR__ . '/header.php';
                                                         <textarea class="form-control" name="review_notes" rows="3"></textarea>
                                                     </div>
 
-                                                    <button class="btn btn-primary">
+                                                    <button class="btn btn-primary"<?php if (is_readonly()): ?> disabled<?php endif; ?>>
                                                         Approve, publish and email parents
                                                     </button>
                                                 </form>
@@ -2083,7 +2087,7 @@ include __DIR__ . '/header.php';
                                 <textarea class="form-control" name="internal_note" rows="3" placeholder="Only visible to leaders. Not shared with parents."></textarea>
                             </div>
 
-                            <button class="btn btn-primary btn-lg">
+                            <button class="btn btn-primary btn-lg"<?php if (is_readonly()): ?> disabled<?php endif; ?>>
                                 Save check-in and email parents
                             </button>
                         </form>
@@ -2301,7 +2305,7 @@ include __DIR__ . '/header.php';
                                 <label class="form-check-label">Visible to parents</label>
                             </div>
 
-                            <button class="btn btn-primary">Save team</button>
+                            <button class="btn btn-primary"<?php if (is_readonly()): ?> disabled<?php endif; ?>>Save team</button>
                         </form>
                     </section>
 
@@ -2588,7 +2592,7 @@ include __DIR__ . '/header.php';
                     <label class="form-check-label">Visible to parents</label>
                 </div>
 
-                <button class="btn btn-primary">Add team</button>
+                <button class="btn btn-primary"<?php if (is_readonly()): ?> disabled<?php endif; ?>>Add team</button>
             </form>
         </section>
 

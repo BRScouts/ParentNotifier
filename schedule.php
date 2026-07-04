@@ -81,6 +81,9 @@ ensure_schedule_table($pdo);
  * POST actions (leaders only)
  */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isLeader) {
+    if (is_readonly()) {
+        $error = 'Your account has read-only access and cannot modify the schedule.';
+    } else {
     $action = $_POST['action'] ?? '';
 
     try {
@@ -191,6 +194,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isLeader) {
     } catch (Throwable $exception) {
         $error = $exception->getMessage();
     }
+    } // end else (not readonly)
 }
 
 /**
@@ -442,7 +446,7 @@ include __DIR__ . '/header.php';
                     </label>
                 </div>
 
-                <button class="btn btn-primary">Save changes</button>
+                <button class="btn btn-primary"<?php if (is_readonly()): ?> disabled<?php endif; ?>>Save changes</button>
                 <a href="<?= e(url('schedule.php?date=' . $viewDate . $tokenParam)) ?>" class="btn btn-outline-primary ml-2">Cancel</a>
             </form>
         </section>
@@ -503,7 +507,7 @@ include __DIR__ . '/header.php';
                     <small class="form-text text-muted d-block">Use for reminders, prep tasks, or internal events.</small>
                 </div>
 
-                <button class="btn btn-primary">Add activity</button>
+                <button class="btn btn-primary"<?php if (is_readonly()): ?> disabled<?php endif; ?>>Add activity</button>
             </form>
         </details>
     <?php endif; ?>

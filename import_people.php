@@ -419,6 +419,9 @@ function import_person_row(PDO $pdo, array $data): string
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (is_readonly()) {
+        $error = 'Your account has read-only access and cannot import people.';
+    } else {
     $mode = $_POST['mode'] ?? 'preview';
 
     try {
@@ -463,6 +466,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } catch (Throwable $exception) {
         $error = $exception->getMessage();
     }
+    } // end else (not readonly)
 }
 
 include __DIR__ . '/header.php';
@@ -612,9 +616,12 @@ include __DIR__ . '/header.php';
                 >
             </div>
 
-            <button class="btn btn-primary">
+            <button class="btn btn-primary"<?php if (is_readonly()): ?> disabled<?php endif; ?>>
                 Preview import
             </button>
+            <?php if (is_readonly()): ?>
+                <p class="text-muted mt-2"><em>Your account has read-only access.</em></p>
+            <?php endif; ?>
         </form>
     </section>
 

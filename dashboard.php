@@ -420,6 +420,9 @@ function dashboard_checkin_state(array $team, ?array $latestLocation, bool $hasP
  * Leader-only post actions.
  */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isLeader) {
+    if (is_readonly()) {
+        $error = 'Your account has read-only access and cannot modify posts.';
+    } else {
     $action = $_POST['action'] ?? '';
 
     try {
@@ -602,6 +605,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isLeader) {
 
         $error = $exception->getMessage();
     }
+    } // end else (not readonly)
 }
 
 /**
@@ -1566,11 +1570,18 @@ include __DIR__ . '/header.php';
 
     <?php if ($isLeader): ?>
         <div class="dashboard-actions">
+            <?php if (!is_readonly()): ?>
             <a class="btn btn-primary" href="<?= e(url('add_update.php')) ?>">Add update</a>
+            <?php endif; ?>
             <a class="btn btn-outline-primary" href="<?= e(url('team_links.php')) ?>">Manage teams</a>
             <a class="btn btn-outline-primary" href="<?= e(url('leaders.php')) ?>">Manage leaders</a>
+            <?php if (!is_readonly()): ?>
             <a class="btn btn-primary" href="<?= e(url('email_all.php')) ?>">Email to all</a>
+            <?php endif; ?>
         </div>
+        <?php if (is_readonly()): ?>
+            <div class="alert alert-info">You have read-only access. You can view all data but cannot make changes or send emails.</div>
+        <?php endif; ?>
     <?php endif; ?>
 
     <div class="dashboard-layout">
@@ -1655,7 +1666,7 @@ include __DIR__ . '/header.php';
                                     </p>
                                 </div>
 
-                                <?php if ($isLeader && !$isLocation): ?>
+                                <?php if ($isLeader && !$isLocation && !is_readonly()): ?>
                                     <div class="feed-admin-actions">
                                         <button
                                             type="button"

@@ -36,6 +36,12 @@ function is_trip_admin(): bool
     return $user !== null && $user['role'] === 'trip_admin';
 }
 
+function is_readonly(): bool
+{
+    $user = current_user();
+    return $user !== null && $user['role'] === 'readonly';
+}
+
 function require_login(): void
 {
     if (!is_logged_in()) {

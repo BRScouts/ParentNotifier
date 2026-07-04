@@ -1787,9 +1787,12 @@ function render_people_form(array $teams, ?array $formPerson = null): void
             </div>
         </div>
 
-        <button class="btn btn-primary" type="submit">
+        <button class="btn btn-primary" type="submit"<?php if (is_readonly()): ?> disabled<?php endif; ?>>
             <?= $isEdit ? 'Save person' : 'Add person' ?>
         </button>
+        <?php if (is_readonly()): ?>
+            <p class="text-muted mt-2"><em>Your account has read-only access.</em></p>
+        <?php endif; ?>
     </form>
     <?php
 }
@@ -1807,6 +1810,9 @@ $teams = $pdo
  */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (is_readonly()) {
+        $error = 'Your account has read-only access and cannot modify records.';
+    } else {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'add_person') {
@@ -2079,6 +2085,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         redirect('people.php?person_id=' . $personId . '#logs');
     }
+    } // end else (not readonly)
 }
 
 /**
@@ -2924,7 +2931,7 @@ include __DIR__ . '/header.php';
                     <textarea class="form-control" name="body" rows="4" required></textarea>
                 </div>
 
-                <button class="btn btn-primary">Add log</button>
+                <button class="btn btn-primary"<?php if (is_readonly()): ?> disabled<?php endif; ?>>Add log</button>
             </form>
         </section>
 

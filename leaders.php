@@ -587,6 +587,11 @@ function eb_leaders_save_leader(PDO $pdo, array $leaderColumns): void
         'hide_from_schedule' => isset($_POST['hide_from_schedule']) ? 1 : 0,
     ];
 
+    // Only trip_admin can change the role field
+    if (!is_trip_admin()) {
+        unset($input['role']);
+    }
+
     if ($input['name'] === '') {
         throw new RuntimeException('Leader name is required.');
     }
@@ -831,6 +836,9 @@ $scheduleConfig = eb_leaders_get_schedule_config($pdo);
  */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isAdmin) {
+    if (is_readonly()) {
+        $error = 'Your account has read-only access and cannot manage leaders.';
+    } else {
     $action = $_POST['action'] ?? '';
 
     try {
@@ -863,6 +871,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isAdmin) {
     } catch (Throwable $exception) {
         $error = $exception->getMessage();
     }
+    } // end else (not readonly)
 }
 
 /**
@@ -1330,7 +1339,17 @@ include __DIR__ . '/header.php';
     }
 
     .duty-today {
-        background: #fff7bf !important;
+        border-left: 3px solid #00703c !important;
+        border-right: 3px solid #00703c !important;
+        background: #f0faf4 !important;
+    }
+
+    .duty-roster-table thead .duty-today {
+        border-top: 3px solid #00703c !important;
+    }
+
+    .duty-roster-table tbody tr:last-child .duty-today {
+        border-bottom: 3px solid #00703c !important;
     }
 
     .duty-cell-on {
@@ -1383,91 +1402,109 @@ include __DIR__ . '/header.php';
         font-size: 0.8rem;
     }
 
-    /* Duty view mode (mobile-friendly cards) */
-    .duty-view-cards {
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: 1rem;
-    }
-
-    .duty-view-card {
+    /* Duty view mode (per-day rows, all leaders on one line) */
+    .duty-view-list {
         border: 2px solid #d8d8d8;
         background: #ffffff;
-        padding: 1rem;
     }
 
-    .duty-view-name {
-        font-size: 1.1rem;
-        font-weight: 900;
-        margin: 0 0 0.2rem;
-    }
-
-    .duty-view-range {
-        font-size: 0.9rem;
-        margin-bottom: 0.6rem;
-    }
-
-    .duty-view-days {
+    .duty-view-row {
         display: flex;
-        flex-wrap: wrap;
-        gap: 4px;
-    }
-
-    .duty-day-cell {
-        display: flex;
-        flex-direction: column;
         align-items: center;
-        justify-content: center;
-        width: 44px;
-        min-height: 52px;
-        border: 1px solid #d8d8d8;
-        padding: 3px 2px;
-        text-align: center;
+        gap: 0.75rem;
+        padding: 0.6rem 0.75rem;
+        border-bottom: 1px solid #e8e8e8;
     }
 
-    .duty-day-date {
-        font-size: 0.65rem;
-        line-height: 1.1;
-        font-weight: 700;
+    .duty-view-row:last-child {
+        border-bottom: none;
+    }
+
+    .duty-view-row-today {
+        border: 3px solid #00703c;
+        border-radius: 0;
+        background: #f0faf4;
+        margin: -1px;
+        position: relative;
+        z-index: 1;
+    }
+
+    .duty-view-row-date {
+        min-width: 90px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .duty-view-row-dayname {
+        font-weight: 900;
+        font-size: 0.9rem;
+    }
+
+    .duty-view-row-daynum {
+        font-size: 0.85rem;
         color: #505a5f;
     }
 
-    .duty-day-icon {
-        font-size: 1rem;
+    .duty-view-today-badge {
+        display: inline-block;
+        background: #00703c;
+        color: #ffffff;
+        font-size: 0.7rem;
         font-weight: 900;
-        line-height: 1;
+        padding: 0.1rem 0.4rem;
+        text-transform: uppercase;
     }
 
-    .duty-day-on {
+    .duty-view-row-leaders {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+    }
+
+    .duty-pill {
+        display: inline-block;
+        padding: 0.25rem 0.5rem;
+        font-size: 0.8rem;
+        font-weight: 700;
+        border: 1px solid #d8d8d8;
+    }
+
+    .duty-pill-on {
         background: #cce5d6;
         border-color: #00703c;
+        color: #00703c;
     }
 
-    .duty-day-on .duty-day-icon { color: #00703c; }
-
-    .duty-day-off {
+    .duty-pill-off {
         background: #fde0da;
         border-color: #d4351c;
+        color: #d4351c;
     }
 
-    .duty-day-off .duty-day-icon { color: #d4351c; }
-
-    .duty-day-dayoff {
+    .duty-pill-dayoff {
         background: #e7f1fb;
         border-color: #1d70b8;
+        color: #1d70b8;
     }
 
-    .duty-day-dayoff .duty-day-icon { color: #1d70b8; }
-
-    .duty-day-unset {
-        background: #f8f8f8;
+    .duty-pill-unset {
+        background: #f3f2f1;
+        border-color: #b1b4b6;
+        color: #505a5f;
     }
 
-    .duty-day-unset .duty-day-icon { color: #b1b4b6; }
+    @media (max-width: 600px) {
+        .duty-view-row {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.35rem;
+        }
 
-    .duty-day-today {
-        border: 2px solid #1d1d1d !important;
-        box-shadow: 0 0 0 1px #ffdd00;
+        .duty-view-row-date {
+            min-width: auto;
+        }
     }
 </style>
 
@@ -1534,9 +1571,9 @@ include __DIR__ . '/header.php';
 
                     <div class="form-group">
                         <label>Internal role</label>
-                        <input class="form-control" name="role">
+                        <input class="form-control" name="role"<?php if (!is_trip_admin()): ?> disabled<?php endif; ?>>
                         <small class="form-text text-muted">
-                            Internal only. This is not shown to parents.
+                            Internal only. This is not shown to parents.<?php if (!is_trip_admin()): ?> Only trip admins can change roles.<?php endif; ?>
                         </small>
                     </div>
 
@@ -1586,7 +1623,7 @@ include __DIR__ . '/header.php';
                     </small>
                 </div>
 
-                <button class="btn btn-primary">Add leader</button>
+                <button class="btn btn-primary"<?php if (is_readonly()): ?> disabled<?php endif; ?>>Add leader</button>
             </form>
         </section>
 
@@ -1613,9 +1650,10 @@ include __DIR__ . '/header.php';
 
                             <div class="form-group">
                                 <label>Internal role</label>
-                                <input class="form-control" name="role" value="<?= e(eb_leaders_val($leader, ['role', 'title', 'position'], '')) ?>">
+                                <input class="form-control" name="role" value="<?= e(eb_leaders_val($leader, ['role', 'title', 'position'], '')) ?>"<?php if (!is_trip_admin()): ?> disabled<?php endif; ?>>
                                 <small class="form-text text-muted">
-                                    Internal only. This is not shown to parents.
+                                    Internal only. This is not shown to parents.<?php if (!is_trip_admin()): ?> Only trip admins can change roles.<?php endif; ?>
+                                </small>
                                 </small>
                             </div>
 
@@ -1695,7 +1733,7 @@ include __DIR__ . '/header.php';
                             </small>
                         </div>
 
-                        <button class="btn btn-primary">Save leader</button>
+                        <button class="btn btn-primary"<?php if (is_readonly()): ?> disabled<?php endif; ?>>Save leader</button>
                     </form>
                 </details>
             <?php endforeach; ?>
@@ -1762,7 +1800,7 @@ include __DIR__ . '/header.php';
                         <textarea class="form-control" name="note" rows="3"></textarea>
                     </div>
 
-                    <button class="btn btn-primary">Add schedule</button>
+                    <button class="btn btn-primary"<?php if (is_readonly()): ?> disabled<?php endif; ?>>Add schedule</button>
                 </form>
             <?php endif; ?>
         </section>
@@ -1801,7 +1839,7 @@ include __DIR__ . '/header.php';
                                                 <form method="post" onsubmit="return confirm('Delete this schedule entry?');">
                                                     <input type="hidden" name="action" value="delete_schedule">
                                                     <input type="hidden" name="schedule_id" value="<?= $scheduleId ?>">
-                                                    <button class="btn btn-outline-danger btn-sm">Delete</button>
+                                                    <button class="btn btn-outline-danger btn-sm"<?php if (is_readonly()): ?> disabled<?php endif; ?>>Delete</button>
                                                 </form>
                                             <?php endif; ?>
                                         </td>
@@ -1922,7 +1960,7 @@ include __DIR__ . '/header.php';
                 <?php if (!empty($dutyDates)): ?>
                     <?php if ($dutyEditMode): ?>
                         <a href="<?= e(url('leaders.php?tab=duty')) ?>" class="btn btn-outline-primary">View mode</a>
-                    <?php else: ?>
+                    <?php elseif (!is_readonly()): ?>
                         <a href="<?= e(url('leaders.php?tab=duty&edit_roster=1')) ?>" class="btn btn-primary">Edit roster</a>
                     <?php endif; ?>
                 <?php endif; ?>
@@ -1988,41 +2026,54 @@ include __DIR__ . '/header.php';
                     </div>
 
                     <div class="mt-3">
-                        <button class="btn btn-primary">Save roster</button>
+                        <button class="btn btn-primary"<?php if (is_readonly()): ?> disabled<?php endif; ?>>Save roster</button>
                         <a href="<?= e(url('leaders.php?tab=duty')) ?>" class="btn btn-outline-primary ml-2">Cancel</a>
                     </div>
                 </form>
 
             <?php else: ?>
 
-                <!-- VIEW MODE: mobile-friendly per-leader card layout -->
-                <div class="duty-view-cards">
-                    <?php foreach ($dutyLeaderRanges as $lid => $rangeData): ?>
+                <!-- VIEW MODE: per-day list, all leaders on one line per day -->
+                <?php
+                $today = date('Y-m-d');
+                ?>
+                <div class="duty-view-list">
+                    <?php foreach ($dutyDates as $dd): ?>
                         <?php
-                        $leaderName = eb_leaders_val($rangeData['leader'], ['name', 'full_name'], 'Leader');
-                        $leaderDates = $rangeData['dates'];
+                        $isToday = ($dd === $today);
+                        // Gather leaders for this day
+                        $dayLeaders = [];
+                        foreach ($dutyLeaderRanges as $lid => $rangeData) {
+                            if (!in_array($dd, $rangeData['dates'], true)) {
+                                continue;
+                            }
+                            $key = $lid . '_' . $dd;
+                            $st = $dutyRoster[$key]['status'] ?? '';
+                            $dayLeaders[] = [
+                                'name' => eb_leaders_val($rangeData['leader'], ['name', 'full_name'], 'Leader'),
+                                'status' => $st,
+                            ];
+                        }
+                        if (empty($dayLeaders)) continue;
                         ?>
-                        <div class="duty-view-card">
-                            <h3 class="duty-view-name"><?= e($leaderName) ?></h3>
-                            <p class="duty-view-range muted">
-                                In country: <?= e(date('j M', strtotime($rangeData['start']))) ?> &ndash; <?= e(date('j M', strtotime($rangeData['end']))) ?>
-                            </p>
-                            <div class="duty-view-days">
-                                <?php foreach ($leaderDates as $dd): ?>
+                        <div class="duty-view-row <?= $isToday ? 'duty-view-row-today' : '' ?>">
+                            <div class="duty-view-row-date">
+                                <span class="duty-view-row-dayname"><?= e(date('D', strtotime($dd))) ?></span>
+                                <span class="duty-view-row-daynum"><?= e(date('j M', strtotime($dd))) ?></span>
+                                <?php if ($isToday): ?>
+                                    <span class="duty-view-today-badge">Today</span>
+                                <?php endif; ?>
+                            </div>
+                            <div class="duty-view-row-leaders">
+                                <?php foreach ($dayLeaders as $dl): ?>
                                     <?php
-                                    $key = $lid . '_' . $dd;
-                                    $st = $dutyRoster[$key]['status'] ?? '';
-                                    $dayClass = 'duty-day-unset';
-                                    $dayLabel = '—';
-                                    if ($st === 'on_duty') { $dayClass = 'duty-day-on'; $dayLabel = '✓'; }
-                                    elseif ($st === 'off_duty') { $dayClass = 'duty-day-off'; $dayLabel = '✗'; }
-                                    elseif ($st === 'day_off') { $dayClass = 'duty-day-dayoff'; $dayLabel = '○'; }
-                                    $isToday = $dd === date('Y-m-d');
+                                    $pillClass = 'duty-pill-unset';
+                                    $pillLabel = $dl['name'];
+                                    if ($dl['status'] === 'on_duty') $pillClass = 'duty-pill-on';
+                                    elseif ($dl['status'] === 'off_duty') $pillClass = 'duty-pill-off';
+                                    elseif ($dl['status'] === 'day_off') $pillClass = 'duty-pill-dayoff';
                                     ?>
-                                    <div class="duty-day-cell <?= $dayClass ?> <?= $isToday ? 'duty-day-today' : '' ?>" title="<?= e(date('D j M', strtotime($dd))) ?>: <?= e($st ?: 'not set') ?>">
-                                        <span class="duty-day-date"><?= e(date('D', strtotime($dd))) ?><br><?= e(date('j', strtotime($dd))) ?></span>
-                                        <span class="duty-day-icon"><?= $dayLabel ?></span>
-                                    </div>
+                                    <span class="duty-pill <?= $pillClass ?>"><?= e($pillLabel) ?></span>
                                 <?php endforeach; ?>
                             </div>
                         </div>

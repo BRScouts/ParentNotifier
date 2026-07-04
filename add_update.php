@@ -320,6 +320,9 @@ function build_update_email_content(
  */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (is_readonly()) {
+        $error = 'Your account has read-only access and cannot publish updates.';
+    } else {
     $teamId = ($_POST['team_id'] ?? '') !== '' ? (int)$_POST['team_id'] : null;
     $visibility = $_POST['visibility'] ?? 'public';
     $postType = $_POST['post_type'] ?? 'general';
@@ -439,6 +442,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Could not publish the update. ' . $exception->getMessage();
         }
     }
+    } // end else (not readonly)
 }
 
 include __DIR__ . '/header.php';
@@ -663,9 +667,13 @@ include __DIR__ . '/header.php';
                     </label>
                 </div>
 
-                <button class="btn btn-primary" type="submit">
+                <button class="btn btn-primary" type="submit"<?php if (is_readonly()): ?> disabled<?php endif; ?>>
                     Publish update
                 </button>
+
+                <?php if (is_readonly()): ?>
+                    <p class="text-muted mt-2"><em>Your account has read-only access.</em></p>
+                <?php endif; ?>
             </form>
         </section>
 

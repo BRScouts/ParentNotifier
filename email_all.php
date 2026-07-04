@@ -841,6 +841,9 @@ function email_all_build_recipient_map(PDO $pdo, array $teamsById, array $leader
  * Preview / queue actions.
  */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (is_readonly()) {
+        $error = 'Your account has read-only access and cannot send emails.';
+    } else {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'preview') {
@@ -933,6 +936,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
+    } // end else (not readonly)
 }
 
 include __DIR__ . '/header.php';
@@ -1346,7 +1350,7 @@ include __DIR__ . '/header.php';
             <div class="button-row">
                 <form method="post">
                     <input type="hidden" name="action" value="queue">
-                    <button class="btn btn-primary btn-lg">
+                    <button class="btn btn-primary btn-lg"<?php if (is_readonly()): ?> disabled<?php endif; ?>>
                         Send to <?= (int)$previewCount ?> contact<?= $previewCount === 1 ? '' : 's' ?>
                     </button>
                 </form>
@@ -1652,9 +1656,13 @@ include __DIR__ . '/header.php';
                                     Back
                                 </button>
 
-                                <button class="btn btn-primary" type="submit">
+                                <button class="btn btn-primary" type="submit"<?php if (is_readonly()): ?> disabled<?php endif; ?>>
                                     Preview email
                                 </button>
+
+                                <?php if (is_readonly()): ?>
+                                    <p class="text-muted mt-2"><em>Your account has read-only access.</em></p>
+                                <?php endif; ?>
                             </div>
                         </section>
                     </div>
