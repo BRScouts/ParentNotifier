@@ -858,7 +858,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isAdmin) {
         if ($action === 'save_duty_bulk') {
             eb_leaders_ensure_duty_table($pdo);
             eb_leaders_save_duty_bulk($pdo);
-            redirect('leaders.php?tab=duty&week_start=' . urlencode($_POST['week_start'] ?? ''));
+            redirect('leaders.php?tab=duty');
         }
     } catch (Throwable $exception) {
         $error = $exception->getMessage();
@@ -1373,6 +1373,102 @@ include __DIR__ . '/header.php';
     .duty-swatch-on { background: #cce5d6; }
     .duty-swatch-off { background: #fde0da; }
     .duty-swatch-dayoff { background: #e7f1fb; }
+
+    .duty-cell-disabled {
+        background: #f3f2f1 !important;
+    }
+
+    .duty-not-here {
+        color: #b1b4b6;
+        font-size: 0.8rem;
+    }
+
+    /* Duty view mode (mobile-friendly cards) */
+    .duty-view-cards {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+
+    .duty-view-card {
+        border: 2px solid #d8d8d8;
+        background: #ffffff;
+        padding: 1rem;
+    }
+
+    .duty-view-name {
+        font-size: 1.1rem;
+        font-weight: 900;
+        margin: 0 0 0.2rem;
+    }
+
+    .duty-view-range {
+        font-size: 0.9rem;
+        margin-bottom: 0.6rem;
+    }
+
+    .duty-view-days {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    .duty-day-cell {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        min-height: 52px;
+        border: 1px solid #d8d8d8;
+        padding: 3px 2px;
+        text-align: center;
+    }
+
+    .duty-day-date {
+        font-size: 0.65rem;
+        line-height: 1.1;
+        font-weight: 700;
+        color: #505a5f;
+    }
+
+    .duty-day-icon {
+        font-size: 1rem;
+        font-weight: 900;
+        line-height: 1;
+    }
+
+    .duty-day-on {
+        background: #cce5d6;
+        border-color: #00703c;
+    }
+
+    .duty-day-on .duty-day-icon { color: #00703c; }
+
+    .duty-day-off {
+        background: #fde0da;
+        border-color: #d4351c;
+    }
+
+    .duty-day-off .duty-day-icon { color: #d4351c; }
+
+    .duty-day-dayoff {
+        background: #e7f1fb;
+        border-color: #1d70b8;
+    }
+
+    .duty-day-dayoff .duty-day-icon { color: #1d70b8; }
+
+    .duty-day-unset {
+        background: #f8f8f8;
+    }
+
+    .duty-day-unset .duty-day-icon { color: #b1b4b6; }
+
+    .duty-day-today {
+        border: 2px solid #1d1d1d !important;
+        box-shadow: 0 0 0 1px #ffdd00;
+    }
 </style>
 
 <section class="page-hero compact-leaders-hero">
@@ -1723,148 +1819,223 @@ include __DIR__ . '/header.php';
         <?php
         eb_leaders_ensure_duty_table($pdo);
 
-        // Determine the week to display
-        $dutyWeekStart = trim($_GET['week_start'] ?? '');
-        if ($dutyWeekStart === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dutyWeekStart)) {
-            // Default to current Monday
-            $dutyWeekStart = date('Y-m-d', strtotime('monday this week'));
+        $dutyEditMode = isset($_GET['edit_roster']);
+
+        // Build a per-leader date range from their in_country schedule entries
+        // Only show days where a leader is scheduled as in_country
+        $dutyLeaderRanges = []; // [leader_id => ['start' => date, 'end' => date, 'dates' => [...]]]
+        $globalStart = null;
+        $globalEnd = null;
+
+        foreach ($decoratedLeaders as $leader) {
+            if (!empty($leader['hide_from_schedule'])) {
+                continue;
+            }
+
+            $leaderSchedules = $leader['_schedules'] ?? [];
+            $inCountryDates = [];
+
+            foreach ($leaderSchedules as $schedule) {
+                $type = eb_leaders_schedule_status($schedule);
+                if ($type !== 'in_country') {
+                    continue;
+                }
+
+                $start = eb_leaders_schedule_start($schedule);
+                $end = eb_leaders_schedule_end($schedule);
+
+                if (!$start || !$end) {
+                    continue;
+                }
+
+                $d = new DateTime(date('Y-m-d', $start));
+                $dEnd = new DateTime(date('Y-m-d', $end));
+
+                while ($d <= $dEnd) {
+                    $inCountryDates[] = $d->format('Y-m-d');
+                    $d->modify('+1 day');
+                }
+            }
+
+            // Also include if flagged as in_country without schedule
+            if (empty($inCountryDates) && (!empty($leader['is_in_country']) || !empty($leader['in_country']))) {
+                // Fallback: show today +/- 3 days
+                $d = new DateTime(date('Y-m-d', strtotime('-3 days')));
+                $dEnd = new DateTime(date('Y-m-d', strtotime('+7 days')));
+                while ($d <= $dEnd) {
+                    $inCountryDates[] = $d->format('Y-m-d');
+                    $d->modify('+1 day');
+                }
+            }
+
+            if (empty($inCountryDates)) {
+                continue;
+            }
+
+            sort($inCountryDates);
+            $inCountryDates = array_unique($inCountryDates);
+
+            $leaderStart = $inCountryDates[0];
+            $leaderEnd = end($inCountryDates);
+
+            $dutyLeaderRanges[(int)$leader['id']] = [
+                'leader' => $leader,
+                'start' => $leaderStart,
+                'end' => $leaderEnd,
+                'dates' => $inCountryDates,
+            ];
+
+            if ($globalStart === null || $leaderStart < $globalStart) {
+                $globalStart = $leaderStart;
+            }
+            if ($globalEnd === null || $leaderEnd > $globalEnd) {
+                $globalEnd = $leaderEnd;
+            }
         }
 
-        $dutyWeekEnd = date('Y-m-d', strtotime($dutyWeekStart . ' +13 days'));
-        $dutyPrevWeek = date('Y-m-d', strtotime($dutyWeekStart . ' -7 days'));
-        $dutyNextWeek = date('Y-m-d', strtotime($dutyWeekStart . ' +7 days'));
-
-        // Generate date range
+        // Build the full date range
         $dutyDates = [];
-        $dCurrent = new DateTime($dutyWeekStart);
-        $dEnd = new DateTime($dutyWeekEnd);
-        while ($dCurrent <= $dEnd) {
-            $dutyDates[] = $dCurrent->format('Y-m-d');
-            $dCurrent->modify('+1 day');
+        if ($globalStart && $globalEnd) {
+            $dCurrent = new DateTime($globalStart);
+            $dEnd = new DateTime($globalEnd);
+            while ($dCurrent <= $dEnd) {
+                $dutyDates[] = $dCurrent->format('Y-m-d');
+                $dCurrent->modify('+1 day');
+            }
         }
 
-        // Fetch roster for this range
-        $dutyRoster = eb_leaders_fetch_duty_roster($pdo, $dutyWeekStart, $dutyWeekEnd);
-
-        // Only show in-country leaders (those with schedules or flagged)
-        $dutyLeaders = array_filter($decoratedLeaders, function ($leader) {
-            return empty($leader['hide_from_schedule']);
-        });
+        // Fetch roster
+        $dutyRoster = [];
+        if (!empty($dutyDates)) {
+            $dutyRoster = eb_leaders_fetch_duty_roster($pdo, $dutyDates[0], end($dutyDates));
+        }
         ?>
 
         <section class="admin-panel mb-4">
-            <h2>Duty roster</h2>
-            <p class="muted">
-                Track which leaders are on duty, off duty, or having a day off. Leaders may be in country but not on duty.
-            </p>
-
-            <div class="d-flex align-items-center mb-3" style="gap:0.75rem;">
-                <a href="<?= e(url('leaders.php?tab=duty&week_start=' . $dutyPrevWeek)) ?>" class="btn btn-outline-primary btn-sm">&larr; Previous</a>
-                <strong><?= e(date('d M', strtotime($dutyWeekStart))) ?> &ndash; <?= e(date('d M Y', strtotime($dutyWeekEnd))) ?></strong>
-                <a href="<?= e(url('leaders.php?tab=duty&week_start=' . $dutyNextWeek)) ?>" class="btn btn-outline-primary btn-sm">Next &rarr;</a>
+            <div class="d-flex align-items-center justify-content-between flex-wrap mb-3" style="gap:0.5rem;">
+                <div>
+                    <h2 class="mb-1">Duty roster</h2>
+                    <p class="muted mb-0">
+                        Shows which leaders are on/off duty while they're in country.
+                    </p>
+                </div>
+                <?php if (!empty($dutyDates)): ?>
+                    <?php if ($dutyEditMode): ?>
+                        <a href="<?= e(url('leaders.php?tab=duty')) ?>" class="btn btn-outline-primary">View mode</a>
+                    <?php else: ?>
+                        <a href="<?= e(url('leaders.php?tab=duty&edit_roster=1')) ?>" class="btn btn-primary">Edit roster</a>
+                    <?php endif; ?>
+                <?php endif; ?>
             </div>
 
-            <form method="post">
-                <input type="hidden" name="action" value="save_duty_bulk">
-                <input type="hidden" name="week_start" value="<?= e($dutyWeekStart) ?>">
+            <?php if (empty($dutyLeaderRanges)): ?>
+                <div class="empty-panel">
+                    No leaders have in-country schedule entries. Add schedule entries on the "Manage schedule" tab first.
+                </div>
+            <?php elseif ($dutyEditMode): ?>
 
-                <div class="duty-roster-wrap">
-                    <table class="duty-roster-table">
-                        <thead>
-                            <tr>
-                                <th class="duty-name-col">Leader</th>
-                                <?php foreach ($dutyDates as $dd): ?>
-                                    <th class="duty-date-col <?= $dd === date('Y-m-d') ? 'duty-today' : '' ?>">
-                                        <span class="duty-day-name"><?= e(date('D', strtotime($dd))) ?></span>
-                                        <span class="duty-day-num"><?= e(date('j/n', strtotime($dd))) ?></span>
-                                    </th>
-                                <?php endforeach; ?>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($dutyLeaders as $leader): ?>
-                                <?php $lid = (int)$leader['id']; ?>
+                <!-- EDIT MODE: full grid with dropdowns -->
+                <form method="post">
+                    <input type="hidden" name="action" value="save_duty_bulk">
+                    <input type="hidden" name="week_start" value="<?= e($dutyDates[0] ?? '') ?>">
+
+                    <div class="duty-roster-wrap">
+                        <table class="duty-roster-table">
+                            <thead>
                                 <tr>
-                                    <td class="duty-name-col">
-                                        <strong><?= e(eb_leaders_val($leader, ['name', 'full_name'], 'Leader')) ?></strong>
-                                    </td>
+                                    <th class="duty-name-col">Leader</th>
                                     <?php foreach ($dutyDates as $dd): ?>
-                                        <?php
-                                        $key = $lid . '_' . $dd;
-                                        $currentStatus = $dutyRoster[$key]['status'] ?? '';
-                                        $cellClass = '';
-                                        if ($currentStatus === 'on_duty') $cellClass = 'duty-cell-on';
-                                        elseif ($currentStatus === 'off_duty') $cellClass = 'duty-cell-off';
-                                        elseif ($currentStatus === 'day_off') $cellClass = 'duty-cell-dayoff';
-                                        ?>
-                                        <td class="duty-cell <?= $cellClass ?> <?= $dd === date('Y-m-d') ? 'duty-today' : '' ?>">
-                                            <select name="duty[<?= $lid ?>][<?= e($dd) ?>]" class="duty-select">
-                                                <option value="" <?= $currentStatus === '' ? 'selected' : '' ?>>—</option>
-                                                <option value="on_duty" <?= $currentStatus === 'on_duty' ? 'selected' : '' ?>>On duty</option>
-                                                <option value="off_duty" <?= $currentStatus === 'off_duty' ? 'selected' : '' ?>>Off duty</option>
-                                                <option value="day_off" <?= $currentStatus === 'day_off' ? 'selected' : '' ?>>Day off</option>
-                                            </select>
-                                        </td>
+                                        <th class="duty-date-col <?= $dd === date('Y-m-d') ? 'duty-today' : '' ?>">
+                                            <span class="duty-day-name"><?= e(date('D', strtotime($dd))) ?></span>
+                                            <span class="duty-day-num"><?= e(date('j/n', strtotime($dd))) ?></span>
+                                        </th>
                                     <?php endforeach; ?>
                                 </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($dutyLeaderRanges as $lid => $rangeData): ?>
+                                    <tr>
+                                        <td class="duty-name-col">
+                                            <strong><?= e(eb_leaders_val($rangeData['leader'], ['name', 'full_name'], 'Leader')) ?></strong>
+                                        </td>
+                                        <?php foreach ($dutyDates as $dd): ?>
+                                            <?php
+                                            $isInCountryDay = in_array($dd, $rangeData['dates'], true);
+                                            $key = $lid . '_' . $dd;
+                                            $currentStatus = $dutyRoster[$key]['status'] ?? '';
+                                            $cellClass = '';
+                                            if ($currentStatus === 'on_duty') $cellClass = 'duty-cell-on';
+                                            elseif ($currentStatus === 'off_duty') $cellClass = 'duty-cell-off';
+                                            elseif ($currentStatus === 'day_off') $cellClass = 'duty-cell-dayoff';
+                                            ?>
+                                            <td class="duty-cell <?= $cellClass ?> <?= $dd === date('Y-m-d') ? 'duty-today' : '' ?> <?= !$isInCountryDay ? 'duty-cell-disabled' : '' ?>">
+                                                <?php if ($isInCountryDay): ?>
+                                                    <select name="duty[<?= $lid ?>][<?= e($dd) ?>]" class="duty-select">
+                                                        <option value="" <?= $currentStatus === '' ? 'selected' : '' ?>>—</option>
+                                                        <option value="on_duty" <?= $currentStatus === 'on_duty' ? 'selected' : '' ?>>On</option>
+                                                        <option value="off_duty" <?= $currentStatus === 'off_duty' ? 'selected' : '' ?>>Off</option>
+                                                        <option value="day_off" <?= $currentStatus === 'day_off' ? 'selected' : '' ?>>Day off</option>
+                                                    </select>
+                                                <?php else: ?>
+                                                    <span class="duty-not-here" title="Not in country">—</span>
+                                                <?php endif; ?>
+                                            </td>
+                                        <?php endforeach; ?>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="mt-3">
+                        <button class="btn btn-primary">Save roster</button>
+                        <a href="<?= e(url('leaders.php?tab=duty')) ?>" class="btn btn-outline-primary ml-2">Cancel</a>
+                    </div>
+                </form>
+
+            <?php else: ?>
+
+                <!-- VIEW MODE: mobile-friendly per-leader card layout -->
+                <div class="duty-view-cards">
+                    <?php foreach ($dutyLeaderRanges as $lid => $rangeData): ?>
+                        <?php
+                        $leaderName = eb_leaders_val($rangeData['leader'], ['name', 'full_name'], 'Leader');
+                        $leaderDates = $rangeData['dates'];
+                        ?>
+                        <div class="duty-view-card">
+                            <h3 class="duty-view-name"><?= e($leaderName) ?></h3>
+                            <p class="duty-view-range muted">
+                                In country: <?= e(date('j M', strtotime($rangeData['start']))) ?> &ndash; <?= e(date('j M', strtotime($rangeData['end']))) ?>
+                            </p>
+                            <div class="duty-view-days">
+                                <?php foreach ($leaderDates as $dd): ?>
+                                    <?php
+                                    $key = $lid . '_' . $dd;
+                                    $st = $dutyRoster[$key]['status'] ?? '';
+                                    $dayClass = 'duty-day-unset';
+                                    $dayLabel = '—';
+                                    if ($st === 'on_duty') { $dayClass = 'duty-day-on'; $dayLabel = '✓'; }
+                                    elseif ($st === 'off_duty') { $dayClass = 'duty-day-off'; $dayLabel = '✗'; }
+                                    elseif ($st === 'day_off') { $dayClass = 'duty-day-dayoff'; $dayLabel = '○'; }
+                                    $isToday = $dd === date('Y-m-d');
+                                    ?>
+                                    <div class="duty-day-cell <?= $dayClass ?> <?= $isToday ? 'duty-day-today' : '' ?>" title="<?= e(date('D j M', strtotime($dd))) ?>: <?= e($st ?: 'not set') ?>">
+                                        <span class="duty-day-date"><?= e(date('D', strtotime($dd))) ?><br><?= e(date('j', strtotime($dd))) ?></span>
+                                        <span class="duty-day-icon"><?= $dayLabel ?></span>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
                 </div>
 
-                <div class="mt-3">
-                    <button class="btn btn-primary">Save roster</button>
-                </div>
-            </form>
+            <?php endif; ?>
 
             <div class="mt-3">
                 <span class="duty-legend-item"><span class="duty-swatch duty-swatch-on"></span> On duty</span>
                 <span class="duty-legend-item"><span class="duty-swatch duty-swatch-off"></span> Off duty (in country)</span>
                 <span class="duty-legend-item"><span class="duty-swatch duty-swatch-dayoff"></span> Day off</span>
             </div>
-        </section>
-
-        <section class="admin-panel">
-            <h2>Quick add single entry</h2>
-
-            <form method="post">
-                <input type="hidden" name="action" value="save_duty">
-
-                <div class="admin-leader-form-grid">
-                    <div class="form-group">
-                        <label>Leader</label>
-                        <select class="form-control" name="leader_id" required>
-                            <option value="">Choose leader</option>
-                            <?php foreach ($dutyLeaders as $leader): ?>
-                                <option value="<?= (int)$leader['id'] ?>">
-                                    <?= e(eb_leaders_val($leader, ['name', 'full_name'], 'Leader')) ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Date</label>
-                        <input class="form-control" type="date" name="duty_date" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Status</label>
-                        <select class="form-control" name="duty_status">
-                            <option value="on_duty">On duty</option>
-                            <option value="off_duty">Off duty (in country)</option>
-                            <option value="day_off">Day off</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Note (optional)</label>
-                        <input class="form-control" name="duty_note">
-                    </div>
-                </div>
-
-                <button class="btn btn-primary">Save entry</button>
-            </form>
         </section>
 
     <?php else: ?>
