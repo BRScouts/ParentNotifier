@@ -2306,6 +2306,17 @@ include __DIR__ . '/header.php';
         margin-bottom: 1.5rem;
     }
 
+    @media (max-width: 700px) {
+        .people-actions {
+            gap: 0.35rem;
+        }
+
+        .people-actions .btn {
+            font-size: 0.85rem;
+            padding: 0.35rem 0.6rem;
+        }
+    }
+
     .people-panel {
         border: 2px solid #d8d8d8;
         background: #ffffff;
@@ -2336,6 +2347,11 @@ include __DIR__ . '/header.php';
         }
     }
 
+    .people-table-wrap {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
     .people-table {
         width: 100%;
         border-collapse: collapse;
@@ -2346,13 +2362,35 @@ include __DIR__ . '/header.php';
     .people-table th,
     .people-table td {
         border-bottom: 1px solid #d8d8d8;
-        padding: 0.8rem;
+        padding: 0.5rem 0.6rem;
         vertical-align: middle;
     }
 
     .people-table th {
         background: #f3f2f1;
         font-weight: 900;
+    }
+
+    @media (max-width: 700px) {
+        .people-table .col-team,
+        .people-table .col-dob {
+            display: none;
+        }
+
+        .people-table th,
+        .people-table td {
+            padding: 0.4rem 0.5rem;
+        }
+
+        .person-face {
+            width: 32px !important;
+            height: 32px !important;
+            min-width: 32px !important;
+            min-height: 32px !important;
+            max-width: 32px !important;
+            max-height: 32px !important;
+            font-size: 0.75rem;
+        }
     }
 
     .person-row-link {
@@ -2367,20 +2405,20 @@ include __DIR__ . '/header.php';
     }
 
     .person-face {
-        width: 44px !important;
-        height: 44px !important;
-        min-width: 44px !important;
-        min-height: 44px !important;
-        max-width: 44px !important;
-        max-height: 44px !important;
-        border: 3px solid #1d1d1d;
+        width: 36px !important;
+        height: 36px !important;
+        min-width: 36px !important;
+        min-height: 36px !important;
+        max-width: 36px !important;
+        max-height: 36px !important;
+        border: 2px solid #1d1d1d;
         object-fit: cover;
         background: #7413dc;
         color: #ffffff;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        font-size: 0.9rem;
+        font-size: 0.8rem;
         font-weight: 900;
         text-decoration: none;
         overflow: hidden;
@@ -2965,13 +3003,14 @@ include __DIR__ . '/header.php';
             <?php if (empty($people)): ?>
                 <div class="empty-box">No young people have been added yet.</div>
             <?php else: ?>
+                <div class="people-table-wrap">
                 <table class="people-table">
                     <thead>
                         <tr>
                             <th>Photo</th>
                             <th>Name</th>
-                            <th>Team</th>
-                            <th>Date of birth</th>
+                            <th class="col-team">Team</th>
+                            <th class="col-dob">Date of birth</th>
                             <th>Alerts</th>
                         </tr>
                     </thead>
@@ -2995,10 +3034,9 @@ include __DIR__ . '/header.php';
                                     </a>
                                 </td>
 
-                                <td><?= e($person['team_name'] ?: 'Not assigned') ?></td>
+                                <td class="col-team"><?= e($person['team_name'] ?: 'Not assigned') ?></td>
 
-                                <td><?= e(person_age($person['dob'] ?? null)) ?></td>
-
+                                <td class="col-dob"><?= e(person_age($person['dob'] ?? null)) ?></td>
 
                                 <td>
                                     <?php if (person_has_allergies($person)): ?>
@@ -3007,12 +3045,11 @@ include __DIR__ . '/header.php';
                                         <span class="muted">None recorded</span>
                                     <?php endif; ?>
                                 </td>
-
-                               
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
+                </div>
             <?php endif; ?>
         </section>
 
