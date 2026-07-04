@@ -641,7 +641,7 @@ include __DIR__ . '/header.php';
                         <span class="schedule-day-today-badge">Today</span>
                     <?php endif; ?>
 
-                    <?php if (!empty($onDutyLeaders)): ?>
+                    <?php if (!empty($onDutyLeaders) && $isLeader): ?>
                         <div class="schedule-duty-leaders">
                             <span class="schedule-duty-label">On duty:</span>
                             <?php foreach ($onDutyLeaders as $dl): ?>
