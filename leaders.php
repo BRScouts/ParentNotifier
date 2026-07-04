@@ -711,6 +711,115 @@ function eb_leaders_delete_schedule(PDO $pdo, array $scheduleConfig): void
 }
 
 /**
+ * Duty roster helpers
+ */
+
+function eb_leaders_ensure_duty_table(PDO $pdo): bool
+{
+    if (eb_leaders_table_exists($pdo, 'leader_duty_roster')) {
+        return true;
+    }
+
+    try {
+        $pdo->exec('
+            CREATE TABLE leader_duty_roster (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                leader_id INT UNSIGNED NOT NULL,
+                duty_date DATE NOT NULL,
+                status ENUM("on_duty","off_duty","day_off") NOT NULL DEFAULT "on_duty",
+                note TEXT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uk_leader_duty_date (leader_id, duty_date),
+                INDEX idx_duty_date (duty_date)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ');
+
+        return true;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+function eb_leaders_fetch_duty_roster(PDO $pdo, string $startDate, string $endDate): array
+{
+    $stmt = $pdo->prepare(
+        'SELECT * FROM leader_duty_roster
+         WHERE duty_date BETWEEN ? AND ?
+         ORDER BY duty_date ASC, leader_id ASC'
+    );
+    $stmt->execute([$startDate, $endDate]);
+
+    $roster = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $key = (int)$row['leader_id'] . '_' . $row['duty_date'];
+        $roster[$key] = $row;
+    }
+
+    return $roster;
+}
+
+function eb_leaders_save_duty(PDO $pdo): void
+{
+    $leaderId = (int)($_POST['leader_id'] ?? 0);
+    $dutyDate = trim($_POST['duty_date'] ?? '');
+    $status = trim($_POST['duty_status'] ?? 'on_duty');
+    $note = trim($_POST['duty_note'] ?? '');
+
+    if ($leaderId <= 0) {
+        throw new RuntimeException('Choose a leader.');
+    }
+
+    if ($dutyDate === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dutyDate)) {
+        throw new RuntimeException('A valid date is required.');
+    }
+
+    $allowedStatuses = ['on_duty', 'off_duty', 'day_off'];
+    if (!in_array($status, $allowedStatuses, true)) {
+        $status = 'on_duty';
+    }
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO leader_duty_roster (leader_id, duty_date, status, note)
+         VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE status = VALUES(status), note = VALUES(note)'
+    );
+
+    $stmt->execute([$leaderId, $dutyDate, $status, $note]);
+}
+
+function eb_leaders_save_duty_bulk(PDO $pdo): void
+{
+    $entries = $_POST['duty'] ?? [];
+
+    if (!is_array($entries)) {
+        return;
+    }
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO leader_duty_roster (leader_id, duty_date, status, note)
+         VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE status = VALUES(status), note = VALUES(note)'
+    );
+
+    foreach ($entries as $leaderId => $dates) {
+        $leaderId = (int)$leaderId;
+        if ($leaderId <= 0) continue;
+
+        foreach ($dates as $date => $status) {
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) continue;
+
+            $allowedStatuses = ['on_duty', 'off_duty', 'day_off'];
+            if (!in_array($status, $allowedStatuses, true)) {
+                $status = 'on_duty';
+            }
+
+            $stmt->execute([$leaderId, $date, $status, '']);
+        }
+    }
+}
+
+/**
  * Setup
  */
 
@@ -738,6 +847,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isAdmin) {
         if ($action === 'delete_schedule') {
             eb_leaders_delete_schedule($pdo, $scheduleConfig);
             redirect('leaders.php?tab=schedule');
+        }
+
+        if ($action === 'save_duty') {
+            eb_leaders_ensure_duty_table($pdo);
+            eb_leaders_save_duty($pdo);
+            redirect('leaders.php?tab=duty');
+        }
+
+        if ($action === 'save_duty_bulk') {
+            eb_leaders_ensure_duty_table($pdo);
+            eb_leaders_save_duty_bulk($pdo);
+            redirect('leaders.php?tab=duty&week_start=' . urlencode($_POST['week_start'] ?? ''));
         }
     } catch (Throwable $exception) {
         $error = $exception->getMessage();
@@ -1158,6 +1279,100 @@ include __DIR__ . '/header.php';
         background: #f3f2f1;
         font-weight: 900;
     }
+
+    /* Duty roster */
+    .duty-roster-wrap {
+        overflow-x: auto;
+        margin-bottom: 1rem;
+    }
+
+    .duty-roster-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #ffffff;
+        min-width: 900px;
+    }
+
+    .duty-roster-table th,
+    .duty-roster-table td {
+        border: 1px solid #d8d8d8;
+        padding: 0.4rem 0.35rem;
+        text-align: center;
+        vertical-align: middle;
+        font-size: 0.85rem;
+    }
+
+    .duty-roster-table th {
+        background: #f3f2f1;
+        font-weight: 900;
+    }
+
+    .duty-name-col {
+        text-align: left !important;
+        white-space: nowrap;
+        min-width: 120px;
+        padding-left: 0.75rem !important;
+    }
+
+    .duty-date-col {
+        min-width: 70px;
+    }
+
+    .duty-day-name {
+        display: block;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+    }
+
+    .duty-day-num {
+        display: block;
+        font-size: 0.8rem;
+    }
+
+    .duty-today {
+        background: #fff7bf !important;
+    }
+
+    .duty-cell-on {
+        background: #cce5d6 !important;
+    }
+
+    .duty-cell-off {
+        background: #fde0da !important;
+    }
+
+    .duty-cell-dayoff {
+        background: #e7f1fb !important;
+    }
+
+    .duty-select {
+        width: 100%;
+        border: 1px solid #b1b4b6;
+        background: transparent;
+        font-size: 0.8rem;
+        padding: 0.2rem;
+        cursor: pointer;
+    }
+
+    .duty-legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        margin-right: 1rem;
+        font-size: 0.9rem;
+        font-weight: 700;
+    }
+
+    .duty-swatch {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        border: 1px solid #1d1d1d;
+    }
+
+    .duty-swatch-on { background: #cce5d6; }
+    .duty-swatch-off { background: #fde0da; }
+    .duty-swatch-dayoff { background: #e7f1fb; }
 </style>
 
 <section class="page-hero compact-leaders-hero">
@@ -1200,6 +1415,9 @@ include __DIR__ . '/header.php';
             </a>
             <a class="admin-tab <?= $tab === 'schedule' ? 'active' : '' ?>" href="<?= e(url('leaders.php?tab=schedule')) ?>">
                 Manage schedule
+            </a>
+            <a class="admin-tab <?= $tab === 'duty' ? 'active' : '' ?>" href="<?= e(url('leaders.php?tab=duty')) ?>">
+                Duty roster
             </a>
         </nav>
     <?php endif; ?>
@@ -1500,6 +1718,155 @@ include __DIR__ . '/header.php';
             </section>
         <?php endif; ?>
 
+    <?php elseif ($tab === 'duty' && $isAdmin): ?>
+
+        <?php
+        eb_leaders_ensure_duty_table($pdo);
+
+        // Determine the week to display
+        $dutyWeekStart = trim($_GET['week_start'] ?? '');
+        if ($dutyWeekStart === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dutyWeekStart)) {
+            // Default to current Monday
+            $dutyWeekStart = date('Y-m-d', strtotime('monday this week'));
+        }
+
+        $dutyWeekEnd = date('Y-m-d', strtotime($dutyWeekStart . ' +13 days'));
+        $dutyPrevWeek = date('Y-m-d', strtotime($dutyWeekStart . ' -7 days'));
+        $dutyNextWeek = date('Y-m-d', strtotime($dutyWeekStart . ' +7 days'));
+
+        // Generate date range
+        $dutyDates = [];
+        $dCurrent = new DateTime($dutyWeekStart);
+        $dEnd = new DateTime($dutyWeekEnd);
+        while ($dCurrent <= $dEnd) {
+            $dutyDates[] = $dCurrent->format('Y-m-d');
+            $dCurrent->modify('+1 day');
+        }
+
+        // Fetch roster for this range
+        $dutyRoster = eb_leaders_fetch_duty_roster($pdo, $dutyWeekStart, $dutyWeekEnd);
+
+        // Only show in-country leaders (those with schedules or flagged)
+        $dutyLeaders = array_filter($decoratedLeaders, function ($leader) {
+            return empty($leader['hide_from_schedule']);
+        });
+        ?>
+
+        <section class="admin-panel mb-4">
+            <h2>Duty roster</h2>
+            <p class="muted">
+                Track which leaders are on duty, off duty, or having a day off. Leaders may be in country but not on duty.
+            </p>
+
+            <div class="d-flex align-items-center mb-3" style="gap:0.75rem;">
+                <a href="<?= e(url('leaders.php?tab=duty&week_start=' . $dutyPrevWeek)) ?>" class="btn btn-outline-primary btn-sm">&larr; Previous</a>
+                <strong><?= e(date('d M', strtotime($dutyWeekStart))) ?> &ndash; <?= e(date('d M Y', strtotime($dutyWeekEnd))) ?></strong>
+                <a href="<?= e(url('leaders.php?tab=duty&week_start=' . $dutyNextWeek)) ?>" class="btn btn-outline-primary btn-sm">Next &rarr;</a>
+            </div>
+
+            <form method="post">
+                <input type="hidden" name="action" value="save_duty_bulk">
+                <input type="hidden" name="week_start" value="<?= e($dutyWeekStart) ?>">
+
+                <div class="duty-roster-wrap">
+                    <table class="duty-roster-table">
+                        <thead>
+                            <tr>
+                                <th class="duty-name-col">Leader</th>
+                                <?php foreach ($dutyDates as $dd): ?>
+                                    <th class="duty-date-col <?= $dd === date('Y-m-d') ? 'duty-today' : '' ?>">
+                                        <span class="duty-day-name"><?= e(date('D', strtotime($dd))) ?></span>
+                                        <span class="duty-day-num"><?= e(date('j/n', strtotime($dd))) ?></span>
+                                    </th>
+                                <?php endforeach; ?>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($dutyLeaders as $leader): ?>
+                                <?php $lid = (int)$leader['id']; ?>
+                                <tr>
+                                    <td class="duty-name-col">
+                                        <strong><?= e(eb_leaders_val($leader, ['name', 'full_name'], 'Leader')) ?></strong>
+                                    </td>
+                                    <?php foreach ($dutyDates as $dd): ?>
+                                        <?php
+                                        $key = $lid . '_' . $dd;
+                                        $currentStatus = $dutyRoster[$key]['status'] ?? '';
+                                        $cellClass = '';
+                                        if ($currentStatus === 'on_duty') $cellClass = 'duty-cell-on';
+                                        elseif ($currentStatus === 'off_duty') $cellClass = 'duty-cell-off';
+                                        elseif ($currentStatus === 'day_off') $cellClass = 'duty-cell-dayoff';
+                                        ?>
+                                        <td class="duty-cell <?= $cellClass ?> <?= $dd === date('Y-m-d') ? 'duty-today' : '' ?>">
+                                            <select name="duty[<?= $lid ?>][<?= e($dd) ?>]" class="duty-select">
+                                                <option value="" <?= $currentStatus === '' ? 'selected' : '' ?>>—</option>
+                                                <option value="on_duty" <?= $currentStatus === 'on_duty' ? 'selected' : '' ?>>On duty</option>
+                                                <option value="off_duty" <?= $currentStatus === 'off_duty' ? 'selected' : '' ?>>Off duty</option>
+                                                <option value="day_off" <?= $currentStatus === 'day_off' ? 'selected' : '' ?>>Day off</option>
+                                            </select>
+                                        </td>
+                                    <?php endforeach; ?>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="mt-3">
+                    <button class="btn btn-primary">Save roster</button>
+                </div>
+            </form>
+
+            <div class="mt-3">
+                <span class="duty-legend-item"><span class="duty-swatch duty-swatch-on"></span> On duty</span>
+                <span class="duty-legend-item"><span class="duty-swatch duty-swatch-off"></span> Off duty (in country)</span>
+                <span class="duty-legend-item"><span class="duty-swatch duty-swatch-dayoff"></span> Day off</span>
+            </div>
+        </section>
+
+        <section class="admin-panel">
+            <h2>Quick add single entry</h2>
+
+            <form method="post">
+                <input type="hidden" name="action" value="save_duty">
+
+                <div class="admin-leader-form-grid">
+                    <div class="form-group">
+                        <label>Leader</label>
+                        <select class="form-control" name="leader_id" required>
+                            <option value="">Choose leader</option>
+                            <?php foreach ($dutyLeaders as $leader): ?>
+                                <option value="<?= (int)$leader['id'] ?>">
+                                    <?= e(eb_leaders_val($leader, ['name', 'full_name'], 'Leader')) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Date</label>
+                        <input class="form-control" type="date" name="duty_date" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select class="form-control" name="duty_status">
+                            <option value="on_duty">On duty</option>
+                            <option value="off_duty">Off duty (in country)</option>
+                            <option value="day_off">Day off</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Note (optional)</label>
+                        <input class="form-control" name="duty_note">
+                    </div>
+                </div>
+
+                <button class="btn btn-primary">Save entry</button>
+            </form>
+        </section>
+
     <?php else: ?>
 
         <?php if (!empty($homeContacts)): ?>
@@ -1618,6 +1985,24 @@ include __DIR__ . '/header.php';
                     bio.classList.add('leader-bio-clamped');
                     button.textContent = 'Read more';
                 }
+            });
+        });
+    })();
+
+    // Duty roster live cell colouring
+    (function () {
+        var selects = document.querySelectorAll('.duty-select');
+
+        selects.forEach(function (select) {
+            select.addEventListener('change', function () {
+                var cell = select.closest('.duty-cell');
+                if (!cell) return;
+
+                cell.classList.remove('duty-cell-on', 'duty-cell-off', 'duty-cell-dayoff');
+
+                if (select.value === 'on_duty') cell.classList.add('duty-cell-on');
+                else if (select.value === 'off_duty') cell.classList.add('duty-cell-off');
+                else if (select.value === 'day_off') cell.classList.add('duty-cell-dayoff');
             });
         });
     })();

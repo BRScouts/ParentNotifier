@@ -744,6 +744,12 @@ $leaderBio = $leaderBioColumn ? (string)($currentLeader[$leaderBioColumn] ?? '')
                                 Leaders
                             </a>
                         </li>
+
+                        <li class="nav-item<?= header_nav_active('schedule.php') ?>">
+                            <a class="nav-link" href="<?= e($parentTeam ? url('schedule.php?token=' . $parentTeam['parent_token']) : url('schedule.php')) ?>">
+                                Schedule
+                            </a>
+                        </li>
                     <?php endif; ?>
 
                     <?php if ($user): ?>
