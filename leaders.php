@@ -584,6 +584,7 @@ function eb_leaders_save_leader(PDO $pdo, array $leaderColumns): void
         'is_active' => isset($_POST['is_active']) ? 1 : 0,
         'is_home_contact' => isset($_POST['is_home_contact']) ? 1 : 0,
         'is_in_country' => isset($_POST['is_in_country']) ? 1 : 0,
+        'hide_from_schedule' => isset($_POST['hide_from_schedule']) ? 1 : 0,
     ];
 
     if ($input['name'] === '') {
@@ -776,6 +777,11 @@ $remoteLeaders = [];
 
 foreach ($decoratedLeaders as $leader) {
     $parentStatus = $leader['_parent_status'];
+
+    // Leaders marked as hidden from schedule are not shown on the parent view
+    if (!empty($leader['hide_from_schedule'])) {
+        continue;
+    }
 
     if ($parentStatus['status'] === 'current_home_contact') {
         $homeContacts[] = $leader;
@@ -1258,6 +1264,14 @@ include __DIR__ . '/header.php';
                     <label class="form-check-label" for="add_is_active">Active</label>
                 </div>
 
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" name="hide_from_schedule" id="add_hide_from_schedule">
+                    <label class="form-check-label" for="add_hide_from_schedule">Hide from parent schedule</label>
+                    <small class="form-text text-muted d-block">
+                        Leader can still log in but will not appear on the parent-facing schedule.
+                    </small>
+                </div>
+
                 <button class="btn btn-primary">Add leader</button>
             </form>
         </section>
@@ -1351,6 +1365,20 @@ include __DIR__ . '/header.php';
                                 <?= !isset($leader['is_active']) || (int)$leader['is_active'] === 1 ? 'checked' : '' ?>
                             >
                             <label class="form-check-label" for="is_active_<?= $leaderId ?>">Active</label>
+                        </div>
+
+                        <div class="form-check mb-3">
+                            <input
+                                class="form-check-input"
+                                type="checkbox"
+                                name="hide_from_schedule"
+                                id="hide_from_schedule_<?= $leaderId ?>"
+                                <?= !empty($leader['hide_from_schedule']) ? 'checked' : '' ?>
+                            >
+                            <label class="form-check-label" for="hide_from_schedule_<?= $leaderId ?>">Hide from parent schedule</label>
+                            <small class="form-text text-muted d-block">
+                                Leader can still log in but will not appear on the parent-facing schedule.
+                            </small>
                         </div>
 
                         <button class="btn btn-primary">Save leader</button>
