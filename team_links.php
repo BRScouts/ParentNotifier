@@ -696,6 +696,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         redirect('team_links.php?view=team&team_id=' . $teamId . '&tab=pending');
     }
+
+    if ($action === 'add_team_log') {
+        $teamId = (int)($_POST['team_id'] ?? 0);
+        $title = trim($_POST['title'] ?? '');
+        $body = trim($_POST['body'] ?? '');
+
+        if ($teamId <= 0) {
+            $error = 'Team is required.';
+        } elseif ($title === '') {
+            $error = 'Log title is required.';
+        } else {
+            $stmt = $pdo->prepare(
+                'INSERT INTO team_logs (team_id, leader_id, title, body) VALUES (?, ?, ?, ?)'
+            );
+            $stmt->execute([$teamId, $user['id'] ?? null, $title, $body]);
+
+            redirect('team_links.php?view=team&team_id=' . $teamId . '&tab=notes');
+        }
+    }
     } // end else (not readonly)
 }
 
@@ -888,6 +907,7 @@ $currentTeam = null;
 $currentTeamSummary = null;
 $currentTeamPosts = [];
 $currentTeamLogs = [];
+$teamLogEntries = [];
 
 if ($view === 'team' && $currentTeamId > 0) {
     $currentTeam = fetch_team($pdo, $currentTeamId);
@@ -931,6 +951,21 @@ if ($view === 'team' && $currentTeamId > 0) {
         $currentTeamLogs = $stmt->fetchAll();
     } catch (Throwable $exception) {
         $currentTeamLogs = [];
+    }
+
+    $teamLogEntries = [];
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT tl.*, l.name AS leader_name
+             FROM team_logs tl
+             LEFT JOIN leaders l ON l.id = tl.leader_id
+             WHERE tl.team_id = ?
+             ORDER BY tl.created_at DESC'
+        );
+        $stmt->execute([$currentTeamId]);
+        $teamLogEntries = $stmt->fetchAll();
+    } catch (Throwable $e) {
+        $teamLogEntries = [];
     }
 }
 
@@ -2174,6 +2209,44 @@ include __DIR__ . '/header.php';
                     </section>
 
                 <?php elseif ($currentTab === 'notes'): ?>
+
+                    <!-- Team Logs Section -->
+                    <section class="teams-panel" style="margin-bottom: 2rem;">
+                        <h2>Add Team Log</h2>
+                        <form method="post">
+                            <input type="hidden" name="action" value="add_team_log">
+                            <input type="hidden" name="team_id" value="<?= (int)$currentTeam['id'] ?>">
+                            <div class="form-group">
+                                <label>Title <span style="color: #d4351c;">*</span></label>
+                                <input class="form-control" name="title" required placeholder="Log entry title">
+                            </div>
+                            <div class="form-group">
+                                <label>Body</label>
+                                <textarea class="form-control" name="body" rows="3" placeholder="Optional details"></textarea>
+                            </div>
+                            <button class="btn btn-primary">Add Team Log</button>
+                        </form>
+                    </section>
+
+                    <?php if (!empty($teamLogEntries)): ?>
+                    <section class="teams-panel" style="margin-bottom: 2rem;">
+                        <h2>Team Log Entries</h2>
+                        <?php foreach ($teamLogEntries as $tlog): ?>
+                            <article class="note-log-card" style="border-left: 5px solid #1d70b8;">
+                                <h3><?= e($tlog['title']) ?></h3>
+                                <p class="muted mb-1">
+                                    <?php if (!empty($tlog['leader_name'])): ?>
+                                        <?= e($tlog['leader_name']) ?> |
+                                    <?php endif; ?>
+                                    <?= e(format_datetime($tlog['created_at'])) ?>
+                                </p>
+                                <?php if (!empty($tlog['body'])): ?>
+                                    <p><?= nl2br(e($tlog['body'])) ?></p>
+                                <?php endif; ?>
+                            </article>
+                        <?php endforeach; ?>
+                    </section>
+                    <?php endif; ?>
 
                     <section class="teams-panel">
                         <h2>Team notes log</h2>

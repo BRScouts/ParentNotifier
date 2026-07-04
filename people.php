@@ -2030,7 +2030,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $logType = $_POST['log_type'] ?? 'general';
         $title = trim($_POST['title'] ?? '');
         $body = trim($_POST['body'] ?? '');
-        $occurredAt = trim($_POST['occurred_at'] ?? '');
 
         $allowedTypes = [
             'first_aid',
@@ -2049,9 +2048,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($title === '' || $body === '') {
             $error = 'Log title and notes are required.';
         } else {
-            $occurredAtForDb = $occurredAt !== ''
-                ? str_replace('T', ' ', $occurredAt)
-                : people_now_for_database();
+            $now = people_now_for_database();
 
             $stmt = $pdo->prepare(
                 'INSERT INTO person_logs
@@ -2066,8 +2063,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $logType,
                 $title,
                 $body,
-                $occurredAtForDb,
-                people_now_for_database(),
+                $now,
+                $now,
             ]);
 
             redirect('people.php?person_id=' . $personId . '#logs');
@@ -2898,27 +2895,15 @@ include __DIR__ . '/header.php';
                 <input type="hidden" name="action" value="add_log">
                 <input type="hidden" name="person_id" value="<?= (int)$currentPerson['id'] ?>">
 
-                <div class="simple-grid">
-                    <div class="form-group">
-                        <label>Log type</label>
-                        <select class="form-control" name="log_type">
-                            <option value="first_aid">First aid</option>
-                            <option value="medication">Medication</option>
-                            <option value="behaviour">Behaviour</option>
-                            <option value="welfare">Welfare</option>
-                            <option value="general">General note</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Date/time</label>
-                        <input
-                            class="form-control"
-                            type="datetime-local"
-                            name="occurred_at"
-                            value="<?= e(datetime_local_value(people_now_for_database())) ?>"
-                        >
-                    </div>
+                <div class="form-group">
+                    <label>Log type</label>
+                    <select class="form-control" name="log_type">
+                        <option value="first_aid">First aid</option>
+                        <option value="medication">Medication</option>
+                        <option value="behaviour">Behaviour</option>
+                        <option value="welfare">Welfare</option>
+                        <option value="general">General note</option>
+                    </select>
                 </div>
 
                 <div class="form-group">

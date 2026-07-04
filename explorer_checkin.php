@@ -6,11 +6,10 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 }
 
 $pdo = db();
-ensure_announcements_tables($pdo);
 
 $error = '';
 $success = '';
-$token = trim($_GET['token'] ?? '');
+$token = trim($_GET['token'] ?? $_SESSION['explorer_portal_token'] ?? '');
 
 if (empty($_SESSION['explorer_checkin_csrf'])) {
     $_SESSION['explorer_checkin_csrf'] = bin2hex(random_bytes(32));
@@ -37,24 +36,7 @@ function explorer_contact_phone(): string
     return 'the emergency phone number provided by the leadership team';
 }
 
-function explorer_fetch_team(PDO $pdo, string $token): ?array
-{
-    if ($token === '') {
-        return null;
-    }
-
-    $stmt = $pdo->prepare(
-        'SELECT *
-         FROM teams
-         WHERE explorer_token = ?
-         LIMIT 1'
-    );
-
-    $stmt->execute([$token]);
-    $team = $stmt->fetch();
-
-    return $team ?: null;
-}
+// explorer_fetch_team() is now defined in config.php for shared use across all explorer pages.
 
 function explorer_fetch_team_members(PDO $pdo, int $teamId): array
 {
@@ -144,26 +126,7 @@ function explorer_decode_json_list(?string $json): array
     return is_array($decoded) ? $decoded : [];
 }
 
-function explorer_queue_email(PDO $pdo, string $toEmail, string $subject, string $content, ?int $teamId = null): void
-{
-    if (!filter_var($toEmail, FILTER_VALIDATE_EMAIL)) {
-        return;
-    }
-
-    $stmt = $pdo->prepare(
-        'INSERT INTO email_queue
-            (to_email, subject, content, related_team_id)
-         VALUES
-            (?, ?, ?, ?)'
-    );
-
-    $stmt->execute([
-        $toEmail,
-        $subject,
-        $content,
-        $teamId,
-    ]);
-}
+// explorer_queue_email() is now defined in config.php for shared use across all explorer pages.
 
 function explorer_fetch_leader_emails(PDO $pdo): array
 {
@@ -372,10 +335,13 @@ function explorer_build_leader_email_content(array $team, array $checkin, array 
 $team = explorer_fetch_team($pdo, $token);
 
 if (!$team) {
-    http_response_code(404);
+    include __DIR__ . '/explorer_error.php';
 }
 
-$teamMembers = $team ? explorer_fetch_team_members($pdo, (int)$team['id']) : [];
+// Store token in session for cross-page navigation
+$_SESSION['explorer_portal_token'] = $token;
+
+$teamMembers = explorer_fetch_team_members($pdo, (int)$team['id']);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $team) {
     try {
@@ -540,177 +506,131 @@ if ($submittedBy === '') {
     }
 }
 
-$submittedSuccess = $_GET['submitted'] === '1' && !empty($_SESSION['explorer_checkin_success']);
+$submittedSuccess = ($_GET['submitted'] ?? '') === '1' && !empty($_SESSION['explorer_checkin_success']);
 $successData = $_SESSION['explorer_checkin_success'] ?? null;
 
 if ($submittedSuccess) {
     unset($_SESSION['explorer_checkin_success']);
 }
+
+include __DIR__ . '/explorer_header.php';
 ?>
-<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <title><?= e(APP_NAME) ?> - Team check-in</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="<?= e(url('assets/css/app.css')) ?>">
+<style>
+    body {
+        background: #f3f2f1;
+        color: #1d1d1d;
+    }
 
-    <style>
-        body {
-            background: #f3f2f1;
-            color: #1d1d1d;
-        }
+    .checkin-panel {
+        border: 2px solid #d8d8d8;
+        background: #ffffff;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
 
-        .checkin-hero {
-            background: #7413dc;
-            color: #ffffff;
-            padding: 1.5rem 0;
-            margin-bottom: 1.5rem;
-        }
+    .checkin-panel h2,
+    .checkin-panel h3 {
+        font-weight: 900;
+        margin-top: 0;
+    }
 
-        .checkin-hero h1,
-        .checkin-hero p {
-            color: #ffffff;
-        }
+    .checkin-panel label {
+        font-weight: 800;
+    }
 
-        .checkin-panel {
-            border: 2px solid #d8d8d8;
-            background: #ffffff;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
-        }
+    .map-box {
+        height: 420px;
+        border: 2px solid #1d1d1d;
+        background: #f3f2f1;
+        margin-bottom: 0.75rem;
+    }
 
-        .checkin-panel h2,
-        .checkin-panel h3 {
-            font-weight: 900;
-            margin-top: 0;
-        }
+    .warning-box {
+        border-left: 8px solid #ffdd00;
+        background: #fff7bf;
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
 
-        .checkin-panel label {
-            font-weight: 800;
-        }
+    .danger-box {
+        border-left: 8px solid #d4351c;
+        background: #fdecea;
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
 
-        .map-box {
-            height: 420px;
-            border: 2px solid #1d1d1d;
-            background: #f3f2f1;
-            margin-bottom: 0.75rem;
-        }
+    .info-box {
+        border-left: 8px solid #1d70b8;
+        background: #eef7ff;
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
 
-        .warning-box {
-            border-left: 8px solid #ffdd00;
-            background: #fff7bf;
-            padding: 1rem;
-            margin-bottom: 1rem;
-        }
+    .success-box {
+        border-left: 8px solid #00703c;
+        background: #e9f8ef;
+        padding: 1.25rem;
+        margin-bottom: 1rem;
+    }
 
-        .danger-box {
-            border-left: 8px solid #d4351c;
-            background: #fdecea;
-            padding: 1rem;
-            margin-bottom: 1rem;
-        }
+    .member-report {
+        border: 2px solid #d8d8d8;
+        background: #f8f8f8;
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
 
-        .info-box {
-            border-left: 8px solid #1d70b8;
-            background: #eef7ff;
-            padding: 1rem;
-            margin-bottom: 1rem;
-        }
+    .member-heading {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 0.75rem;
+    }
 
-        .success-box {
-            border-left: 8px solid #00703c;
-            background: #e9f8ef;
-            padding: 1.25rem;
-            margin-bottom: 1rem;
-        }
+    .member-photo,
+    .member-placeholder {
+        width: 52px;
+        height: 52px;
+        max-width: 52px;
+        max-height: 52px;
+        border-radius: 50%;
+        border: 2px solid #1d1d1d;
+        object-fit: cover;
+        background: #f3f2f1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 900;
+    }
 
-        .member-report {
-            border: 2px solid #d8d8d8;
-            background: #f8f8f8;
-            padding: 1rem;
-            margin-bottom: 1rem;
-        }
+    .member-placeholder {
+        background: #7413dc;
+        color: #ffffff;
+    }
 
-        .member-heading {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            margin-bottom: 0.75rem;
-        }
+    .member-fields {
+        display: none;
+        margin-top: 0.75rem;
+    }
 
-        .member-photo,
-        .member-placeholder {
-            width: 52px;
-            height: 52px;
-            max-width: 52px;
-            max-height: 52px;
-            border-radius: 50%;
-            border: 2px solid #1d1d1d;
-            object-fit: cover;
-            background: #f3f2f1;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 900;
-        }
+    .member-report.active .member-fields {
+        display: block;
+    }
 
-        .member-placeholder {
-            background: #7413dc;
-            color: #ffffff;ƒ
-        }
+    .muted {
+        color: #505a5f;
+    }
 
-        .member-fields {
-            display: none;
-            margin-top: 0.75rem;
-        }
+    .small-map-note {
+        color: #505a5f;
+        font-size: 0.95rem;
+    }
+</style>
 
-        .member-report.active .member-fields {
-            display: block;
-        }
+<div class="container mb-5">
 
-        .muted {
-            color: #505a5f;
-        }
-
-        .small-map-note {
-            color: #505a5f;
-            font-size: 0.95rem;
-        }
-    </style>
-</head>
-
-<body>
-
-<header class="checkin-hero">
-    <div class="container">
-        <h1>Team check-in</h1>
-
-        <?php if ($team): ?>
-            <p class="lead mb-0">
-                <?= e($team['name']) ?>
-            </p>
-        <?php else: ?>
-            <p class="lead mb-0">
-                Explorer Belt Live
-            </p>
-        <?php endif; ?>
-    </div>
-</header>
-
-<main class="container mb-5">
-
-    <?php if (!$team): ?>
-        <section class="checkin-panel">
-            <h2>Link not recognised</h2>
-            <p>
-                This check-in link is not valid. Please check the link or contact the leadership team.
-            </p>
-        </section>
-    <?php elseif ($submittedSuccess): ?>
+    <?php if ($submittedSuccess): ?>
         <section class="success-box">
             <h2>Check-in submitted</h2>
 
@@ -973,12 +893,8 @@ if ($submittedSuccess) {
 
     <?php endif; ?>
 
-</main>
-
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
 <script>
-    (function () {
+    window.addEventListener('load', function () {
         var mapElement = document.getElementById('checkinMap');
 
         if (mapElement && typeof L !== 'undefined') {
@@ -1124,8 +1040,7 @@ if ($submittedSuccess) {
                 }
             });
         }
-    })();
+    });
 </script>
 
-</body>
-</html>
+<?php include __DIR__ . '/explorer_footer.php'; ?>
