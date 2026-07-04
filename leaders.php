@@ -1571,7 +1571,15 @@ include __DIR__ . '/header.php';
 
                     <div class="form-group">
                         <label>Internal role</label>
-                        <input class="form-control" name="role"<?php if (!is_trip_admin()): ?> disabled<?php endif; ?>>
+                        <?php if (is_trip_admin()): ?>
+                            <select class="form-control" name="role">
+                                <option value="">Leader</option>
+                                <option value="trip_admin">Trip admin</option>
+                                <option value="readonly">Read-only</option>
+                            </select>
+                        <?php else: ?>
+                            <input class="form-control" name="role" disabled value="">
+                        <?php endif; ?>
                         <small class="form-text text-muted">
                             Internal only. This is not shown to parents.<?php if (!is_trip_admin()): ?> Only trip admins can change roles.<?php endif; ?>
                         </small>
@@ -1650,10 +1658,20 @@ include __DIR__ . '/header.php';
 
                             <div class="form-group">
                                 <label>Internal role</label>
-                                <input class="form-control" name="role" value="<?= e(eb_leaders_val($leader, ['role', 'title', 'position'], '')) ?>"<?php if (!is_trip_admin()): ?> disabled<?php endif; ?>>
+                                <?php
+                                    $currentRole = (string)eb_leaders_val($leader, ['role'], '');
+                                ?>
+                                <?php if (is_trip_admin()): ?>
+                                    <select class="form-control" name="role">
+                                        <option value=""<?= $currentRole === '' ? ' selected' : '' ?>>Leader</option>
+                                        <option value="trip_admin"<?= $currentRole === 'trip_admin' ? ' selected' : '' ?>>Trip admin</option>
+                                        <option value="readonly"<?= $currentRole === 'readonly' ? ' selected' : '' ?>>Read-only</option>
+                                    </select>
+                                <?php else: ?>
+                                    <input class="form-control" name="role" value="<?= e($currentRole) ?>" disabled>
+                                <?php endif; ?>
                                 <small class="form-text text-muted">
                                     Internal only. This is not shown to parents.<?php if (!is_trip_admin()): ?> Only trip admins can change roles.<?php endif; ?>
-                                </small>
                                 </small>
                             </div>
 
