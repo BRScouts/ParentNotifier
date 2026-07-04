@@ -715,6 +715,62 @@ function eb_leaders_delete_schedule(PDO $pdo, array $scheduleConfig): void
     $stmt->execute([$scheduleId]);
 }
 
+function eb_leaders_edit_schedule(PDO $pdo, array $scheduleConfig): void
+{
+    if (!$scheduleConfig['table'] || !$scheduleConfig['id_col'] || !$scheduleConfig['start_col']) {
+        throw new RuntimeException('Schedule editing is not configured.');
+    }
+
+    $scheduleId = (int)($_POST['schedule_id'] ?? 0);
+    $scheduleType = $_POST['schedule_type'] ?? 'in_country';
+    $start = trim($_POST['schedule_start'] ?? '');
+    $end = trim($_POST['schedule_end'] ?? '');
+    $note = trim($_POST['note'] ?? '');
+
+    if ($scheduleId <= 0) {
+        throw new RuntimeException('Invalid schedule entry.');
+    }
+
+    if ($start === '') {
+        throw new RuntimeException('Schedule start is required.');
+    }
+
+    $sets = [];
+    $values = [];
+
+    $sets[] = '`' . $scheduleConfig['start_col'] . '` = ?';
+    $values[] = str_replace('T', ' ', $start);
+
+    if ($scheduleConfig['end_col']) {
+        $sets[] = '`' . $scheduleConfig['end_col'] . '` = ?';
+        $values[] = $end !== '' ? str_replace('T', ' ', $end) : null;
+    }
+
+    if ($scheduleConfig['type_col']) {
+        $sets[] = '`' . $scheduleConfig['type_col'] . '` = ?';
+        $values[] = $scheduleType;
+    }
+
+    if ($scheduleConfig['note_col']) {
+        $sets[] = '`' . $scheduleConfig['note_col'] . '` = ?';
+        $values[] = $note;
+    }
+
+    if (empty($sets)) {
+        return;
+    }
+
+    $values[] = $scheduleId;
+
+    $stmt = $pdo->prepare(
+        'UPDATE `' . $scheduleConfig['table'] . '`
+         SET ' . implode(', ', $sets) . '
+         WHERE `' . $scheduleConfig['id_col'] . '` = ?'
+    );
+
+    $stmt->execute($values);
+}
+
 /**
  * Duty roster helpers
  */
@@ -854,6 +910,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isAdmin) {
 
         if ($action === 'delete_schedule') {
             eb_leaders_delete_schedule($pdo, $scheduleConfig);
+            redirect('leaders.php?tab=schedule');
+        }
+
+        if ($action === 'edit_schedule') {
+            eb_leaders_edit_schedule($pdo, $scheduleConfig);
             redirect('leaders.php?tab=schedule');
         }
 
@@ -1543,14 +1604,14 @@ include __DIR__ . '/header.php';
             <a class="admin-tab <?= $tab === 'view' ? 'active' : '' ?>" href="<?= e(url('leaders.php?tab=view')) ?>">
                 Parent view
             </a>
+            <a class="admin-tab <?= $tab === 'duty' ? 'active' : '' ?>" href="<?= e(url('leaders.php?tab=duty')) ?>">
+                Duty roster
+            </a>
             <a class="admin-tab <?= $tab === 'manage' ? 'active' : '' ?>" href="<?= e(url('leaders.php?tab=manage')) ?>">
                 Manage leaders
             </a>
             <a class="admin-tab <?= $tab === 'schedule' ? 'active' : '' ?>" href="<?= e(url('leaders.php?tab=schedule')) ?>">
                 Manage schedule
-            </a>
-            <a class="admin-tab <?= $tab === 'duty' ? 'active' : '' ?>" href="<?= e(url('leaders.php?tab=duty')) ?>">
-                Duty roster
             </a>
         </nav>
     <?php endif; ?>
@@ -1836,7 +1897,7 @@ include __DIR__ . '/header.php';
                                 <th>Start</th>
                                 <th>End</th>
                                 <th>Note</th>
-                                <th>Action</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1845,23 +1906,74 @@ include __DIR__ . '/header.php';
                                     <?php
                                     $scheduleId = $scheduleConfig['id_col'] ? (int)$schedule[$scheduleConfig['id_col']] : 0;
                                     $type = eb_leaders_schedule_status($schedule);
+                                    $schedStartRaw = (string)eb_leaders_val($schedule, ['schedule_start', 'starts_at', 'start_at', 'start_datetime', 'start_date', 'from_date', 'date_from'], '');
+                                    $schedEndRaw = (string)eb_leaders_val($schedule, ['schedule_end', 'ends_at', 'end_at', 'end_datetime', 'end_date', 'to_date', 'date_to'], '');
+                                    $schedNote = (string)eb_leaders_val($schedule, ['note', 'notes', 'description'], '');
+                                    $schedStartLocal = $schedStartRaw ? date('Y-m-d\TH:i', strtotime($schedStartRaw)) : '';
+                                    $schedEndLocal = $schedEndRaw ? date('Y-m-d\TH:i', strtotime($schedEndRaw)) : '';
+                                    $editingThis = isset($_GET['edit_schedule']) && (int)$_GET['edit_schedule'] === $scheduleId;
                                     ?>
-                                    <tr>
-                                        <td><?= e(eb_leaders_val($leader, ['name', 'full_name'], 'Leader')) ?></td>
-                                        <td><?= e($type === 'home_contact' ? 'Home Contact' : 'Supporting in Finland') ?></td>
-                                        <td><?= e(eb_leaders_format_datetime((string)eb_leaders_val($schedule, ['schedule_start', 'starts_at', 'start_at', 'start_datetime', 'start_date', 'from_date', 'date_from'], ''))) ?></td>
-                                        <td><?= e(eb_leaders_format_datetime((string)eb_leaders_val($schedule, ['schedule_end', 'ends_at', 'end_at', 'end_datetime', 'end_date', 'to_date', 'date_to'], ''))) ?></td>
-                                        <td><?= nl2br(e((string)eb_leaders_val($schedule, ['note', 'notes', 'description'], ''))) ?></td>
-                                        <td>
-                                            <?php if ($scheduleId > 0): ?>
-                                                <form method="post" onsubmit="return confirm('Delete this schedule entry?');">
-                                                    <input type="hidden" name="action" value="delete_schedule">
+                                    <?php if ($editingThis && $scheduleId > 0 && !is_readonly()): ?>
+                                        <tr style="background:#eef7ff;">
+                                            <td><?= e(eb_leaders_val($leader, ['name', 'full_name'], 'Leader')) ?></td>
+                                            <td colspan="5">
+                                                <form method="post" class="d-flex flex-wrap align-items-end" style="gap:0.5rem;">
+                                                    <input type="hidden" name="action" value="edit_schedule">
                                                     <input type="hidden" name="schedule_id" value="<?= $scheduleId ?>">
-                                                    <button class="btn btn-outline-danger btn-sm"<?php if (is_readonly()): ?> disabled<?php endif; ?>>Delete</button>
+
+                                                    <div class="form-group mb-0" style="min-width:140px;">
+                                                        <label class="small mb-0">Type</label>
+                                                        <select class="form-control form-control-sm" name="schedule_type">
+                                                            <option value="in_country"<?= $type !== 'home_contact' ? ' selected' : '' ?>>In Finland</option>
+                                                            <option value="home_contact"<?= $type === 'home_contact' ? ' selected' : '' ?>>Home Contact</option>
+                                                        </select>
+                                                    </div>
+
+                                                    <div class="form-group mb-0" style="min-width:160px;">
+                                                        <label class="small mb-0">Start</label>
+                                                        <input class="form-control form-control-sm" type="datetime-local" name="schedule_start" value="<?= e($schedStartLocal) ?>" required>
+                                                    </div>
+
+                                                    <div class="form-group mb-0" style="min-width:160px;">
+                                                        <label class="small mb-0">End</label>
+                                                        <input class="form-control form-control-sm" type="datetime-local" name="schedule_end" value="<?= e($schedEndLocal) ?>">
+                                                    </div>
+
+                                                    <div class="form-group mb-0" style="min-width:120px;">
+                                                        <label class="small mb-0">Note</label>
+                                                        <input class="form-control form-control-sm" name="note" value="<?= e($schedNote) ?>">
+                                                    </div>
+
+                                                    <div class="form-group mb-0">
+                                                        <button class="btn btn-primary btn-sm">Save</button>
+                                                        <a href="<?= e(url('leaders.php?tab=schedule')) ?>" class="btn btn-outline-secondary btn-sm">Cancel</a>
+                                                    </div>
                                                 </form>
-                                            <?php endif; ?>
-                                        </td>
-                                    </tr>
+                                            </td>
+                                        </tr>
+                                    <?php else: ?>
+                                        <tr>
+                                            <td><?= e(eb_leaders_val($leader, ['name', 'full_name'], 'Leader')) ?></td>
+                                            <td><?= e($type === 'home_contact' ? 'Home Contact' : 'Supporting in Finland') ?></td>
+                                            <td><?= e(eb_leaders_format_datetime($schedStartRaw)) ?></td>
+                                            <td><?= e(eb_leaders_format_datetime($schedEndRaw)) ?></td>
+                                            <td><?= nl2br(e($schedNote)) ?></td>
+                                            <td>
+                                                <?php if ($scheduleId > 0): ?>
+                                                    <div class="d-flex" style="gap:0.25rem;">
+                                                        <?php if (!is_readonly()): ?>
+                                                            <a href="<?= e(url('leaders.php?tab=schedule&edit_schedule=' . $scheduleId)) ?>" class="btn btn-outline-primary btn-sm">Edit</a>
+                                                        <?php endif; ?>
+                                                        <form method="post" onsubmit="return confirm('Delete this schedule entry?');">
+                                                            <input type="hidden" name="action" value="delete_schedule">
+                                                            <input type="hidden" name="schedule_id" value="<?= $scheduleId ?>">
+                                                            <button class="btn btn-outline-danger btn-sm"<?php if (is_readonly()): ?> disabled<?php endif; ?>>Delete</button>
+                                                        </form>
+                                                    </div>
+                                                <?php endif; ?>
+                                            </td>
+                                        </tr>
+                                    <?php endif; ?>
                                 <?php endforeach; ?>
                             <?php endforeach; ?>
                         </tbody>

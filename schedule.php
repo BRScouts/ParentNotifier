@@ -113,6 +113,9 @@ ensure_schedule_table($pdo);
  * POST actions (leaders only)
  */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isLeader) {
+    if (is_readonly()) {
+        $error = 'Your account has read-only access and cannot modify the schedule.';
+    } else {
     $action = $_POST['action'] ?? '';
 
     try {
@@ -218,6 +221,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isLeader) {
     } catch (Throwable $exception) {
         $error = $exception->getMessage();
     }
+    } // end else (not readonly)
 }
 
 /**
@@ -498,7 +502,7 @@ include __DIR__ . '/header.php';
         <div class="alert alert-success"><?= e($success) ?></div>
     <?php endif; ?>
 
-    <?php if ($isLeader && $editingActivity): ?>
+    <?php if ($isLeader && $editingActivity && !is_readonly()): ?>
         <section class="schedule-form-panel">
             <h2>Edit activity</h2>
 
@@ -560,7 +564,7 @@ include __DIR__ . '/header.php';
         </section>
     <?php endif; ?>
 
-    <?php if ($isLeader && !$editingActivity): ?>
+    <?php if ($isLeader && !$editingActivity && !is_readonly()): ?>
         <details class="schedule-form-panel">
             <summary style="cursor:pointer; font-weight:900;">+ Add activity</summary>
 
@@ -658,7 +662,7 @@ include __DIR__ . '/header.php';
                 <?php foreach ($dayActivities as $activity): ?>
                     <article class="schedule-activity <?= (int)$activity['is_leaders_only'] === 1 ? 'schedule-activity-leaders-only' : '' ?>">
 
-                        <?php if ($isLeader): ?>
+                        <?php if ($isLeader && !is_readonly()): ?>
                             <div class="schedule-activity-actions">
                                 <a href="<?= e(url('schedule.php?edit=' . (int)$activity['id'] . $tokenParam)) ?>" class="btn btn-outline-primary btn-sm">Edit</a>
                                 <form method="post" style="display:inline;" onsubmit="return confirm('Delete this activity?');">
