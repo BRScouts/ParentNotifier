@@ -43,7 +43,7 @@ try {
          FROM explorer_checkins
          WHERE team_id = ?
          ORDER BY submitted_at DESC
-         LIMIT 5'
+         LIMIT 10'
     );
     $stmt->execute([(int)$team['id']]);
     $recentCheckins = $stmt->fetchAll();
@@ -70,6 +70,36 @@ try {
     }
 } catch (Throwable $e) {
     // Graceful fallback
+}
+
+// --- Fetch pinned announcement for explorer portal ---
+$pinnedAnnouncement = null;
+try {
+    $hasPinnedCol = false;
+    try {
+        $colCheck = $pdo->prepare(
+            'SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "announcements" AND COLUMN_NAME = "is_pinned"'
+        );
+        $colCheck->execute();
+        $hasPinnedCol = (int)$colCheck->fetchColumn() > 0;
+    } catch (Throwable $e) {}
+
+    if ($hasPinnedCol) {
+        $pinnedStmt = $pdo->prepare(
+            'SELECT a.*, l.name AS sender_name
+             FROM announcements a
+             LEFT JOIN leaders l ON l.id = a.sender_leader_id
+             WHERE a.is_pinned = 1
+               AND (a.team_id IS NULL OR a.team_id = ?)
+             ORDER BY a.created_at DESC
+             LIMIT 1'
+        );
+        $pinnedStmt->execute([(int)$team['id']]);
+        $pinnedAnnouncement = $pinnedStmt->fetch() ?: null;
+    }
+} catch (Throwable $e) {
+    $pinnedAnnouncement = null;
 }
 
 include __DIR__ . '/explorer_header.php';
@@ -160,6 +190,12 @@ $tokenParam = urlencode($token);
         border-color: #d4351c;
         color: #d4351c;
     }
+    .portal-journey-map {
+        height: 300px;
+        border: 2px solid #1d1d1d;
+        background: #f3f2f1;
+        margin-bottom: 1rem;
+    }
 </style>
 
 <div class="container" style="padding-top: 2rem; padding-bottom: 2rem;">
@@ -192,6 +228,26 @@ $tokenParam = urlencode($token);
             <a href="<?= e(url('explorer_announcements.php?token=' . $tokenParam)) ?>" class="btn btn-primary btn-sm" style="border-radius: 0; font-weight: 800;">
                 View & Acknowledge Announcements
             </a>
+        </section>
+    <?php endif; ?>
+
+    <!-- Pinned Announcement (always shown regardless of acknowledgement) -->
+    <?php if ($pinnedAnnouncement): ?>
+        <section style="border: 3px solid #7413dc; border-left: 10px solid #7413dc; background: #faf5ff; padding: 1.25rem 1.5rem; margin-bottom: 1.5rem;">
+            <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
+                <span style="font-size: 1.3rem;">📌</span>
+                <div style="flex: 1;">
+                    <h3 style="margin: 0 0 0.35rem 0; font-weight: 900; color: #7413dc; font-size: 1.1rem;">
+                        <?= e($pinnedAnnouncement['title']) ?>
+                    </h3>
+                    <div style="line-height: 1.6; margin-bottom: 0.5rem;">
+                        <?= nl2br(e($pinnedAnnouncement['content'])) ?>
+                    </div>
+                    <p style="margin: 0; color: #505a5f; font-size: 0.85rem;">
+                        Pinned by <?= e($pinnedAnnouncement['sender_name'] ?? 'Leader') ?> &middot; <?= e(format_datetime($pinnedAnnouncement['created_at'])) ?>
+                    </p>
+                </div>
+            </div>
         </section>
     <?php endif; ?>
 
@@ -249,22 +305,45 @@ $tokenParam = urlencode($token);
 
     <!-- Recent Check-in History -->
     <section class="portal-checkin-history">
-        <h2>Recent Check-in History</h2>
+        <h2>Your Check-in History & Journey</h2>
 
         <?php if (empty($recentCheckins)): ?>
             <p style="color: #505a5f; margin-bottom: 0;">No check-ins submitted yet. Use the Check In page to submit your first one.</p>
         <?php else: ?>
+            <?php
+            // Build map points from check-ins that have valid coordinates
+            $mapPoints = [];
+            foreach ($recentCheckins as $ci) {
+                if (!empty($ci['latitude']) && !empty($ci['longitude']) && is_numeric($ci['latitude']) && is_numeric($ci['longitude'])) {
+                    $mapPoints[] = [
+                        'lat' => (float)$ci['latitude'],
+                        'lng' => (float)$ci['longitude'],
+                        'label' => $ci['location_name'] . ' (' . date('d M', strtotime($ci['submitted_at'])) . ')',
+                    ];
+                }
+            }
+            ?>
+
+            <?php if (!empty($mapPoints)): ?>
+                <div id="portalJourneyMap" class="portal-journey-map"
+                     data-lat="<?= e((string)$mapPoints[0]['lat']) ?>"
+                     data-lng="<?= e((string)$mapPoints[0]['lng']) ?>"
+                     data-points="<?= e(json_encode(array_reverse($mapPoints))) ?>">
+                </div>
+                <p style="color: #505a5f; font-size: 0.9rem; margin-bottom: 1rem;">Your journey so far — most recent check-in shown first.</p>
+            <?php endif; ?>
+
             <?php foreach ($recentCheckins as $checkin): ?>
                 <?php
                 $statusClass = match ($checkin['status'] ?? 'pending') {
-                    'approved' => 'checkin-status-approved',
+                    'reviewed' => 'checkin-status-approved',
                     'rejected' => 'checkin-status-rejected',
                     default => 'checkin-status-pending',
                 };
                 $statusLabel = match ($checkin['status'] ?? 'pending') {
-                    'approved' => 'Approved',
+                    'reviewed' => 'Reviewed ✓',
                     'rejected' => 'Rejected',
-                    default => 'Pending review',
+                    default => 'Awaiting review',
                 };
                 ?>
                 <div class="checkin-history-item">
@@ -284,5 +363,41 @@ $tokenParam = urlencode($token);
     </section>
 
 </div>
+
+<script>
+(function () {
+    var mapEl = document.getElementById('portalJourneyMap');
+    if (!mapEl || typeof L === 'undefined') return;
+
+    var lat = parseFloat(mapEl.getAttribute('data-lat'));
+    var lng = parseFloat(mapEl.getAttribute('data-lng'));
+    var pointsJson = mapEl.getAttribute('data-points') || '[]';
+    var points = [];
+
+    try { points = JSON.parse(pointsJson); } catch (e) { points = []; }
+
+    if (!isFinite(lat) || !isFinite(lng)) return;
+
+    var map = L.map(mapEl).setView([lat, lng], 10);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 18,
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    if (points.length > 0) {
+        var latLngs = points.map(function (p) { return [parseFloat(p.lat), parseFloat(p.lng)]; }).filter(function (p) { return isFinite(p[0]) && isFinite(p[1]); });
+        latLngs.forEach(function (p, index) {
+            var marker = L.marker(p).addTo(map);
+            marker.bindPopup('<strong>' + (index + 1) + '.</strong> ' + (points[index].label || 'Check-in'));
+        });
+        if (latLngs.length > 1) {
+            L.polyline(latLngs, { weight: 4, color: '#7413dc' }).addTo(map);
+            map.fitBounds(latLngs, { padding: [30, 30] });
+        }
+    } else {
+        L.marker([lat, lng]).addTo(map);
+    }
+})();
+</script>
 
 <?php include __DIR__ . '/explorer_footer.php'; ?>

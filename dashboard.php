@@ -1584,48 +1584,6 @@ include __DIR__ . '/header.php';
         <?php endif; ?>
     <?php endif; ?>
 
-    <?php
-    // --- Static/Pinned Announcement Banner (always visible at top of dashboard) ---
-    $pinnedAnnouncement = null;
-    try {
-        ensure_announcements_tables($pdo);
-        // Check if is_pinned column exists on announcements table
-        $hasPinnedCol = dashboard_column_exists($pdo, 'announcements', 'is_pinned');
-        if ($hasPinnedCol) {
-            $pinnedStmt = $pdo->query(
-                'SELECT a.*, l.name AS sender_name
-                 FROM announcements a
-                 LEFT JOIN leaders l ON l.id = a.sender_leader_id
-                 WHERE a.is_pinned = 1
-                 ORDER BY a.created_at DESC
-                 LIMIT 1'
-            );
-            $pinnedAnnouncement = $pinnedStmt->fetch() ?: null;
-        }
-    } catch (Throwable $e) {
-        $pinnedAnnouncement = null;
-    }
-    ?>
-
-    <?php if ($pinnedAnnouncement): ?>
-    <div class="pinned-announcement-banner" style="border: 3px solid #7413dc; border-left: 10px solid #7413dc; background: #faf5ff; padding: 1.25rem 1.5rem; margin-bottom: 1.5rem;">
-        <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
-            <span style="font-size: 1.3rem;">📌</span>
-            <div style="flex: 1;">
-                <h3 style="margin: 0 0 0.35rem 0; font-weight: 900; color: #7413dc; font-size: 1.1rem;">
-                    <?= e($pinnedAnnouncement['title']) ?>
-                </h3>
-                <div style="line-height: 1.6; margin-bottom: 0.5rem;">
-                    <?= nl2br(e($pinnedAnnouncement['content'])) ?>
-                </div>
-                <p style="margin: 0; color: #505a5f; font-size: 0.85rem;">
-                    Pinned by <?= e($pinnedAnnouncement['sender_name'] ?? 'Leader') ?> &middot; <?= e(format_datetime($pinnedAnnouncement['created_at'])) ?>
-                </p>
-            </div>
-        </div>
-    </div>
-    <?php endif; ?>
-
     <div class="dashboard-layout">
 
         <div>

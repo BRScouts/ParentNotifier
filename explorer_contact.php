@@ -132,15 +132,8 @@ foreach ($onDutyLeaders as $leader) {
             <strong>Then</strong> call the leadership team:
         </p>
 
-        <?php if ($emergencyPhone !== ''): ?>
-        <a
-            href="tel:<?= e($emergencyPhone) ?>"
-            style="display: inline-block; font-size: 1.8rem; font-weight: 900; color: #ffffff; background: #7413dc; padding: 0.6rem 1.25rem; text-decoration: none; border-radius: 4px; line-height: 1.2;"
-            aria-label="Call leadership team <?= e($emergencyPhone) ?>"
-        >
-            &#x1F4DE; <?= e($emergencyPhone) ?>
-        </a>
-        <?php endif; ?>
+        
+        
     </section>
 
     <!-- Contact leaders section -->

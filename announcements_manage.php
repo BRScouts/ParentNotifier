@@ -177,6 +177,87 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
                     // contact_email column may not exist — email notifications skipped
                 }
 
+                // Queue notification emails to participants (participant_email on young_people)
+                try {
+                    $hasParticipantEmail = false;
+                    try {
+                        $colStmt = $pdo->prepare(
+                            'SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+                             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "young_people" AND COLUMN_NAME = "participant_email"'
+                        );
+                        $colStmt->execute();
+                        $hasParticipantEmail = (int)$colStmt->fetchColumn() > 0;
+                    } catch (Throwable $e) {}
+
+                    if ($hasParticipantEmail) {
+                        if ($teamId !== null) {
+                            // Specific team: email participants in that team
+                            $pStmt = $pdo->prepare(
+                                'SELECT yp.participant_email, t.explorer_token
+                                 FROM young_people yp
+                                 JOIN teams t ON t.id = yp.team_id
+                                 WHERE yp.team_id = ?
+                                   AND yp.is_active = 1
+                                   AND yp.participant_email IS NOT NULL
+                                   AND yp.participant_email != ""'
+                            );
+                            $pStmt->execute([$teamId]);
+                            $participants = $pStmt->fetchAll();
+                        } else {
+                            // All teams: email all active participants
+                            try {
+                                $participants = $pdo->query(
+                                    'SELECT yp.participant_email, t.explorer_token
+                                     FROM young_people yp
+                                     JOIN teams t ON t.id = yp.team_id
+                                     WHERE yp.is_active = 1
+                                       AND yp.participant_email IS NOT NULL
+                                       AND yp.participant_email != ""
+                                       AND t.is_active = 1'
+                                )->fetchAll();
+                            } catch (Throwable $e) {
+                                $participants = $pdo->query(
+                                    'SELECT yp.participant_email, t.explorer_token
+                                     FROM young_people yp
+                                     JOIN teams t ON t.id = yp.team_id
+                                     WHERE yp.is_active = 1
+                                       AND yp.participant_email IS NOT NULL
+                                       AND yp.participant_email != ""'
+                                )->fetchAll();
+                            }
+                        }
+
+                        $sentParticipantEmails = [];
+                        foreach ($participants as $p) {
+                            $pEmail = trim((string)($p['participant_email'] ?? ''));
+                            if ($pEmail === '' || !filter_var($pEmail, FILTER_VALIDATE_EMAIL)) {
+                                continue;
+                            }
+                            // Avoid duplicates
+                            $pEmailLower = strtolower($pEmail);
+                            if (isset($sentParticipantEmails[$pEmailLower])) {
+                                continue;
+                            }
+                            $sentParticipantEmails[$pEmailLower] = true;
+
+                            $portalLink = url('explorer_announcements.php?token=' . ($p['explorer_token'] ?? ''));
+                            $pEmailContent = '<p>A new announcement has been posted: <strong>' . e($title) . '</strong></p>';
+                            $pEmailContent .= '<p>' . nl2br(e($content)) . '</p>';
+                            $pEmailContent .= '<p><a href="' . e($portalLink) . '">View announcements on the Explorer Portal</a></p>';
+
+                            explorer_queue_email(
+                                $pdo,
+                                $pEmail,
+                                'New Announcement: ' . $title,
+                                $pEmailContent,
+                                $teamId
+                            );
+                        }
+                    }
+                } catch (Throwable $participantEmailEx) {
+                    // participant_email column may not exist — participant notifications skipped
+                }
+
                 // PRG redirect with success
                 $_SESSION['announce_success'] = 'Announcement created successfully.';
                 redirect('announcements_manage.php');
