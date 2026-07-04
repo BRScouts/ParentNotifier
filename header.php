@@ -481,8 +481,8 @@ $isLeaderOnDuty = $headerDutyStatus['on_duty'] ?? false;
         }
 
         .profile-avatar-on-duty {
-            border: 3px solid #00703c;
-            box-shadow: 0 0 0 2px rgba(0, 112, 60, 0.3);
+            border: 3px solid #00703c !important;
+            box-shadow: 0 0 0 2px rgba(0, 112, 60, 0.35);
         }
 
         .profile-dropdown {

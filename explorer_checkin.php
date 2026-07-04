@@ -116,6 +116,80 @@ function explorer_decode_json_list(?string $json): array
 
 // explorer_queue_email() is now defined in config.php for shared use across all explorer pages.
 
+/**
+ * Fetch emails of leaders who are currently on-duty AND in-country.
+ * Uses leader_duty_roster for on-duty check and leader_schedules for in-country check.
+ * Falls back gracefully if tables don't exist.
+ */
+function explorer_fetch_on_duty_in_country_leader_emails(PDO $pdo): array
+{
+    $emails = [];
+
+    try {
+        // Get the current duty date (before 9am = yesterday's duty)
+        $tz = new DateTimeZone(defined('DEFAULT_TIMEZONE') ? DEFAULT_TIMEZONE : 'Europe/London');
+        $now = new DateTime('now', $tz);
+        $currentHour = (int)$now->format('G');
+        $dutyDate = ($currentHour < 9)
+            ? (clone $now)->modify('-1 day')->format('Y-m-d')
+            : $now->format('Y-m-d');
+
+        // Leaders who are on-duty today AND have an active in_country schedule
+        $stmt = $pdo->prepare(
+            'SELECT DISTINCT l.email
+             FROM leader_duty_roster r
+             JOIN leaders l ON l.id = r.leader_id
+             JOIN leader_schedules ls ON ls.leader_id = l.id
+             WHERE r.duty_date = ?
+               AND r.status = "on_duty"
+               AND ls.status = "in_country"
+               AND NOW() BETWEEN ls.schedule_start AND ls.schedule_end
+               AND l.email IS NOT NULL
+               AND l.email != ""'
+        );
+        $stmt->execute([$dutyDate]);
+
+        foreach ($stmt->fetchAll() as $row) {
+            $email = trim((string)$row['email']);
+            if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $emails[strtolower($email)] = $email;
+            }
+        }
+
+        // If no one matched (maybe no schedule entries), fall back to on-duty leaders with is_in_country flag
+        if (empty($emails)) {
+            $stmt = $pdo->prepare(
+                'SELECT DISTINCT l.email
+                 FROM leader_duty_roster r
+                 JOIN leaders l ON l.id = r.leader_id
+                 WHERE r.duty_date = ?
+                   AND r.status = "on_duty"
+                   AND (l.is_in_country = 1)
+                   AND l.email IS NOT NULL
+                   AND l.email != ""'
+            );
+            $stmt->execute([$dutyDate]);
+
+            foreach ($stmt->fetchAll() as $row) {
+                $email = trim((string)$row['email']);
+                if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    $emails[strtolower($email)] = $email;
+                }
+            }
+        }
+    } catch (Throwable $e) {
+        // Tables may not exist — fall back to all leader emails
+        return explorer_fetch_leader_emails($pdo);
+    }
+
+    // If still empty (no one on duty), fall back to all leaders as safety net
+    if (empty($emails)) {
+        return explorer_fetch_leader_emails($pdo);
+    }
+
+    return array_values($emails);
+}
+
 function explorer_fetch_leader_emails(PDO $pdo): array
 {
     try {
@@ -331,7 +405,74 @@ $_SESSION['explorer_portal_token'] = $token;
 
 $teamMembers = explorer_fetch_team_members($pdo, (int)$team['id']);
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $team) {
+// Fetch outstanding (unacknowledged) announcements for this team
+$outstandingAnnouncements = [];
+try {
+    ensure_announcements_tables($pdo);
+    $stmt = $pdo->prepare(
+        'SELECT a.id, a.title, a.content, a.created_at, l.name AS sender_name
+         FROM announcements a
+         LEFT JOIN leaders l ON l.id = a.sender_leader_id
+         LEFT JOIN announcement_acknowledgements ack ON ack.announcement_id = a.id AND ack.team_id = ?
+         WHERE (a.team_id IS NULL OR a.team_id = ?)
+           AND ack.id IS NULL
+         ORDER BY a.created_at DESC'
+    );
+    $stmt->execute([(int)$team['id'], (int)$team['id']]);
+    $outstandingAnnouncements = $stmt->fetchAll();
+} catch (Throwable $e) {
+    $outstandingAnnouncements = [];
+}
+
+// Handle announcement acknowledgement POST (separate from check-in submit)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'acknowledge_announcement' && $team) {
+    try {
+        if (!explorer_csrf_valid()) {
+            throw new RuntimeException('Security check failed. Please refresh and try again.');
+        }
+
+        $announcementId = (int)($_POST['announcement_id'] ?? 0);
+        $acknowledgedByName = explorer_clean_text($_POST['ack_acknowledged_by'] ?? '', 150);
+
+        if ($announcementId <= 0) {
+            throw new RuntimeException('Invalid announcement.');
+        }
+        if ($acknowledgedByName === '') {
+            throw new RuntimeException('Please select who is acknowledging this announcement.');
+        }
+
+        $stmt = $pdo->prepare(
+            'INSERT IGNORE INTO announcement_acknowledgements (announcement_id, team_id, acknowledged_by_name)
+             VALUES (?, ?, ?)'
+        );
+        $stmt->execute([$announcementId, (int)$team['id'], $acknowledgedByName]);
+
+        // Send notification to on-duty in-country leaders
+        if ($stmt->rowCount() > 0) {
+            $annStmt = $pdo->prepare('SELECT title FROM announcements WHERE id = ?');
+            $annStmt->execute([$announcementId]);
+            $annRow = $annStmt->fetch();
+
+            if ($annRow) {
+                $emailSubject = e($team['name']) . ' acknowledged: ' . $annRow['title'];
+                $emailContent = '<p><strong>' . e($team['name']) . '</strong> has acknowledged the announcement: <strong>' . e($annRow['title']) . '</strong></p>';
+                $emailContent .= '<p>Acknowledged by: ' . e($acknowledgedByName) . '</p>';
+                $emailContent .= '<p>Time: ' . e(date('d M Y, H:i')) . '</p>';
+
+                $dutyEmails = explorer_fetch_on_duty_in_country_leader_emails($pdo);
+                foreach ($dutyEmails as $email) {
+                    explorer_queue_email($pdo, $email, $emailSubject, $emailContent, (int)$team['id']);
+                }
+            }
+        }
+
+        redirect('explorer_checkin.php?token=' . urlencode($token));
+    } catch (Throwable $exception) {
+        $error = $exception->getMessage();
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'acknowledge_announcement' && $team) {
     try {
         if (!explorer_csrf_valid()) {
             throw new RuntimeException('Security check failed. Please refresh and try again.');
@@ -462,7 +603,28 @@ if ($submittedBy === '') {
             explorer_log_member_reports($pdo, $memberReports, $checkinId, $submittedAt);
         }
 
-        $leaderEmails = explorer_fetch_leader_emails($pdo);
+        // Also acknowledge any announcements submitted with the check-in
+        $ackIds = $_POST['checkin_ack_announcement'] ?? [];
+        $ackNames = $_POST['checkin_ack_name'] ?? [];
+        if (is_array($ackIds)) {
+            foreach ($ackIds as $ackAnnId) {
+                $ackAnnId = (int)$ackAnnId;
+                $ackName = explorer_clean_text($ackNames[$ackAnnId] ?? '', 150);
+                if ($ackAnnId > 0 && $ackName !== '') {
+                    try {
+                        $ackStmt = $pdo->prepare(
+                            'INSERT IGNORE INTO announcement_acknowledgements (announcement_id, team_id, acknowledged_by_name)
+                             VALUES (?, ?, ?)'
+                        );
+                        $ackStmt->execute([$ackAnnId, (int)$team['id'], $ackName]);
+                    } catch (Throwable $e) {
+                        // Don't block check-in if ack fails
+                    }
+                }
+            }
+        }
+
+        $leaderEmails = explorer_fetch_on_duty_in_country_leader_emails($pdo);
 
         $subject = 'Explorer Belt check-in submitted: ' . $team['name'];
         $content = explorer_build_leader_email_content($team, $checkin, $memberReports);
@@ -961,6 +1123,58 @@ include __DIR__ . '/explorer_header.php';
                 </div>
             </section>
 
+            <?php if (!empty($outstandingAnnouncements)): ?>
+            <section class="checkin-panel">
+                <h2>4. Outstanding announcements</h2>
+
+                <div class="info-box">
+                    The following announcements have not been acknowledged by your team yet.
+                    Please read each one and select who is acknowledging it.
+                </div>
+
+                <?php foreach ($outstandingAnnouncements as $ann): ?>
+                    <div class="announcement-inline" style="border: 2px solid #7413dc; padding: 1rem; margin-bottom: 1rem; background: #faf5ff;">
+                        <h3 style="margin-top: 0; font-size: 1.1rem;"><?= e($ann['title']) ?></h3>
+                        <?php if ($ann['sender_name']): ?>
+                            <p class="muted" style="margin-bottom: 0.5rem; font-size: 0.9rem;">
+                                From <?= e($ann['sender_name']) ?> &middot; <?= e(format_datetime($ann['created_at'])) ?>
+                            </p>
+                        <?php endif; ?>
+                        <div style="margin-bottom: 0.75rem; line-height: 1.6;">
+                            <?= nl2br(e($ann['content'])) ?>
+                        </div>
+
+                        <label style="font-weight: 800; display: block; margin-bottom: 0.5rem;">Who is acknowledging this?</label>
+                        <p class="muted" style="margin-bottom: 0.5rem;">Tap to select.</p>
+
+                        <div class="member-selector ack-member-selector" data-ack-id="<?= (int)$ann['id'] ?>">
+                            <?php foreach ($teamMembers as $member): ?>
+                                <?php $memberPhoto = explorer_media_url($member['photo_url'] ?? ''); ?>
+                                <button
+                                    type="button"
+                                    class="member-select-btn ack-select-btn"
+                                    data-name="<?= e($member['name']) ?>"
+                                    data-ack-id="<?= (int)$ann['id'] ?>"
+                                >
+                                    <?php if ($memberPhoto !== ''): ?>
+                                        <img class="member-select-photo" src="<?= e($memberPhoto) ?>" alt="">
+                                    <?php else: ?>
+                                        <span class="member-select-placeholder" aria-hidden="true">
+                                            <?= e(explorer_initials($member['name'])) ?>
+                                        </span>
+                                    <?php endif; ?>
+                                    <span class="member-select-name"><?= e($member['name']) ?></span>
+                                </button>
+                            <?php endforeach; ?>
+                        </div>
+
+                        <input type="hidden" name="checkin_ack_name[<?= (int)$ann['id'] ?>]" class="ack-name-input" data-ack-id="<?= (int)$ann['id'] ?>" value="">
+                        <input type="hidden" name="checkin_ack_announcement[]" class="ack-checkbox-input" data-ack-id="<?= (int)$ann['id'] ?>" value="" disabled>
+                    </div>
+                <?php endforeach; ?>
+            </section>
+            <?php endif; ?>
+
             <section class="warning-box">
                 <strong>Before you submit:</strong>
                 This response goes to a holding area for leaders to review. It may not be reviewed straight away.
@@ -1130,17 +1344,51 @@ include __DIR__ . '/explorer_header.php';
         }
 
         // Submitted-by member selector
-        var selectorButtons = document.querySelectorAll('.member-select-btn');
+        var submittedBySelector = document.getElementById('submittedBySelector');
         var submittedByInput = document.getElementById('submitted_by');
 
-        selectorButtons.forEach(function (btn) {
-            btn.addEventListener('click', function () {
-                selectorButtons.forEach(function (b) {
-                    b.classList.remove('selected');
+        if (submittedBySelector) {
+            var selectorButtons = submittedBySelector.querySelectorAll('.member-select-btn');
+
+            selectorButtons.forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    selectorButtons.forEach(function (b) {
+                        b.classList.remove('selected');
+                    });
+
+                    btn.classList.add('selected');
+                    submittedByInput.value = btn.getAttribute('data-name');
                 });
+            });
+        }
+
+        // Acknowledgement face selectors
+        document.querySelectorAll('.ack-select-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var ackId = btn.getAttribute('data-ack-id');
+
+                // Deselect siblings in same group
+                var container = btn.closest('.ack-member-selector');
+                if (container) {
+                    container.querySelectorAll('.ack-select-btn').forEach(function (b) {
+                        b.classList.remove('selected');
+                    });
+                }
 
                 btn.classList.add('selected');
-                submittedByInput.value = btn.getAttribute('data-name');
+
+                // Set the hidden name input
+                var nameInput = document.querySelector('.ack-name-input[data-ack-id="' + ackId + '"]');
+                if (nameInput) {
+                    nameInput.value = btn.getAttribute('data-name');
+                }
+
+                // Enable the hidden checkbox input so it submits
+                var checkboxInput = document.querySelector('.ack-checkbox-input[data-ack-id="' + ackId + '"]');
+                if (checkboxInput) {
+                    checkboxInput.value = ackId;
+                    checkboxInput.disabled = false;
+                }
             });
         });
     });
