@@ -75,15 +75,44 @@ function ensure_schedule_table(PDO $pdo): bool
     }
 }
 
+function schedule_table_exists(PDO $pdo, string $table): bool
+{
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?'
+        );
+        $stmt->execute([$table]);
+        return (int)$stmt->fetchColumn() > 0;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+function schedule_media_url(?string $path): string
+{
+    $path = trim((string)$path);
+    if ($path === '') return '';
+    if (preg_match('/^https?:\/\//i', $path)) return $path;
+    return url($path);
+}
+
+function schedule_initials(string $name): string
+{
+    $parts = preg_split('/\s+/', trim($name));
+    $initials = '';
+    foreach ($parts as $part) {
+        if ($part !== '') $initials .= strtoupper(substr($part, 0, 1));
+        if (strlen($initials) >= 2) break;
+    }
+    return $initials ?: '?';
+}
+
 ensure_schedule_table($pdo);
 
 /**
  * POST actions (leaders only)
  */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isLeader) {
-    if (is_readonly()) {
-        $error = 'Your account has read-only access and cannot modify the schedule.';
-    } else {
     $action = $_POST['action'] ?? '';
 
     try {
@@ -128,7 +157,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isLeader) {
             ]);
 
             $success = 'Activity added.';
-            redirect('schedule.php?date=' . $activityDate . ($parentTeam ? '&token=' . $parentTeam['parent_token'] : ''));
+            redirect('schedule.php' . ($parentTeam ? '?token=' . $parentTeam['parent_token'] : ''));
         }
 
         if ($action === 'edit_activity') {
@@ -170,7 +199,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isLeader) {
             ]);
 
             $success = 'Activity updated.';
-            redirect('schedule.php?date=' . $activityDate . ($parentTeam ? '&token=' . $parentTeam['parent_token'] : ''));
+            redirect('schedule.php' . ($parentTeam ? '?token=' . $parentTeam['parent_token'] : ''));
         }
 
         if ($action === 'delete_activity') {
@@ -180,51 +209,76 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isLeader) {
                 throw new RuntimeException('Invalid activity.');
             }
 
-            $stmt = $pdo->prepare('SELECT activity_date FROM activity_schedule WHERE id = ? LIMIT 1');
-            $stmt->execute([$activityId]);
-            $row = $stmt->fetch();
-            $redirectDate = $row['activity_date'] ?? date('Y-m-d');
-
             $stmt = $pdo->prepare('DELETE FROM activity_schedule WHERE id = ?');
             $stmt->execute([$activityId]);
 
             $success = 'Activity deleted.';
-            redirect('schedule.php?date=' . $redirectDate . ($parentTeam ? '&token=' . $parentTeam['parent_token'] : ''));
+            redirect('schedule.php' . ($parentTeam ? '?token=' . $parentTeam['parent_token'] : ''));
         }
     } catch (Throwable $exception) {
         $error = $exception->getMessage();
     }
-    } // end else (not readonly)
 }
 
 /**
- * Determine current date view
+ * Fetch all upcoming activities (today onwards), grouped by date
  */
-$viewDate = trim($_GET['date'] ?? '');
-if ($viewDate === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $viewDate)) {
-    $viewDate = date('Y-m-d');
-}
-
-$prevDate = date('Y-m-d', strtotime($viewDate . ' -1 day'));
-$nextDate = date('Y-m-d', strtotime($viewDate . ' +1 day'));
-
+$today = date('Y-m-d');
 $tokenParam = $parentTeam ? '&token=' . $parentTeam['parent_token'] : '';
+$tokenParamFirst = $parentTeam ? '?token=' . $parentTeam['parent_token'] : '';
 
-/**
- * Fetch activities for the day
- */
-$whereClause = 'WHERE activity_date = ?';
-$params = [$viewDate];
+$whereClause = 'WHERE activity_date >= ?';
+$params = [$today];
 
 if (!$isLeader) {
     $whereClause .= ' AND is_leaders_only = 0';
 }
 
 $stmt = $pdo->prepare(
-    'SELECT * FROM activity_schedule ' . $whereClause . ' ORDER BY sort_order ASC, start_time ASC, id ASC'
+    'SELECT * FROM activity_schedule ' . $whereClause . ' ORDER BY activity_date ASC, sort_order ASC, start_time ASC, id ASC'
 );
 $stmt->execute($params);
-$activities = $stmt->fetchAll();
+$allActivities = $stmt->fetchAll();
+
+// Group by date
+$activitiesByDate = [];
+foreach ($allActivities as $activity) {
+    $activitiesByDate[$activity['activity_date']][] = $activity;
+}
+
+/**
+ * Fetch on-duty leaders per date (from leader_duty_roster)
+ */
+$dutyByDate = []; // [date => [leader rows]]
+$allLeadersById = [];
+
+if (schedule_table_exists($pdo, 'leader_duty_roster')) {
+    // Get all dates we're showing
+    $scheduleDates = array_keys($activitiesByDate);
+    // Also include today even if no activities
+    if (!in_array($today, $scheduleDates, true)) {
+        $scheduleDates[] = $today;
+    }
+    sort($scheduleDates);
+
+    if (!empty($scheduleDates)) {
+        $startDate = $scheduleDates[0];
+        $endDate = end($scheduleDates);
+
+        $stmt = $pdo->prepare(
+            'SELECT r.*, l.name AS leader_name, l.photo_url AS leader_photo
+             FROM leader_duty_roster r
+             JOIN leaders l ON l.id = r.leader_id
+             WHERE r.duty_date BETWEEN ? AND ? AND r.status = "on_duty"
+             ORDER BY r.duty_date ASC, l.name ASC'
+        );
+        $stmt->execute([$startDate, $endDate]);
+
+        foreach ($stmt->fetchAll() as $row) {
+            $dutyByDate[$row['duty_date']][] = $row;
+        }
+    }
+}
 
 /**
  * Editing mode
@@ -233,12 +287,9 @@ $editingId = $isLeader ? (int)($_GET['edit'] ?? 0) : 0;
 $editingActivity = null;
 
 if ($editingId > 0) {
-    foreach ($activities as $a) {
-        if ((int)$a['id'] === $editingId) {
-            $editingActivity = $a;
-            break;
-        }
-    }
+    $stmt = $pdo->prepare('SELECT * FROM activity_schedule WHERE id = ? LIMIT 1');
+    $stmt->execute([$editingId]);
+    $editingActivity = $stmt->fetch() ?: null;
 }
 
 include __DIR__ . '/header.php';
@@ -254,23 +305,79 @@ include __DIR__ . '/header.php';
         margin-bottom: 0.25rem;
     }
 
-    .schedule-date-nav {
+    .schedule-day-group {
+        margin-bottom: 2rem;
+    }
+
+    .schedule-day-header {
         display: flex;
         align-items: center;
         gap: 0.75rem;
-        margin-bottom: 1.5rem;
+        border-bottom: 3px solid #7413dc;
+        padding-bottom: 0.5rem;
+        margin-bottom: 0.75rem;
         flex-wrap: wrap;
     }
 
-    .schedule-date-nav strong {
-        font-size: 1.2rem;
+    .schedule-day-header h2 {
+        font-size: 1.15rem;
+        font-weight: 900;
+        margin: 0;
+    }
+
+    .schedule-day-today-badge {
+        display: inline-block;
+        background: #00703c;
+        color: #ffffff;
+        font-size: 0.7rem;
+        font-weight: 900;
+        padding: 0.15rem 0.5rem;
+        text-transform: uppercase;
+    }
+
+    .schedule-duty-leaders {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin-left: auto;
+    }
+
+    .schedule-duty-label {
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #505a5f;
+        text-transform: uppercase;
+        margin-right: 0.2rem;
+    }
+
+    .schedule-duty-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 2px solid #00703c;
+        background: #f3f2f1;
+    }
+
+    .schedule-duty-avatar-placeholder {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        border: 2px solid #00703c;
+        background: #7413dc;
+        color: #ffffff;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.7rem;
+        font-weight: 900;
     }
 
     .schedule-activity {
         border: 2px solid #d8d8d8;
         background: #ffffff;
-        padding: 1rem 1.25rem;
-        margin-bottom: 1rem;
+        padding: 0.85rem 1rem;
+        margin-bottom: 0.6rem;
         position: relative;
     }
 
@@ -281,55 +388,56 @@ include __DIR__ . '/header.php';
 
     .schedule-activity-time {
         font-weight: 900;
-        font-size: 0.95rem;
+        font-size: 0.9rem;
         color: #1d1d1d;
-        margin-bottom: 0.25rem;
+        margin-bottom: 0.15rem;
     }
 
     .schedule-activity-title {
         font-weight: 900;
-        font-size: 1.15rem;
-        margin: 0 0 0.35rem;
+        font-size: 1.05rem;
+        margin: 0 0 0.25rem;
     }
 
     .schedule-activity-desc {
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.35rem;
         color: #1d1d1d;
+        font-size: 0.95rem;
     }
 
     .schedule-internal-note {
         border-left: 4px solid #1d70b8;
         background: #eef7ff;
-        padding: 0.5rem 0.75rem;
-        margin-top: 0.5rem;
-        font-size: 0.9rem;
+        padding: 0.4rem 0.65rem;
+        margin-top: 0.4rem;
+        font-size: 0.85rem;
     }
 
     .schedule-internal-note strong {
         display: block;
-        font-size: 0.8rem;
+        font-size: 0.75rem;
         text-transform: uppercase;
         color: #505a5f;
-        margin-bottom: 0.15rem;
+        margin-bottom: 0.1rem;
     }
 
     .schedule-leaders-badge {
         display: inline-block;
         background: #7413dc;
         color: #ffffff;
-        font-size: 0.75rem;
+        font-size: 0.7rem;
         font-weight: 900;
-        padding: 0.2rem 0.5rem;
-        margin-left: 0.5rem;
+        padding: 0.15rem 0.4rem;
+        margin-left: 0.4rem;
         vertical-align: middle;
     }
 
     .schedule-activity-actions {
         position: absolute;
-        top: 0.75rem;
-        right: 0.75rem;
+        top: 0.6rem;
+        right: 0.6rem;
         display: flex;
-        gap: 0.5rem;
+        gap: 0.4rem;
     }
 
     .schedule-form-panel {
@@ -349,6 +457,16 @@ include __DIR__ . '/header.php';
         .schedule-form-grid {
             grid-template-columns: 1fr;
         }
+
+        .schedule-day-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.4rem;
+        }
+
+        .schedule-duty-leaders {
+            margin-left: 0;
+        }
     }
 
     .schedule-empty {
@@ -365,7 +483,7 @@ include __DIR__ . '/header.php';
     <div class="container">
         <h1>Schedule</h1>
         <p class="lead mb-0">
-            Daily activities and plans for the trip.
+            Upcoming activities and plans for the trip.
         </p>
     </div>
 </section>
@@ -376,19 +494,9 @@ include __DIR__ . '/header.php';
         <div class="alert alert-danger"><?= e($error) ?></div>
     <?php endif; ?>
 
-    <?php if (!empty($_SESSION['schedule_success'])): ?>
-        <div class="alert alert-success"><?= e($_SESSION['schedule_success']) ?></div>
-        <?php unset($_SESSION['schedule_success']); ?>
+    <?php if ($success): ?>
+        <div class="alert alert-success"><?= e($success) ?></div>
     <?php endif; ?>
-
-    <div class="schedule-date-nav">
-        <a href="<?= e(url('schedule.php?date=' . $prevDate . $tokenParam)) ?>" class="btn btn-outline-primary btn-sm">&larr; Previous day</a>
-        <strong><?= e(date('l, j F Y', strtotime($viewDate))) ?></strong>
-        <a href="<?= e(url('schedule.php?date=' . $nextDate . $tokenParam)) ?>" class="btn btn-outline-primary btn-sm">Next day &rarr;</a>
-        <?php if ($viewDate !== date('Y-m-d')): ?>
-            <a href="<?= e(url('schedule.php?date=' . date('Y-m-d') . $tokenParam)) ?>" class="btn btn-outline-primary btn-sm">Today</a>
-        <?php endif; ?>
-    </div>
 
     <?php if ($isLeader && $editingActivity): ?>
         <section class="schedule-form-panel">
@@ -446,8 +554,8 @@ include __DIR__ . '/header.php';
                     </label>
                 </div>
 
-                <button class="btn btn-primary"<?php if (is_readonly()): ?> disabled<?php endif; ?>>Save changes</button>
-                <a href="<?= e(url('schedule.php?date=' . $viewDate . $tokenParam)) ?>" class="btn btn-outline-primary ml-2">Cancel</a>
+                <button class="btn btn-primary">Save changes</button>
+                <a href="<?= e(url('schedule.php' . $tokenParamFirst)) ?>" class="btn btn-outline-primary ml-2">Cancel</a>
             </form>
         </section>
     <?php endif; ?>
@@ -468,7 +576,7 @@ include __DIR__ . '/header.php';
 
                     <div class="form-group">
                         <label>Date</label>
-                        <input class="form-control" type="date" name="activity_date" value="<?= e($viewDate) ?>" required>
+                        <input class="form-control" type="date" name="activity_date" value="<?= e($today) ?>" required>
                     </div>
 
                     <div class="form-group">
@@ -507,60 +615,92 @@ include __DIR__ . '/header.php';
                     <small class="form-text text-muted d-block">Use for reminders, prep tasks, or internal events.</small>
                 </div>
 
-                <button class="btn btn-primary"<?php if (is_readonly()): ?> disabled<?php endif; ?>>Add activity</button>
+                <button class="btn btn-primary">Add activity</button>
             </form>
         </details>
     <?php endif; ?>
 
-    <?php if (empty($activities)): ?>
+    <?php if (empty($activitiesByDate)): ?>
         <div class="schedule-empty">
-            No activities scheduled for this day<?= $isLeader ? '. Use the form above to add one.' : '.' ?>
+            No upcoming activities scheduled<?= $isLeader ? '. Use the form above to add one.' : '.' ?>
         </div>
     <?php else: ?>
-        <?php foreach ($activities as $activity): ?>
-            <article class="schedule-activity <?= (int)$activity['is_leaders_only'] === 1 ? 'schedule-activity-leaders-only' : '' ?>">
-
-                <?php if ($isLeader): ?>
-                    <div class="schedule-activity-actions">
-                        <a href="<?= e(url('schedule.php?date=' . $viewDate . '&edit=' . (int)$activity['id'] . $tokenParam)) ?>" class="btn btn-outline-primary btn-sm">Edit</a>
-                        <form method="post" style="display:inline;" onsubmit="return confirm('Delete this activity?');">
-                            <input type="hidden" name="action" value="delete_activity">
-                            <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
-                            <input type="hidden" name="activity_id" value="<?= (int)$activity['id'] ?>">
-                            <button class="btn btn-outline-danger btn-sm">Delete</button>
-                        </form>
-                    </div>
-                <?php endif; ?>
-
-                <?php if ($activity['start_time']): ?>
-                    <p class="schedule-activity-time">
-                        <?= e(date('H:i', strtotime($activity['start_time']))) ?>
-                        <?php if ($activity['end_time']): ?>
-                            &ndash; <?= e(date('H:i', strtotime($activity['end_time']))) ?>
-                        <?php endif; ?>
-                    </p>
-                <?php endif; ?>
-
-                <h3 class="schedule-activity-title">
-                    <?= e($activity['title']) ?>
-                    <?php if ((int)$activity['is_leaders_only'] === 1): ?>
-                        <span class="schedule-leaders-badge">Leaders only</span>
+        <?php foreach ($activitiesByDate as $date => $dayActivities): ?>
+            <?php
+            $isToday = ($date === $today);
+            $onDutyLeaders = $dutyByDate[$date] ?? [];
+            ?>
+            <section class="schedule-day-group">
+                <div class="schedule-day-header">
+                    <h2><?= e(date('l j M', strtotime($date))) ?></h2>
+                    <?php if ($isToday): ?>
+                        <span class="schedule-day-today-badge">Today</span>
                     <?php endif; ?>
-                </h3>
 
-                <?php if (!empty($activity['description'])): ?>
-                    <div class="schedule-activity-desc">
-                        <?= nl2br(e($activity['description'])) ?>
-                    </div>
-                <?php endif; ?>
+                    <?php if (!empty($onDutyLeaders)): ?>
+                        <div class="schedule-duty-leaders">
+                            <span class="schedule-duty-label">On duty:</span>
+                            <?php foreach ($onDutyLeaders as $dl): ?>
+                                <?php
+                                $photo = schedule_media_url($dl['leader_photo'] ?? '');
+                                $name = $dl['leader_name'] ?? 'Leader';
+                                ?>
+                                <?php if ($photo !== ''): ?>
+                                    <img class="schedule-duty-avatar" src="<?= e($photo) ?>" alt="<?= e($name) ?>" title="<?= e($name) ?>">
+                                <?php else: ?>
+                                    <span class="schedule-duty-avatar-placeholder" title="<?= e($name) ?>"><?= e(schedule_initials($name)) ?></span>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
 
-                <?php if ($isLeader && !empty($activity['internal_note'])): ?>
-                    <div class="schedule-internal-note">
-                        <strong>Internal note</strong>
-                        <?= nl2br(e($activity['internal_note'])) ?>
-                    </div>
-                <?php endif; ?>
-            </article>
+                <?php foreach ($dayActivities as $activity): ?>
+                    <article class="schedule-activity <?= (int)$activity['is_leaders_only'] === 1 ? 'schedule-activity-leaders-only' : '' ?>">
+
+                        <?php if ($isLeader): ?>
+                            <div class="schedule-activity-actions">
+                                <a href="<?= e(url('schedule.php?edit=' . (int)$activity['id'] . $tokenParam)) ?>" class="btn btn-outline-primary btn-sm">Edit</a>
+                                <form method="post" style="display:inline;" onsubmit="return confirm('Delete this activity?');">
+                                    <input type="hidden" name="action" value="delete_activity">
+                                    <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+                                    <input type="hidden" name="activity_id" value="<?= (int)$activity['id'] ?>">
+                                    <button class="btn btn-outline-danger btn-sm">Delete</button>
+                                </form>
+                            </div>
+                        <?php endif; ?>
+
+                        <?php if ($activity['start_time']): ?>
+                            <p class="schedule-activity-time">
+                                <?= e(date('H:i', strtotime($activity['start_time']))) ?>
+                                <?php if ($activity['end_time']): ?>
+                                    &ndash; <?= e(date('H:i', strtotime($activity['end_time']))) ?>
+                                <?php endif; ?>
+                            </p>
+                        <?php endif; ?>
+
+                        <h3 class="schedule-activity-title">
+                            <?= e($activity['title']) ?>
+                            <?php if ((int)$activity['is_leaders_only'] === 1): ?>
+                                <span class="schedule-leaders-badge">Leaders only</span>
+                            <?php endif; ?>
+                        </h3>
+
+                        <?php if (!empty($activity['description'])): ?>
+                            <div class="schedule-activity-desc">
+                                <?= nl2br(e($activity['description'])) ?>
+                            </div>
+                        <?php endif; ?>
+
+                        <?php if ($isLeader && !empty($activity['internal_note'])): ?>
+                            <div class="schedule-internal-note">
+                                <strong>Internal note</strong>
+                                <?= nl2br(e($activity['internal_note'])) ?>
+                            </div>
+                        <?php endif; ?>
+                    </article>
+                <?php endforeach; ?>
+            </section>
         <?php endforeach; ?>
     <?php endif; ?>
 
