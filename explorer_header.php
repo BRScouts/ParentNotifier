@@ -76,11 +76,19 @@ $explorerNavLinks = [
             font-weight: 900;
             font-size: 1.05rem;
             white-space: nowrap;
+            padding: 0.25rem 0;
         }
 
         .explorer-navbar .navbar-brand:hover,
         .explorer-navbar .navbar-brand:focus {
             color: #ffffff;
+        }
+
+        .explorer-navbar .navbar-brand img {
+            height: 40px;
+            width: auto;
+            max-width: 160px;
+            object-fit: contain;
         }
 
         .explorer-navbar .nav-link {
@@ -108,6 +116,7 @@ $explorerNavLinks = [
 
         .explorer-navbar .navbar-toggler {
             border-color: rgba(255, 255, 255, 0.6);
+            padding: 0.4rem 0.6rem;
         }
 
         .explorer-navbar .navbar-toggler-icon {
@@ -122,20 +131,31 @@ $explorerNavLinks = [
         }
 
         @media (max-width: 767.98px) {
+            .explorer-navbar .navbar-brand img {
+                height: 34px;
+                max-width: 140px;
+            }
+
             .explorer-navbar .navbar-nav {
                 margin-top: 0.5rem;
                 padding-bottom: 0.5rem;
             }
 
             .explorer-navbar .nav-link {
-                padding: 0.6rem 0.75rem !important;
-                font-size: 1rem;
+                padding: 0.75rem 1rem !important;
+                font-size: 1.05rem;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            }
+
+            .explorer-navbar .nav-item:last-child .nav-link {
+                border-bottom: none;
             }
 
             .explorer-navbar .nav-item.active .nav-link {
                 border-left: 5px solid #ffdd00;
                 background: rgba(255, 255, 255, 0.12);
                 color: #ffffff !important;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
             }
         }
     </style>
@@ -147,7 +167,11 @@ $explorerNavLinks = [
     <nav class="navbar navbar-expand-md navbar-dark explorer-navbar">
         <div class="container">
             <a class="navbar-brand" href="<?= e(url('explorer_portal.php?token=' . $explorerTokenParam)) ?>">
-                <?= e(APP_NAME) ?>
+                <?php if (defined('LOGO_URL') && LOGO_URL !== ''): ?>
+                    <img src="<?= e(LOGO_URL) ?>" alt="<?= e(APP_NAME) ?>">
+                <?php else: ?>
+                    <?= e(APP_NAME) ?>
+                <?php endif; ?>
             </a>
 
             <button

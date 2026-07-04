@@ -76,7 +76,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
                     $content,
                 ]);
 
-                // Queue notification emails
+                // Queue notification emails (optional — gracefully handles missing columns)
+                try {
                 if ($teamId !== null) {
                     // Specific team: queue one email to team's contact_email
                     $stmt = $pdo->prepare('SELECT contact_email, explorer_token FROM teams WHERE id = ? LIMIT 1');
@@ -128,6 +129,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
                             );
                         }
                     }
+                }
+                } catch (Throwable $emailEx) {
+                    // contact_email column may not exist — email notifications skipped
                 }
 
                 // PRG redirect with success
