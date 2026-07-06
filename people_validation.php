@@ -611,29 +611,8 @@ function pv_build_validation_row(array $person, ?array $submission, string $sche
         pv_attention_push($flags, 'No update email recipients');
     }
 
-    if (!empty($medications)) {
-        pv_attention_push($flags, 'Medication recorded');
-    }
-
-    if (!empty($allergies)) {
-        pv_attention_push($flags, 'Allergy/intolerance/dietary need recorded');
-    }
-
-    if (pv_has_text($medicalConditionDetails) || (isset($person['health_medical_condition']) && (int)$person['health_medical_condition'] === 1)) {
-        pv_attention_push($flags, 'Medical condition details recorded');
-    }
-
-    if (pv_has_text($physicalRestrictionDetails) || (isset($person['health_physical_restriction']) && (int)$person['health_physical_restriction'] === 1)) {
-        pv_attention_push($flags, 'Physical condition/injury/incapacity recorded');
-    }
-
-    if (pv_has_text($medicationAllergyDetails) || (isset($person['health_medication_allergy']) && (int)$person['health_medication_allergy'] === 1)) {
-        pv_attention_push($flags, 'Medication allergy details recorded');
-    }
-
-    if (pv_has_text($additionalWelfare)) {
-        pv_attention_push($flags, 'Additional medical/welfare information recorded');
-    }
+    // Note: Medical conditions, physical disabilities, medications, allergies, and welfare info
+    // are NOT flagged as attention items — they are informational only and do not require action.
 
     if ($doctorName === '' || $doctorPhone === '' || $doctorAddress === '') {
         pv_attention_push($flags, 'Family doctor details incomplete');
@@ -1187,8 +1166,40 @@ if (($_GET['download'] ?? '') === 'excel') {
 }
 
 $headers = !empty($allRows) ? array_keys($allRows[0]['columns']) : [];
-$displayHeaders = array_values(array_filter($headers, static function (string $header): bool {
-    return $header !== 'Attention';
+
+// Remove emergency contact columns that are completely empty across all people
+$emergencyContactHeaders = [];
+for ($i = 1; $i <= 5; $i++) {
+    $emergencyContactHeaders[] = 'Emergency contact ' . $i . ' name';
+    $emergencyContactHeaders[] = 'Emergency contact ' . $i . ' relationship';
+    $emergencyContactHeaders[] = 'Emergency contact ' . $i . ' address';
+    $emergencyContactHeaders[] = 'Emergency contact ' . $i . ' home/other';
+    $emergencyContactHeaders[] = 'Emergency contact ' . $i . ' mobile';
+    $emergencyContactHeaders[] = 'Emergency contact ' . $i . ' email';
+}
+
+$emptyEmergencyHeaders = [];
+foreach ($emergencyContactHeaders as $ecHeader) {
+    $hasAnyValue = false;
+    foreach ($allRows as $row) {
+        if (pv_clean_text($row['columns'][$ecHeader] ?? '') !== '') {
+            $hasAnyValue = true;
+            break;
+        }
+    }
+    if (!$hasAnyValue) {
+        $emptyEmergencyHeaders[] = $ecHeader;
+    }
+}
+
+$displayHeaders = array_values(array_filter($headers, static function (string $header) use ($emptyEmergencyHeaders): bool {
+    if ($header === 'Attention') {
+        return false;
+    }
+    if (in_array($header, $emptyEmergencyHeaders, true)) {
+        return false;
+    }
+    return true;
 }));
 $totalCount = count($allRows);
 $attentionCount = pv_count_attention($allRows);
@@ -1283,10 +1294,9 @@ include __DIR__ . '/header.php';
 
     .validation-scroll {
         width: 100%;
-        overflow: auto;
+        overflow-x: auto;
         border: 2px solid #1d1d1d;
         background: #ffffff;
-        max-height: 84vh;
     }
 
     .validation-table {
@@ -1322,14 +1332,6 @@ include __DIR__ . '/header.php';
         text-align: left;
     }
 
-    .validation-table tbody tr:nth-child(even) td {
-        background: #f8f8f8;
-    }
-
-    .validation-table tbody tr:hover td {
-        background: #fff7bf;
-    }
-
     .validation-table .sticky-photo {
         position: sticky;
         left: 0;
@@ -1338,7 +1340,15 @@ include __DIR__ . '/header.php';
         max-width: 54px;
         width: 54px;
         text-align: center;
-        background: inherit;
+        background: #ffffff;
+    }
+
+    .validation-table tbody tr:nth-child(even) td {
+        background: #f8f8f8;
+    }
+
+    .validation-table tbody tr:hover td {
+        background: #fff7bf;
     }
 
     .validation-table .sticky-name {
@@ -1348,8 +1358,19 @@ include __DIR__ . '/header.php';
         min-width: 180px;
         max-width: 180px;
         width: 180px;
-        background: inherit;
+        background: #ffffff;
         font-weight: 900;
+        border-right: 2px solid #1d1d1d;
+    }
+
+    .validation-table tbody tr:nth-child(even) .sticky-photo,
+    .validation-table tbody tr:nth-child(even) .sticky-name {
+        background: #f8f8f8;
+    }
+
+    .validation-table tbody tr:hover .sticky-photo,
+    .validation-table tbody tr:hover .sticky-name {
+        background: #fff7bf;
     }
 
     .validation-table th.sticky-photo,
@@ -1552,6 +1573,63 @@ include __DIR__ . '/header.php';
         font-size: 0.78rem;
         margin-top: 0.15rem;
     }
+
+    /* Sort & filter controls */
+    .validation-table th {
+        position: sticky;
+        top: 0;
+        z-index: 4;
+        background: #7413dc;
+        color: #ffffff;
+        font-weight: 900;
+        text-align: left;
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .validation-th-wrap {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+    }
+
+    .validation-sort-icon {
+        font-size: 0.7rem;
+        opacity: 0.6;
+    }
+
+    .validation-sort-icon.active {
+        opacity: 1;
+    }
+
+    .validation-filter-row {
+        position: sticky;
+        top: 28px;
+        z-index: 5;
+        background: #f3f2f1;
+    }
+
+    .validation-filter-row td {
+        padding: 0.2rem 0.25rem !important;
+        background: #f3f2f1 !important;
+        border-bottom: 2px solid #1d1d1d !important;
+    }
+
+    .validation-filter-select {
+        width: 100%;
+        font-size: 0.72rem;
+        padding: 0.15rem 0.2rem;
+        border: 1px solid #d8d8d8;
+        border-radius: 2px;
+        background: #ffffff;
+        max-width: 140px;
+    }
+
+    .validation-filter-row td.sticky-photo,
+    .validation-filter-row td.sticky-name {
+        background: #f3f2f1 !important;
+        z-index: 5;
+    }
 </style>
 
 <section class="page-hero validation-hero">
@@ -1577,7 +1655,7 @@ include __DIR__ . '/header.php';
             <p class="validation-muted mb-0">No participants match the current filter.</p>
         <?php else: ?>
             <div class="validation-scroll" role="region" aria-label="People validation table" tabindex="0">
-                <table class="validation-table">
+                <table class="validation-table" id="validationTable">
                     <thead>
                         <tr>
                             <?php foreach ($displayHeaders as $index => $header): ?>
@@ -1591,8 +1669,35 @@ include __DIR__ . '/header.php';
                                 if ($header === 'Participant') {
                                     $classes[] = 'sticky-name';
                                 }
+
+                                $sortable = in_array($header, ['Participant', 'Team', 'Date of birth / age', 'Parent form', 'Completed date', 'Passport nationality', 'Passport expiry'], true);
                                 ?>
-                                <th class="<?= e(implode(' ', $classes)) ?>"><?= e($header) ?></th>
+                                <th class="<?= e(implode(' ', $classes)) ?>" <?= $sortable ? 'data-sortable="1" data-col-index="' . $index . '"' : '' ?>>
+                                    <span class="validation-th-wrap">
+                                        <?= e($header) ?>
+                                        <?php if ($sortable): ?>
+                                            <span class="validation-sort-icon">⇅</span>
+                                        <?php endif; ?>
+                                    </span>
+                                </th>
+                            <?php endforeach; ?>
+                        </tr>
+                        <tr class="validation-filter-row">
+                            <?php foreach ($displayHeaders as $index => $header): ?>
+                                <?php
+                                $classes = [];
+                                if ($header === 'Photo') { $classes[] = 'sticky-photo'; }
+                                if ($header === 'Participant') { $classes[] = 'sticky-name'; }
+
+                                $filterable = in_array($header, ['Team', 'Parent form', 'Passport nationality check', 'Passport expiry check', 'EHIC/GHIC check'], true);
+                                ?>
+                                <td class="<?= e(implode(' ', $classes)) ?>">
+                                    <?php if ($filterable): ?>
+                                        <select class="validation-filter-select" data-filter-col="<?= $index ?>">
+                                            <option value="">All</option>
+                                        </select>
+                                    <?php endif; ?>
+                                </td>
                             <?php endforeach; ?>
                         </tr>
                     </thead>
@@ -1676,6 +1781,144 @@ include __DIR__ . '/header.php';
 </main>
 
 <div class="validation-floating-tooltip" id="validationFloatingTooltip" role="tooltip" aria-hidden="true"></div>
+
+<script>
+    // --- Sorting & Filtering ---
+    (function () {
+        var table = document.getElementById('validationTable');
+        if (!table) return;
+
+        var thead = table.querySelector('thead');
+        var tbody = table.querySelector('tbody');
+        if (!thead || !tbody) return;
+
+        var headerRow = thead.querySelector('tr:first-child');
+        var filterRow = thead.querySelector('.validation-filter-row');
+        var headers = headerRow.querySelectorAll('th');
+        var rows = Array.from(tbody.querySelectorAll('tr'));
+
+        // Build filter dropdowns from unique column values
+        var filterSelects = filterRow ? filterRow.querySelectorAll('.validation-filter-select') : [];
+        filterSelects.forEach(function (select) {
+            var colIndex = parseInt(select.getAttribute('data-filter-col'), 10);
+            var values = [];
+            rows.forEach(function (row) {
+                var cells = row.querySelectorAll('td');
+                if (cells[colIndex]) {
+                    var text = (cells[colIndex].textContent || '').trim();
+                    if (text !== '' && values.indexOf(text) === -1) {
+                        values.push(text);
+                    }
+                }
+            });
+            values.sort(function(a, b) { return a.localeCompare(b); });
+            values.forEach(function (val) {
+                var option = document.createElement('option');
+                option.value = val;
+                option.textContent = val.length > 30 ? val.substring(0, 30) + '…' : val;
+                select.appendChild(option);
+            });
+        });
+
+        // Filtering
+        function applyFilters() {
+            var activeFilters = {};
+            filterSelects.forEach(function (select) {
+                var colIndex = parseInt(select.getAttribute('data-filter-col'), 10);
+                var val = select.value;
+                if (val !== '') {
+                    activeFilters[colIndex] = val;
+                }
+            });
+
+            rows.forEach(function (row) {
+                var cells = row.querySelectorAll('td');
+                var show = true;
+                for (var col in activeFilters) {
+                    if (activeFilters.hasOwnProperty(col)) {
+                        var cellText = (cells[col] ? cells[col].textContent : '').trim();
+                        if (cellText !== activeFilters[col]) {
+                            show = false;
+                            break;
+                        }
+                    }
+                }
+                row.style.display = show ? '' : 'none';
+            });
+        }
+
+        filterSelects.forEach(function (select) {
+            select.addEventListener('change', applyFilters);
+        });
+
+        // Sorting
+        var currentSortCol = -1;
+        var currentSortDir = 'asc';
+
+        headers.forEach(function (th) {
+            if (!th.hasAttribute('data-sortable')) return;
+
+            th.addEventListener('click', function () {
+                var colIndex = parseInt(th.getAttribute('data-col-index'), 10);
+
+                if (currentSortCol === colIndex) {
+                    currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+                } else {
+                    currentSortCol = colIndex;
+                    currentSortDir = 'asc';
+                }
+
+                // Reset all sort icons
+                headers.forEach(function (h) {
+                    var icon = h.querySelector('.validation-sort-icon');
+                    if (icon) {
+                        icon.textContent = '⇅';
+                        icon.classList.remove('active');
+                    }
+                });
+
+                var activeIcon = th.querySelector('.validation-sort-icon');
+                if (activeIcon) {
+                    activeIcon.textContent = currentSortDir === 'asc' ? '↑' : '↓';
+                    activeIcon.classList.add('active');
+                }
+
+                rows.sort(function (a, b) {
+                    var cellA = a.querySelectorAll('td')[colIndex];
+                    var cellB = b.querySelectorAll('td')[colIndex];
+                    var textA = (cellA ? cellA.textContent : '').trim();
+                    var textB = (cellB ? cellB.textContent : '').trim();
+
+                    // Try numeric/age sort for date of birth column
+                    var ageMatchA = textA.match(/\((\d+)\)$/);
+                    var ageMatchB = textB.match(/\((\d+)\)$/);
+                    if (ageMatchA && ageMatchB) {
+                        var numA = parseInt(ageMatchA[1], 10);
+                        var numB = parseInt(ageMatchB[1], 10);
+                        return currentSortDir === 'asc' ? numA - numB : numB - numA;
+                    }
+
+                    // Try date sort (dd/mm/yyyy)
+                    var dateMatchA = textA.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+                    var dateMatchB = textB.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+                    if (dateMatchA && dateMatchB) {
+                        var dA = new Date(dateMatchA[3] + '-' + dateMatchA[2] + '-' + dateMatchA[1]);
+                        var dB = new Date(dateMatchB[3] + '-' + dateMatchB[2] + '-' + dateMatchB[1]);
+                        return currentSortDir === 'asc' ? dA - dB : dB - dA;
+                    }
+
+                    // Alphabetical
+                    var cmp = textA.localeCompare(textB, undefined, { sensitivity: 'base' });
+                    return currentSortDir === 'asc' ? cmp : -cmp;
+                });
+
+                rows.forEach(function (row) {
+                    tbody.appendChild(row);
+                });
+            });
+        });
+    })();
+</script>
 
 <script>
     (function () {
