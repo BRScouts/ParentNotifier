@@ -6,6 +6,14 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 }
 
 if (is_logged_in()) {
+    $destination = $_SESSION['redirect_after_login'] ?? '';
+    unset($_SESSION['redirect_after_login']);
+
+    if ($destination !== '') {
+        header('Location: ' . $destination);
+        exit;
+    }
+
     redirect('dashboard.php');
 }
 
@@ -23,6 +31,14 @@ try {
     }
 
     microsoft_login_from_callback($code, $state);
+
+    $destination = $_SESSION['redirect_after_login'] ?? '';
+    unset($_SESSION['redirect_after_login']);
+
+    if ($destination !== '') {
+        header('Location: ' . $destination);
+        exit;
+    }
 
     redirect('dashboard.php');
 } catch (Throwable $exception) {

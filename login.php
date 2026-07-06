@@ -2,6 +2,14 @@
 require_once __DIR__ . '/auth.php';
 
 if (is_logged_in()) {
+    $destination = $_SESSION['redirect_after_login'] ?? '';
+    unset($_SESSION['redirect_after_login']);
+
+    if ($destination !== '') {
+        header('Location: ' . $destination);
+        exit;
+    }
+
     redirect('dashboard.php');
 }
 
@@ -21,6 +29,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $password = (string)($_POST['password'] ?? '');
 
     if (login_leader($email, $password)) {
+        $destination = $_SESSION['redirect_after_login'] ?? '';
+        unset($_SESSION['redirect_after_login']);
+
+        if ($destination !== '') {
+            header('Location: ' . $destination);
+            exit;
+        }
+
         redirect('dashboard.php');
     }
 

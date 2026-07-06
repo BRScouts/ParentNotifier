@@ -2,6 +2,14 @@
 require_once __DIR__ . '/auth.php';
 
 if (is_logged_in()) {
+    $destination = $_SESSION['redirect_after_login'] ?? '';
+    unset($_SESSION['redirect_after_login']);
+
+    if ($destination !== '') {
+        header('Location: ' . $destination);
+        exit;
+    }
+
     redirect('dashboard.php');
 }
 

@@ -45,6 +45,16 @@ function is_readonly(): bool
 function require_login(): void
 {
     if (!is_logged_in()) {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
+
+        // Capture the intended destination so we can redirect back after login
+        $requestUri = $_SERVER['REQUEST_URI'] ?? '';
+        if ($requestUri !== '' && basename(parse_url($requestUri, PHP_URL_PATH)) !== 'login.php') {
+            $_SESSION['redirect_after_login'] = $requestUri;
+        }
+
         redirect('login.php');
     }
 }
