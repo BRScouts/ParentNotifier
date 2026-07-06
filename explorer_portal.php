@@ -291,13 +291,9 @@ $tokenParam = urlencode($token);
     <section class="portal-welcome" style="background: #ffffff; border: 2px solid #d8d8d8; padding: 1.5rem; margin-bottom: 1.5rem;">
         <h2 style="font-weight: 900; margin-bottom: 0.75rem; color: #1d1d1d;">Welcome to your Expedition Portal</h2>
         <p style="font-size: 1rem; line-height: 1.6; margin-bottom: 0.5rem;">
-            This is your team's central hub during the expedition. Use the tabs above or the quick links below to:
+            This is your team's central hub during the expedition. 
         </p>
-        <ul style="font-size: 1rem; line-height: 1.7; margin-bottom: 0;">
-            <li>Submit your daily check-ins with location and welfare information</li>
-            <li>View announcements from the leadership team</li>
-            <li>Find emergency numbers and on-duty leader contacts</li>
-        </ul>
+     
     </section>
 
     <!-- Quick Links -->
