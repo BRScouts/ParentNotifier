@@ -196,16 +196,44 @@ $tokenParam = urlencode($token);
         background: #f3f2f1;
         margin-bottom: 1rem;
     }
+
+    /* Mobile optimisation */
+    @media (max-width: 575.98px) {
+        .container {
+            padding-left: 0.75rem;
+            padding-right: 0.75rem;
+        }
+        .portal-checkin-history {
+            padding: 1rem;
+        }
+        .portal-journey-map {
+            height: 220px;
+        }
+        .portal-hero {
+            flex-direction: column;
+            gap: 0.25rem !important;
+            padding: 0.75rem 1rem !important;
+        }
+        .portal-hero h1 {
+            font-size: 1.2rem !important;
+        }
+        .portal-welcome {
+            padding: 1rem !important;
+        }
+        .portal-welcome h2 {
+            font-size: 1.2rem !important;
+        }
+    }
 </style>
 
-<div class="container" style="padding-top: 2rem; padding-bottom: 2rem;">
+<div class="container" style="padding-top: 1rem; padding-bottom: 2rem;">
 
     <!-- Hero / Team Name Panel -->
-    <section style="background: #7413dc; color: #ffffff; padding: 2rem 1.5rem; margin-bottom: 2rem; border-radius: 0;">
-        <h1 style="font-weight: 900; margin: 0 0 0.25rem 0; font-size: 2rem;">
+    <section class="portal-hero" style="background: #7413dc; color: #ffffff; padding: 0.75rem 1.25rem; margin-bottom: 1.25rem; border-radius: 0; display: flex; align-items: center; gap: 0.75rem;">
+        <h1 style="font-weight: 900; margin: 0; font-size: 1.4rem; line-height: 1.2;">
             <?= e($team['name']) ?>
         </h1>
-        <p style="margin: 0; opacity: 0.9; font-size: 1.1rem;">Explorer Portal</p>
+        <span style="opacity: 0.85; font-size: 0.95rem; white-space: nowrap;">— Explorer Portal</span>
     </section>
 
     <!-- Unread Announcements Warning -->
@@ -260,12 +288,12 @@ $tokenParam = urlencode($token);
     <?php endif; ?>
 
     <!-- Welcome Panel -->
-    <section style="background: #ffffff; border: 2px solid #d8d8d8; padding: 1.5rem; margin-bottom: 2rem;">
-        <h2 style="font-weight: 900; margin-bottom: 1rem; color: #1d1d1d;">Welcome to your Expedition Portal</h2>
-        <p style="font-size: 1.05rem; line-height: 1.6; margin-bottom: 0.5rem;">
+    <section class="portal-welcome" style="background: #ffffff; border: 2px solid #d8d8d8; padding: 1.5rem; margin-bottom: 1.5rem;">
+        <h2 style="font-weight: 900; margin-bottom: 0.75rem; color: #1d1d1d;">Welcome to your Expedition Portal</h2>
+        <p style="font-size: 1rem; line-height: 1.6; margin-bottom: 0.5rem;">
             This is your team's central hub during the expedition. Use the tabs above or the quick links below to:
         </p>
-        <ul style="font-size: 1.05rem; line-height: 1.8; margin-bottom: 0;">
+        <ul style="font-size: 1rem; line-height: 1.7; margin-bottom: 0;">
             <li>Submit your daily check-ins with location and welfare information</li>
             <li>View announcements from the leadership team</li>
             <li>Find emergency numbers and on-duty leader contacts</li>
@@ -273,31 +301,31 @@ $tokenParam = urlencode($token);
     </section>
 
     <!-- Quick Links -->
-    <section style="margin-bottom: 2rem;">
-        <h2 style="font-weight: 900; margin-bottom: 1rem; color: #1d1d1d;">Quick Links</h2>
+    <section style="margin-bottom: 1.5rem;">
+        <h2 style="font-weight: 900; margin-bottom: 0.75rem; color: #1d1d1d;">Quick Links</h2>
         <div class="row">
-            <div class="col-sm-6 col-lg-3 mb-3">
+            <div class="col-6 col-lg-3 mb-3">
                 <a href="<?= e(url('explorer_checkin.php?token=' . $tokenParam)) ?>"
-                   style="display: block; background: #ffffff; border: 2px solid #d8d8d8; padding: 1.25rem; text-decoration: none; color: #1d1d1d; height: 100%;">
-                    <strong style="display: block; font-size: 1.1rem; margin-bottom: 0.5rem; color: #7413dc;">Check In</strong>
-                    <span style="font-size: 0.95rem;">Submit your daily location and welfare check-in.</span>
+                   style="display: block; background: #ffffff; border: 2px solid #d8d8d8; padding: 1rem; text-decoration: none; color: #1d1d1d; height: 100%;">
+                    <strong style="display: block; font-size: 1.05rem; margin-bottom: 0.4rem; color: #7413dc;">Check In</strong>
+                    <span style="font-size: 0.9rem;">Submit your daily location and welfare check-in.</span>
                 </a>
             </div>
-            <div class="col-sm-6 col-lg-3 mb-3">
+            <div class="col-6 col-lg-3 mb-3">
                 <a href="<?= e(url('explorer_announcements.php?token=' . $tokenParam)) ?>"
-                   style="display: block; background: #ffffff; border: 2px solid #d8d8d8; padding: 1.25rem; text-decoration: none; color: #1d1d1d; height: 100%; position: relative;">
-                    <strong style="display: block; font-size: 1.1rem; margin-bottom: 0.5rem; color: #7413dc;">Announcements</strong>
-                    <span style="font-size: 0.95rem;">View messages and updates from the leadership team.</span>
+                   style="display: block; background: #ffffff; border: 2px solid #d8d8d8; padding: 1rem; text-decoration: none; color: #1d1d1d; height: 100%; position: relative;">
+                    <strong style="display: block; font-size: 1.05rem; margin-bottom: 0.4rem; color: #7413dc;">Announcements</strong>
+                    <span style="font-size: 0.9rem;">View messages and updates from the leadership team.</span>
                     <?php if (!empty($unreadAnnouncements)): ?>
-                        <span style="position: absolute; top: 0.5rem; right: 0.5rem; background: #d4351c; color: #fff; font-size: 0.8rem; font-weight: 900; padding: 0.2rem 0.5rem;"><?= count($unreadAnnouncements) ?></span>
+                        <span style="position: absolute; top: 0.5rem; right: 0.5rem; background: #d4351c; color: #fff; font-size: 0.75rem; font-weight: 900; padding: 0.15rem 0.4rem;"><?= count($unreadAnnouncements) ?></span>
                     <?php endif; ?>
                 </a>
             </div>
-            <div class="col-sm-6 col-lg-3 mb-3">
+            <div class="col-6 col-lg-3 mb-3">
                 <a href="<?= e(url('explorer_contact.php?token=' . $tokenParam)) ?>"
-                   style="display: block; background: #ffffff; border: 2px solid #d8d8d8; padding: 1.25rem; text-decoration: none; color: #1d1d1d; height: 100%;">
-                    <strong style="display: block; font-size: 1.1rem; margin-bottom: 0.5rem; color: #7413dc;">Contact & Emergency</strong>
-                    <span style="font-size: 0.95rem;">Emergency numbers and on-duty leader contacts.</span>
+                   style="display: block; background: #ffffff; border: 2px solid #d8d8d8; padding: 1rem; text-decoration: none; color: #1d1d1d; height: 100%;">
+                    <strong style="display: block; font-size: 1.05rem; margin-bottom: 0.4rem; color: #7413dc;">Contact & Emergency</strong>
+                    <span style="font-size: 0.9rem;">Emergency numbers and on-duty leader contacts.</span>
                 </a>
             </div>
         </div>

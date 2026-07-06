@@ -85,9 +85,9 @@ $explorerNavLinks = [
         }
 
         .explorer-navbar .navbar-brand img {
-            height: 40px;
+            height: 56px;
             width: auto;
-            max-width: 160px;
+            max-width: 200px;
             object-fit: contain;
         }
 
@@ -132,8 +132,8 @@ $explorerNavLinks = [
 
         @media (max-width: 767.98px) {
             .explorer-navbar .navbar-brand img {
-                height: 34px;
-                max-width: 140px;
+                height: 48px;
+                max-width: 180px;
             }
 
             .explorer-navbar .navbar-nav {
