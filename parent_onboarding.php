@@ -1417,6 +1417,7 @@ function health_pdf_legacy_lines(array $person, array $snapshot, ?array $submiss
     $lines[] = ['text' => '- I am aware that alcohol must not be consumed at all during the trip (including travel days and rest days, not just the expedition itself) and that doing so may result in the participant being asked to withdraw and may affect insurance cover.', 'size' => 9, 'bold' => false];
     $lines[] = ['text' => '- I understand that successfully completing the expedition portion of Explorer Belt 2026 in person does not automatically mean the full Explorer Belt award has been earned. The Explorer Belt is awarded based on a combination of factors including a satisfactory logbook, a presentation, an interview and the expedition itself. The County Commissioner has final approval on whether the award is granted.', 'size' => 9, 'bold' => false];
     $lines[] = ['text' => '- I understand the extent and limitations of the group\'s comprehensive insurance policy, including personal belongings, personal injury and public liability cover.', 'size' => 9, 'bold' => false];
+    $lines[] = ['text' => '- Participants and their parents or guardians accept responsibility for the reasonable cost of repairing or replacing any equipment provided for the trip where loss or damage occurs due to negligence, misuse, or failure to take reasonable care, excluding normal fair wear and tear.', 'size' => 9, 'bold' => false];
 
     return $lines;
 }
@@ -1639,6 +1640,7 @@ function send_health_form_pdf(array $person, array $snapshot = [], ?array $submi
         'I am aware that alcohol must not be consumed at all during the trip (including travel and rest days) and that doing so may result in withdrawal and affect insurance cover.',
         'I understand that completing the expedition does not automatically earn the full Explorer Belt award. The award is based on logbook, presentation, interview and expedition. The County Commissioner has final approval.',
         'I understand the extent and limitations of the group\'s insurance policy, including personal belongings, personal injury and public liability cover.',
+        'Participants and their parents or guardians accept responsibility for the reasonable cost of repairing or replacing any equipment provided for the trip where loss or damage occurs due to negligence, misuse, or failure to take reasonable care, excluding normal fair wear and tear.',
     ];
     foreach ($declarations as $decl) {
         $ensureSpace(24);
@@ -2880,6 +2882,7 @@ $privateTeamLink = $submittedPerson ? team_parent_link($submittedPerson) : '';
                         <li>I am aware that alcohol must not be consumed at all during the trip (including travel days and rest days, not just the expedition itself) and that doing so may result in the participant being asked to withdraw and may affect insurance cover.</li>
                         <li>I understand that successfully completing the expedition portion of Explorer Belt 2026 in person does not automatically mean the full Explorer Belt award has been earned. The Explorer Belt is awarded based on a combination of factors including a satisfactory logbook, a presentation, an interview and the expedition itself. The County Commissioner has final approval on whether the award is granted.</li>
                         <li>I understand the extent and limitations of the group’s comprehensive insurance policy, including personal belongings, personal injury and public liability cover.</li>
+                        <li>Participants and their parents or guardians accept responsibility for the reasonable cost of repairing or replacing any equipment provided for the trip where loss or damage occurs due to negligence, misuse, or failure to take reasonable care, excluding normal fair wear and tear.</li>
                     </ul>
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="final_declaration_agreement" name="final_declaration_agreement" value="1" <?= old_checkbox('final_declaration_agreement') ?> required>
