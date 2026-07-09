@@ -492,11 +492,11 @@ function build_plain_text_email(string $subject, string $content): string
 function make_ses_client(): SesClient
 {
     return new SesClient([
-        'version' => 'latest',
-        'region' => (string)mail_constant('SES_AWS_REGION', 'eu-west-2'),
+        'version'     => 'latest',
+        'region'      => trim((string)mail_constant('SES_AWS_REGION', 'eu-west-2')),
         'credentials' => [
-            'key' => (string)mail_constant('SES_AWS_ACCESS_KEY_ID', ''),
-            'secret' => (string)mail_constant('SES_AWS_SECRET_ACCESS_KEY', ''),
+            'key'    => trim((string)mail_constant('SES_AWS_ACCESS_KEY_ID', '')),
+            'secret' => trim((string)mail_constant('SES_AWS_SECRET_ACCESS_KEY', '')),
         ],
     ]);
 }
