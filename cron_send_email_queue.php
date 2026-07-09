@@ -31,7 +31,8 @@ if (!file_exists($autoload)) {
 
 require_once $autoload;
 
-use PHPMailer\PHPMailer\PHPMailer;
+use Aws\Ses\SesClient;
+use Aws\Exception\AwsException;
 
 $pdo = db();
 
@@ -488,47 +489,65 @@ function build_plain_text_email(string $subject, string $content): string
         "Provided by CK Enterprises UK";
 }
 
-function make_mailer(): PHPMailer
+function make_ses_client(): SesClient
 {
-    $mail = new PHPMailer(true);
+    return new SesClient([
+        'version' => 'latest',
+        'region' => (string)mail_constant('SES_AWS_REGION', 'eu-west-2'),
+        'credentials' => [
+            'key' => (string)mail_constant('SES_AWS_ACCESS_KEY_ID', ''),
+            'secret' => (string)mail_constant('SES_AWS_SECRET_ACCESS_KEY', ''),
+        ],
+    ]);
+}
 
-    $mail->isSMTP();
-
-    $mail->Host = (string)mail_constant('MAIL_HOST', '');
-    $mail->Port = (int)mail_constant('MAIL_PORT', 587);
-    $mail->SMTPAuth = true;
-    $mail->Username = (string)mail_constant('MAIL_USERNAME', '');
-    $mail->Password = (string)mail_constant('MAIL_PASSWORD', '');
-
-    $encryption = strtolower((string)mail_constant('MAIL_ENCRYPTION', 'tls'));
-
-    if ($encryption === 'tls') {
-        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-    } elseif ($encryption === 'ssl') {
-        $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
-    } else {
-        $mail->SMTPSecure = false;
-        $mail->SMTPAutoTLS = false;
-    }
-
-    $mail->CharSet = 'UTF-8';
-    $mail->Encoding = 'base64';
-
-    $mail->setFrom(
-        (string)mail_constant('MAIL_FROM_EMAIL', 'updates@exbelt2026.irvalscouts.org.uk'),
-        (string)mail_constant('MAIL_FROM_NAME', 'Explorer Belt Live')
+function send_ses_email(SesClient $ses, string $toEmail, string $subject, string $htmlBody, string $plainBody): void
+{
+    $fromAddress = (string)mail_constant('MAIL_FROM_ADDRESS',
+        (string)mail_constant('MAIL_FROM_EMAIL', 'updates@exbelt2026.irvalscouts.org.uk')
     );
+    $fromName = (string)mail_constant('MAIL_FROM_NAME', 'Explorer Belt Live');
+
+    $source = $fromName !== '' ? "=?UTF-8?B?" . base64_encode($fromName) . "?= <{$fromAddress}>" : $fromAddress;
 
     $replyToEmail = (string)mail_constant('MAIL_REPLY_TO_EMAIL', '');
+    $replyToAddresses = [];
 
     if ($replyToEmail !== '') {
-        $mail->addReplyTo(
-            $replyToEmail,
-            (string)mail_constant('MAIL_REPLY_TO_NAME', 'Explorer Belt Team')
-        );
+        $replyToName = (string)mail_constant('MAIL_REPLY_TO_NAME', 'Explorer Belt Team');
+        $replyToAddresses[] = $replyToName !== ''
+            ? "=?UTF-8?B?" . base64_encode($replyToName) . "?= <{$replyToEmail}>"
+            : $replyToEmail;
     }
 
-    return $mail;
+    $params = [
+        'Source' => $source,
+        'Destination' => [
+            'ToAddresses' => [$toEmail],
+        ],
+        'Message' => [
+            'Subject' => [
+                'Data' => $subject,
+                'Charset' => 'UTF-8',
+            ],
+            'Body' => [
+                'Html' => [
+                    'Data' => $htmlBody,
+                    'Charset' => 'UTF-8',
+                ],
+                'Text' => [
+                    'Data' => $plainBody,
+                    'Charset' => 'UTF-8',
+                ],
+            ],
+        ],
+    ];
+
+    if (!empty($replyToAddresses)) {
+        $params['ReplyToAddresses'] = $replyToAddresses;
+    }
+
+    $ses->sendEmail($params);
 }
 
 function reset_stale_processing_emails(PDO $pdo): void
@@ -642,7 +661,10 @@ try {
     $failed = 0;
     $skipped = 0;
 
-    foreach ($emails as $email) {
+    $ses = make_ses_client();
+    $delaySeconds = (int)mail_constant('MAIL_QUEUE_DELAY_SECONDS', 0);
+
+    foreach ($emails as $index => $email) {
         $id = (int)$email['id'];
 
         if (!mark_email_processing($pdo, $id)) {
@@ -671,12 +693,6 @@ try {
             $trackingToken = (string)($tracking['token'] ?? '');
             $openToken = (string)($tracking['open_token'] ?? '');
 
-            $mail = make_mailer();
-
-            $mail->addAddress($toEmail);
-            $mail->Subject = $subject;
-            $mail->isHTML(true);
-
             /**
              * This order matters:
              *
@@ -698,13 +714,19 @@ try {
             $plainBody = build_plain_text_email($subject, $content);
             $plainBody = track_plain_text_links($plainBody, $trackingToken);
 
-            $mail->Body = $htmlBody;
-            $mail->AltBody = $plainBody;
-
-            $mail->send();
+            send_ses_email($ses, $toEmail, $subject, $htmlBody, $plainBody);
 
             mark_email_sent($pdo, $id);
             $sent++;
+
+            // Respect SES rate-limiting delay between sends
+            if ($delaySeconds > 0 && $index < count($emails) - 1) {
+                sleep($delaySeconds);
+            }
+        } catch (AwsException $exception) {
+            $errorMsg = $exception->getAwsErrorMessage() ?: $exception->getMessage();
+            mark_email_failed($pdo, $id, $errorMsg);
+            $failed++;
         } catch (Throwable $exception) {
             mark_email_failed($pdo, $id, $exception->getMessage());
             $failed++;
@@ -712,7 +734,7 @@ try {
     }
 
     cron_log(sprintf(
-        '[%s] Email queue processed. Sent: %d. Failed/requeued: %d. Skipped: %d. Checked: %d.',
+        '[%s] Email queue processed (SES). Sent: %d. Failed/requeued: %d. Skipped: %d. Checked: %d.',
         cron_now_for_database(),
         $sent,
         $failed,
