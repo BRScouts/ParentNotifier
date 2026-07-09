@@ -414,6 +414,7 @@ $clickerRows = [];
 $recentClickRows = [];
 $zeroClickRows = [];
 $yearRows = [];
+$failedEmailRows = [];
 $quickestClick = null;
 $leaderVisitCount = 0;
 $excludedAdminVisitCount = 0;
@@ -560,6 +561,28 @@ try {
         if ($quickestClick) {
             $quickestClick['analytics_attribution'] = analytics_resolve_row_attribution($quickestClick, $teamEmailLookup, $leaderEmailLookup);
         }
+
+        // Fetch failed/errored emails
+        $stmt = $pdo->prepare(
+            'SELECT
+                eq.id,
+                eq.to_email,
+                eq.subject,
+                eq.status,
+                eq.attempts,
+                eq.last_error,
+                eq.queued_at,
+                eq.updated_at
+             FROM email_queue eq
+             WHERE eq.status IN ("failed", "pending")
+               AND eq.last_error IS NOT NULL
+               AND eq.last_error <> ""
+               AND eq.queued_at BETWEEN ? AND ?
+             ORDER BY eq.updated_at DESC
+             LIMIT 50'
+        );
+        $stmt->execute([$fromDateTime, $toDateTime]);
+        $failedEmailRows = $stmt->fetchAll();
     }
 
     if ($hasPageVisits) {
@@ -839,7 +862,7 @@ include __DIR__ . '/header.php';
 
     .analytics-grid {
         display: grid;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
+        grid-template-columns: repeat(6, minmax(0, 1fr));
         gap: 1rem;
         margin-bottom: 1.5rem;
     }
@@ -1111,10 +1134,7 @@ include __DIR__ . '/header.php';
 
     <div class="info-box">
         <p class="mb-0">
-            Page usage only reports parent-facing pages: Dashboard, Leaders and Contact.
-            Logged-in leader visits are excluded from parent usage figures.
-            Team attribution is inferred from existing people records where possible.
-            Manually entered emails that cannot be matched to a team, person or leader are left unattributed.
+            Parent-facing pages only (Dashboard, Leaders, Contact). Leader visits excluded. Team attribution inferred from people records.
         </p>
     </div>
 
@@ -1170,6 +1190,16 @@ include __DIR__ . '/header.php';
                 <?= (int)$summary['parent_unique_sessions'] ?> parent sessions
             </p>
         </div>
+
+        <div class="metric-card">
+            <h2>Failed emails</h2>
+            <p class="metric-value" <?= count($failedEmailRows) > 0 ? 'style="color:#d4351c;"' : '' ?>>
+                <?= count($failedEmailRows) ?>
+            </p>
+            <p class="metric-sub">
+                <?= count($failedEmailRows) > 0 ? 'Needs attention' : 'All clear' ?>
+            </p>
+        </div>
     </section>
 
     <section class="analytics-panel">
@@ -1203,9 +1233,7 @@ include __DIR__ . '/header.php';
                             <th>Attribution</th>
                             <th>Opens</th>
                             <th>Clicks</th>
-                            <th>Open</th>
-                            <th>Clicked</th>
-                            <th>Time to first click</th>
+                            <th>Time to click</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1219,40 +1247,19 @@ include __DIR__ . '/header.php';
                                 <td><?= e(analytics_safe_datetime($row['sent_at'] ?? null)) ?></td>
                                 <td><?= e($row['to_email'] ?? '') ?></td>
                                 <td><?= e($row['subject'] ?? '') ?></td>
-                                <td>
-                                    <?= e($attribution['label'] ?? 'Not attributed') ?>
-                                    <?php if (($attribution['type'] ?? '') === 'unattributed'): ?>
-                                        <br><span class="muted">Manual or unmatched</span>
-                                    <?php endif; ?>
-                                </td>
+                                <td><?= e($attribution['label'] ?? 'Not attributed') ?></td>
                                 <td>
                                     <?php if ($openCount > 0): ?>
-                                        <span class="rate-pill rate-good">Opened</span>
-                                        <?php if (!empty($row['first_opened_at'])): ?>
-                                            <br><span class="muted"><?= e(analytics_safe_datetime($row['first_opened_at'])) ?></span>
-                                        <?php endif; ?>
+                                        <span class="rate-pill rate-good"><?= $openCount ?></span>
                                     <?php else: ?>
-                                        <span class="rate-pill rate-muted">Not opened</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <strong><?= $clickCount ?></strong>
-                                    <?php if (!empty($row['first_clicked_at'])): ?>
-                                        <br><span class="muted">First: <?= e(analytics_safe_datetime($row['first_clicked_at'])) ?></span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <?php if ($openCount > 0): ?>
-                                        <span class="rate-pill rate-good">Opened</span>
-                                    <?php else: ?>
-                                        <span class="rate-pill rate-muted">No open</span>
+                                        <span class="rate-pill rate-muted">0</span>
                                     <?php endif; ?>
                                 </td>
                                 <td>
                                     <?php if ($clickCount > 0): ?>
-                                        <span class="rate-pill rate-good">Clicked</span>
+                                        <span class="rate-pill rate-good"><?= $clickCount ?></span>
                                     <?php else: ?>
-                                        <span class="rate-pill rate-warning">No click</span>
+                                        <span class="rate-pill rate-warning">0</span>
                                     <?php endif; ?>
                                 </td>
                                 <td><?= e(analytics_seconds_to_human($row['seconds_to_first_click'] !== null ? (int)$row['seconds_to_first_click'] : null)) ?></td>
@@ -1353,6 +1360,55 @@ include __DIR__ . '/header.php';
                     <?php endif; ?>
                 </nav>
             <?php endif; ?>
+        <?php endif; ?>
+    </section>
+
+    <section class="analytics-panel">
+        <h2>Failed emails</h2>
+
+        <?php if (empty($failedEmailRows)): ?>
+            <div class="empty-box" style="border-color:#00703c;">
+                No failed emails in this date range.
+            </div>
+        <?php else: ?>
+            <div class="warning-box">
+                <strong><?= count($failedEmailRows) ?> email(s) with errors.</strong>
+                These emails failed to send or are retrying.
+            </div>
+            <div class="analytics-table-wrap">
+                <table class="analytics-table">
+                    <thead>
+                        <tr>
+                            <th>Queued</th>
+                            <th>Recipient</th>
+                            <th>Subject</th>
+                            <th>Status</th>
+                            <th>Attempts</th>
+                            <th>Error</th>
+                            <th>Last attempt</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($failedEmailRows as $row): ?>
+                            <tr>
+                                <td><?= e(analytics_safe_datetime($row['queued_at'] ?? null)) ?></td>
+                                <td><?= e($row['to_email'] ?? '') ?></td>
+                                <td><?= e($row['subject'] ?? '') ?></td>
+                                <td>
+                                    <?php if ($row['status'] === 'failed'): ?>
+                                        <span class="rate-pill" style="background:#d4351c;color:#fff;border-color:#d4351c;">Failed</span>
+                                    <?php else: ?>
+                                        <span class="rate-pill rate-warning">Retrying</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td><?= (int)($row['attempts'] ?? 0) ?> / 5</td>
+                                <td style="max-width:300px;word-break:break-word;font-size:0.85rem;"><?= e($row['last_error'] ?? '') ?></td>
+                                <td><?= e(analytics_safe_datetime($row['updated_at'] ?? null)) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
         <?php endif; ?>
     </section>
 
@@ -1505,109 +1561,100 @@ include __DIR__ . '/header.php';
     </section>
 
     <section class="analytics-panel">
-        <h2>Emails with no clicks</h2>
+        <details>
+            <summary><h2 style="display:inline;">Emails with no clicks</h2></summary>
 
-        <?php if (empty($zeroClickRows)): ?>
-            <div class="empty-box">
-                All tracked sent emails in this period have at least one click, or no email data is available.
-            </div>
-        <?php else: ?>
-            <div class="analytics-table-wrap">
-                <table class="analytics-table">
-                    <thead>
-                        <tr>
-                            <th>Sent</th>
-                            <th>Recipient</th>
-                            <th>Attribution</th>
-                            <th>Subject</th>
-                            <th>Opens</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($zeroClickRows as $row): ?>
-                            <?php $attribution = $row['analytics_attribution'] ?? ['label' => 'Not attributed']; ?>
+            <?php if (empty($zeroClickRows)): ?>
+                <div class="empty-box" style="margin-top:1rem;">
+                    All tracked sent emails in this period have at least one click.
+                </div>
+            <?php else: ?>
+                <div class="analytics-table-wrap" style="margin-top:1rem;">
+                    <table class="analytics-table">
+                        <thead>
                             <tr>
-                                <td><?= e(analytics_safe_datetime($row['sent_at'] ?? null)) ?></td>
-                                <td><?= e($row['to_email'] ?? '') ?></td>
-                                <td><?= e($attribution['label'] ?? 'Not attributed') ?></td>
-                                <td><?= e($row['subject'] ?? '') ?></td>
-                                <td>
-                                    <?php if ((int)($row['open_count'] ?? 0) > 0): ?>
-                                        <span class="rate-pill rate-good">Opened</span>
-                                    <?php else: ?>
-                                        <span class="rate-pill rate-muted">Not opened</span>
-                                    <?php endif; ?>
-                                </td>
+                                <th>Sent</th>
+                                <th>Recipient</th>
+                                <th>Attribution</th>
+                                <th>Subject</th>
+                                <th>Opens</th>
                             </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-        <?php endif; ?>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($zeroClickRows as $row): ?>
+                                <?php $attribution = $row['analytics_attribution'] ?? ['label' => 'Not attributed']; ?>
+                                <tr>
+                                    <td><?= e(analytics_safe_datetime($row['sent_at'] ?? null)) ?></td>
+                                    <td><?= e($row['to_email'] ?? '') ?></td>
+                                    <td><?= e($attribution['label'] ?? 'Not attributed') ?></td>
+                                    <td><?= e($row['subject'] ?? '') ?></td>
+                                    <td>
+                                        <?php if ((int)($row['open_count'] ?? 0) > 0): ?>
+                                            <span class="rate-pill rate-good">Opened</span>
+                                        <?php else: ?>
+                                            <span class="rate-pill rate-muted">Not opened</span>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        </details>
     </section>
 
     <section class="analytics-panel">
-        <h2>Yearly parent page usage</h2>
+        <details>
+            <summary><h2 style="display:inline;">Yearly parent page usage</h2></summary>
 
-        <?php if (empty($yearRows)): ?>
-            <div class="empty-box">
-                No yearly parent page usage found yet.
-            </div>
-        <?php else: ?>
-            <div class="analytics-table-wrap">
-                <table class="analytics-table">
-                    <thead>
-                        <tr>
-                            <th>Year</th>
-                            <th>Page</th>
-                            <th>Visits</th>
-                            <th>Unique sessions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($yearRows as $row): ?>
+            <?php if (empty($yearRows)): ?>
+                <div class="empty-box" style="margin-top:1rem;">
+                    No yearly parent page usage found yet.
+                </div>
+            <?php else: ?>
+                <div class="analytics-table-wrap" style="margin-top:1rem;">
+                    <table class="analytics-table">
+                        <thead>
                             <tr>
-                                <td><?= e((string)$row['visit_year']) ?></td>
-                                <td>
-                                    <strong><?= e(analytics_page_label($row['request_path'] ?? '', $row['page_key'] ?? '')) ?></strong>
-                                    <br><span class="muted"><?= e(analytics_clean_path($row['request_path'] ?? '')) ?></span>
-                                </td>
-                                <td><?= (int)$row['visits'] ?></td>
-                                <td><?= (int)$row['unique_sessions'] ?></td>
+                                <th>Year</th>
+                                <th>Page</th>
+                                <th>Visits</th>
+                                <th>Unique sessions</th>
                             </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-        <?php endif; ?>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($yearRows as $row): ?>
+                                <tr>
+                                    <td><?= e((string)$row['visit_year']) ?></td>
+                                    <td><?= e(analytics_page_label($row['request_path'] ?? '', $row['page_key'] ?? '')) ?></td>
+                                    <td><?= (int)$row['visits'] ?></td>
+                                    <td><?= (int)$row['unique_sessions'] ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        </details>
     </section>
 
     <section class="analytics-panel">
-        <h2>Internal activity note</h2>
+        <details>
+            <summary><h2 style="display:inline;">Internal activity note</h2></summary>
 
-        <p>
-            Logged-in leader visits to parent-facing pages in this date range:
-            <strong><?= (int)$leaderVisitCount ?></strong>.
-        </p>
-
-        <p>
-            Parent visits excluded because they were not Dashboard, Leaders or Contact:
-            <strong><?= (int)$excludedAdminVisitCount ?></strong>.
-        </p>
-
-        <p>
-            Parent-facing visits ignored for team attribution because the email could not be matched to a team, person or leader:
-            <strong><?= (int)$ignoredUnattributedForTeamCount ?></strong>.
-        </p>
-
-        <p>
-            Unattributed visits to parent-facing pages in this date range:
-            <strong><?= (int)$unattributedVisitCount ?></strong>.
-        </p>
-
-        <p class="muted mb-0">
-            Team attribution is inferred from the existing people records. Emails that do not match a participant, parent update contact, emergency contact or leader remain unattributed.
-        </p>
+            <div style="margin-top:1rem;">
+                <p>
+                    Leader visits excluded: <strong><?= (int)$leaderVisitCount ?></strong> ·
+                    Non-parent pages excluded: <strong><?= (int)$excludedAdminVisitCount ?></strong> ·
+                    Unattributed visits: <strong><?= (int)$unattributedVisitCount ?></strong> ·
+                    Ignored for team attribution: <strong><?= (int)$ignoredUnattributedForTeamCount ?></strong>
+                </p>
+                <p class="muted mb-0">
+                    Team attribution is inferred from existing people records. Unmatched emails remain unattributed.
+                </p>
+            </div>
+        </details>
     </section>
 
 </main>
