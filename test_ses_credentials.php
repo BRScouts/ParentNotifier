@@ -65,7 +65,7 @@ try {
 
     $ses->sendEmail([
         'Source' => defined('MAIL_FROM_ADDRESS') ? MAIL_FROM_ADDRESS : 'noreply@app.irvalscouts.org.uk',
-        'Destination' => ['ToAddresses' => ['test@example.com']],
+        'Destination' => ['ToAddresses' => ['charlie@ckenterprises.co.uk']],
         'Message' => [
             'Subject' => ['Data' => 'SES Test', 'Charset' => 'UTF-8'],
             'Body' => ['Text' => ['Data' => 'Credential test.', 'Charset' => 'UTF-8']],
