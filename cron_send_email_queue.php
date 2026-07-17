@@ -31,8 +31,8 @@ if (!file_exists($autoload)) {
 
 require_once $autoload;
 
-use Aws\Ses\SesClient;
-use Aws\Exception\AwsException;
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception as PHPMailerException;
 
 $pdo = db();
 
@@ -489,65 +489,39 @@ function build_plain_text_email(string $subject, string $content): string
         "Provided by CK Enterprises UK";
 }
 
-function make_ses_client(): SesClient
+function send_email(string $toEmail, string $subject, string $htmlBody, string $plainBody): void
 {
-    return new SesClient([
-        'version'     => 'latest',
-        'region'      => trim((string)mail_constant('SES_AWS_REGION', 'eu-west-2')),
-        'credentials' => [
-            'key'    => trim((string)mail_constant('SES_AWS_ACCESS_KEY_ID', '')),
-            'secret' => trim((string)mail_constant('SES_AWS_SECRET_ACCESS_KEY', '')),
-        ],
-    ]);
-}
+    $mail = new PHPMailer(true);
 
-function send_ses_email(SesClient $ses, string $toEmail, string $subject, string $htmlBody, string $plainBody): void
-{
+    // Use cPanel's local sendmail (no SMTP, no credentials needed)
+    $mail->isSendmail();
+
+    $mail->CharSet = 'UTF-8';
+    $mail->Encoding = 'base64';
+
     $fromAddress = (string)mail_constant('MAIL_FROM_ADDRESS',
         (string)mail_constant('MAIL_FROM_EMAIL', 'updates@exbelt2026.irvalscouts.org.uk')
     );
     $fromName = (string)mail_constant('MAIL_FROM_NAME', 'Explorer Belt Live');
 
-    $source = $fromName !== '' ? "=?UTF-8?B?" . base64_encode($fromName) . "?= <{$fromAddress}>" : $fromAddress;
+    $mail->setFrom($fromAddress, $fromName);
 
     $replyToEmail = (string)mail_constant('MAIL_REPLY_TO_EMAIL', '');
-    $replyToAddresses = [];
 
     if ($replyToEmail !== '') {
-        $replyToName = (string)mail_constant('MAIL_REPLY_TO_NAME', 'Explorer Belt Team');
-        $replyToAddresses[] = $replyToName !== ''
-            ? "=?UTF-8?B?" . base64_encode($replyToName) . "?= <{$replyToEmail}>"
-            : $replyToEmail;
+        $mail->addReplyTo(
+            $replyToEmail,
+            (string)mail_constant('MAIL_REPLY_TO_NAME', 'Explorer Belt Team')
+        );
     }
 
-    $params = [
-        'Source' => $source,
-        'Destination' => [
-            'ToAddresses' => [$toEmail],
-        ],
-        'Message' => [
-            'Subject' => [
-                'Data' => $subject,
-                'Charset' => 'UTF-8',
-            ],
-            'Body' => [
-                'Html' => [
-                    'Data' => $htmlBody,
-                    'Charset' => 'UTF-8',
-                ],
-                'Text' => [
-                    'Data' => $plainBody,
-                    'Charset' => 'UTF-8',
-                ],
-            ],
-        ],
-    ];
+    $mail->addAddress($toEmail);
+    $mail->Subject = $subject;
+    $mail->isHTML(true);
+    $mail->Body = $htmlBody;
+    $mail->AltBody = $plainBody;
 
-    if (!empty($replyToAddresses)) {
-        $params['ReplyToAddresses'] = $replyToAddresses;
-    }
-
-    $ses->sendEmail($params);
+    $mail->send();
 }
 
 function reset_stale_processing_emails(PDO $pdo): void
@@ -661,7 +635,6 @@ try {
     $failed = 0;
     $skipped = 0;
 
-    $ses = make_ses_client();
     $delaySeconds = (int)mail_constant('MAIL_QUEUE_DELAY_SECONDS', 0);
 
     foreach ($emails as $index => $email) {
@@ -700,12 +673,6 @@ try {
              * 2. Scan the final HTML for all href links.
              * 3. Append &trk=... or ?trk=... to each http/https link.
              * 4. Add the open tracking pixel.
-             *
-             * This tracks:
-             * - links added in the GUI editor;
-             * - plain pasted URLs converted into links;
-             * - template/shortcode CTA links;
-             * - the plain text fallback links.
              */
             $htmlBody = build_email_template($subject, $content);
             $htmlBody = track_html_links($htmlBody, $trackingToken);
@@ -714,19 +681,15 @@ try {
             $plainBody = build_plain_text_email($subject, $content);
             $plainBody = track_plain_text_links($plainBody, $trackingToken);
 
-            send_ses_email($ses, $toEmail, $subject, $htmlBody, $plainBody);
+            send_email($toEmail, $subject, $htmlBody, $plainBody);
 
             mark_email_sent($pdo, $id);
             $sent++;
 
-            // Respect SES rate-limiting delay between sends
+            // Rate-limiting delay between sends
             if ($delaySeconds > 0 && $index < count($emails) - 1) {
                 sleep($delaySeconds);
             }
-        } catch (AwsException $exception) {
-            $errorMsg = $exception->getAwsErrorMessage() ?: $exception->getMessage();
-            mark_email_failed($pdo, $id, $errorMsg);
-            $failed++;
         } catch (Throwable $exception) {
             mark_email_failed($pdo, $id, $exception->getMessage());
             $failed++;
@@ -734,7 +697,7 @@ try {
     }
 
     cron_log(sprintf(
-        '[%s] Email queue processed (SES). Sent: %d. Failed/requeued: %d. Skipped: %d. Checked: %d.',
+        '[%s] Email queue processed. Sent: %d. Failed/requeued: %d. Skipped: %d. Checked: %d.',
         cron_now_for_database(),
         $sent,
         $failed,
