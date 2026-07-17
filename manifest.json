@@ -2,14 +2,14 @@
     "name": "Explorer Belt 2026",
     "short_name": "Explorer Belt",
     "description": "Team check-in and parent notification app for Explorer Belt 2026",
-    "start_url": "/explorer_checkin.php",
+    "start_url": "/dashboard.php",
     "display": "standalone",
     "background_color": "#ffffff",
     "theme_color": "#7413dc",
     "orientation": "portrait-primary",
     "icons": [
         {
-            "src": "/assets/logo.png",
+            "src": "/assets/logo.webp",
             "sizes": "192x192",
             "type": "image/png",
             "purpose": "any maskable"
