@@ -1,4 +1,5 @@
 <?php
+$loadLeaflet = true;
 require_once __DIR__ . '/config.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
@@ -941,7 +942,13 @@ include __DIR__ . '/explorer_header.php';
                     </button>
                 </div>
 
-                <div id="checkinMap" class="map-box"></div>
+                <div id="checkinMapWrapper">
+                    <div id="checkinMapPlaceholder" class="map-box" style="display:flex;align-items:center;justify-content:center;flex-direction:column;cursor:pointer;">
+                        <p style="font-weight:800;font-size:1.1rem;margin:0 0 0.5rem;">Loading map...</p>
+                        <p style="margin:0;color:#505a5f;font-size:0.9rem;">Tap here if the map doesn't load</p>
+                    </div>
+                    <div id="checkinMap" class="map-box" style="display:none;"></div>
+                </div>
 
                 <p class="small-map-note">
                     The map starts in Finland. If location permission is allowed, it should move to where you are.
@@ -1238,8 +1245,19 @@ include __DIR__ . '/explorer_header.php';
         }
 
         var mapElement = document.getElementById('checkinMap');
+        var mapPlaceholder = document.getElementById('checkinMapPlaceholder');
+        var mapLoaded = false;
 
-        if (mapElement && typeof L !== 'undefined') {
+        function initCheckinMap() {
+            if (mapLoaded) return;
+            if (!mapElement || typeof L === 'undefined') return;
+
+            mapLoaded = true;
+
+            // Show the real map, hide placeholder
+            mapElement.style.display = 'block';
+            if (mapPlaceholder) mapPlaceholder.style.display = 'none';
+
             var latInput = document.getElementById('latitude');
             var lngInput = document.getElementById('longitude');
             var useLocationButton = document.getElementById('useCurrentLocation');
@@ -1305,6 +1323,40 @@ include __DIR__ . '/explorer_header.php';
             setTimeout(function () {
                 map.invalidateSize();
             }, 250);
+        }
+
+        // Lazy-load: try to init map immediately if Leaflet is ready
+        if (typeof L !== 'undefined') {
+            initCheckinMap();
+        }
+
+        // Fallback: if Leaflet loads late (deferred), poll briefly
+        if (!mapLoaded) {
+            var leafletCheckInterval = setInterval(function () {
+                if (typeof L !== 'undefined') {
+                    clearInterval(leafletCheckInterval);
+                    initCheckinMap();
+                }
+            }, 200);
+
+            // Stop polling after 15 seconds
+            setTimeout(function () {
+                clearInterval(leafletCheckInterval);
+                if (!mapLoaded && mapPlaceholder) {
+                    mapPlaceholder.querySelector('p').textContent = 'Map could not load. Tap to retry.';
+                }
+            }, 15000);
+        }
+
+        // Allow tap on placeholder to trigger load
+        if (mapPlaceholder) {
+            mapPlaceholder.addEventListener('click', function () {
+                if (typeof L !== 'undefined') {
+                    initCheckinMap();
+                } else {
+                    mapPlaceholder.querySelector('p').textContent = 'Map library not available. Check your connection.';
+                }
+            });
         }
 
         var welfareToggles = document.querySelectorAll('.welfare-toggle');
@@ -1438,6 +1490,34 @@ include __DIR__ . '/explorer_header.php';
                 }
             });
         });
+    });
+</script>
+
+<script src="<?= e(url('assets/js/offline-queue.js')) ?>"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        OfflineQueue.init();
+
+        var checkinForm = document.getElementById('checkinForm');
+        if (checkinForm) {
+            OfflineQueue.interceptForm(
+                checkinForm,
+                '<?= e(url('explorer_checkin.php?token=' . urlencode($token))) ?>',
+                {
+                    onQueued: function () {
+                        // Show a success-like state so the user knows it's saved
+                        checkinForm.style.display = 'none';
+                        var savedMsg = document.createElement('div');
+                        savedMsg.className = 'success-box';
+                        savedMsg.innerHTML = '<h2>Check-in saved offline</h2>'
+                            + '<p>Your check-in has been saved to this device. '
+                            + 'It will be submitted automatically when your connection returns.</p>'
+                            + '<p>You can close this page safely.</p>';
+                        checkinForm.parentNode.insertBefore(savedMsg, checkinForm);
+                    }
+                }
+            );
+        }
     });
 </script>
 

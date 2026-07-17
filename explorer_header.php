@@ -60,11 +60,22 @@ $explorerNavLinks = [
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#7413dc">
     <title><?= e(APP_NAME) ?> - Explorer Portal</title>
 
+    <link rel="manifest" href="<?= e(url('manifest.json')) ?>">
+    <link rel="apple-touch-icon" href="<?= e(url('assets/logo.png')) ?>">
+
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <?php if (!empty($loadLeaflet)): ?>
+    <link rel="preconnect" href="https://unpkg.com" crossorigin>
+    <?php endif; ?>
+
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
+    <?php if (!empty($loadLeaflet)): ?>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="<?= e(url('assets/css/app.css')) ?>">
+    <?php endif; ?>
+    <link rel="stylesheet" href="<?= e(url('assets/css/app.min.css')) ?>">
 
     <style>
         .explorer-navbar {
@@ -159,6 +170,16 @@ $explorerNavLinks = [
             }
         }
     </style>
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('/sw.js').catch(function () {
+                    // Service worker registration failed - not critical
+                });
+            });
+        }
+    </script>
 </head>
 
 <body>
