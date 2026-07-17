@@ -489,7 +489,159 @@ function build_plain_text_email(string $subject, string $content): string
         "Provided by CK Enterprises UK";
 }
 
-function send_email(string $toEmail, string $subject, string $htmlBody, string $plainBody): void
+/**
+ * Acquire an OAuth2 access token from Microsoft Entra ID using client credentials.
+ * Tokens are cached in-memory for the duration of the cron run.
+ */
+function graph_get_access_token(): string
+{
+    static $cachedToken = null;
+    static $tokenExpiry = 0;
+
+    if ($cachedToken !== null && time() < $tokenExpiry) {
+        return $cachedToken;
+    }
+
+    $tenantId = (string)mail_constant('MS_TENANT_ID', '');
+    $clientId = (string)mail_constant('MS_CLIENT_ID', '');
+    $clientSecret = (string)mail_constant('MS_CLIENT_SECRET', '');
+
+    if ($tenantId === '' || $clientId === '' || $clientSecret === '') {
+        throw new RuntimeException('Microsoft Graph credentials (MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET) are not configured.');
+    }
+
+    $tokenUrl = 'https://login.microsoftonline.com/' . $tenantId . '/oauth2/v2.0/token';
+
+    $postFields = http_build_query([
+        'client_id' => $clientId,
+        'client_secret' => $clientSecret,
+        'scope' => 'https://graph.microsoft.com/.default',
+        'grant_type' => 'client_credentials',
+    ]);
+
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $tokenUrl,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $postFields,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/x-www-form-urlencoded'],
+    ]);
+
+    $response = curl_exec($ch);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+
+    if ($response === false) {
+        throw new RuntimeException('Graph token request failed (cURL): ' . $curlError);
+    }
+
+    $data = json_decode($response, true);
+
+    if ($httpCode !== 200 || !isset($data['access_token'])) {
+        $error = $data['error_description'] ?? $data['error'] ?? 'Unknown error';
+        throw new RuntimeException('Graph token request failed (' . $httpCode . '): ' . $error);
+    }
+
+    $cachedToken = (string)$data['access_token'];
+    // Cache token with a 5-minute safety margin
+    $tokenExpiry = time() + (int)($data['expires_in'] ?? 3600) - 300;
+
+    return $cachedToken;
+}
+
+/**
+ * Send an email via Microsoft Graph API.
+ */
+function send_email_graph(string $toEmail, string $subject, string $htmlBody, string $plainBody): void
+{
+    $token = graph_get_access_token();
+
+    $fromAddress = (string)mail_constant('MAIL_GRAPH_FROM_ADDRESS',
+        (string)mail_constant('MAIL_FROM_ADDRESS', 'noreply.explorerbelt@irvalscouts.org.uk')
+    );
+    $fromName = (string)mail_constant('MAIL_GRAPH_FROM_NAME',
+        (string)mail_constant('MAIL_FROM_NAME', 'Explorer Belt Live')
+    );
+
+    $replyToEmail = (string)mail_constant('MAIL_REPLY_TO_EMAIL', '');
+    $replyToName = (string)mail_constant('MAIL_REPLY_TO_NAME', 'Explorer Belt Team');
+
+    $message = [
+        'message' => [
+            'subject' => $subject,
+            'body' => [
+                'contentType' => 'HTML',
+                'content' => $htmlBody,
+            ],
+            'from' => [
+                'emailAddress' => [
+                    'address' => $fromAddress,
+                    'name' => $fromName,
+                ],
+            ],
+            'toRecipients' => [
+                [
+                    'emailAddress' => [
+                        'address' => $toEmail,
+                    ],
+                ],
+            ],
+        ],
+        'saveToSentItems' => false,
+    ];
+
+    if ($replyToEmail !== '') {
+        $message['message']['replyTo'] = [
+            [
+                'emailAddress' => [
+                    'address' => $replyToEmail,
+                    'name' => $replyToName,
+                ],
+            ],
+        ];
+    }
+
+    // Graph API endpoint: send as the shared mailbox
+    $url = 'https://graph.microsoft.com/v1.0/users/' . rawurlencode($fromAddress) . '/sendMail';
+
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $url,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => json_encode($message, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bearer ' . $token,
+            'Content-Type: application/json',
+        ],
+    ]);
+
+    $response = curl_exec($ch);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+
+    if ($response === false) {
+        throw new RuntimeException('Graph sendMail request failed (cURL): ' . $curlError);
+    }
+
+    // 202 Accepted = success. Graph returns empty body on success.
+    if ($httpCode !== 202) {
+        $data = json_decode($response, true);
+        $error = $data['error']['message'] ?? $response;
+        throw new RuntimeException('Graph sendMail failed (' . $httpCode . '): ' . $error);
+    }
+}
+
+/**
+ * Send an email using PHPMailer (PHP mail() function).
+ * Kept as fallback if MAIL_SEND_VIA is set to 'phpmail'.
+ */
+function send_email_phpmail(string $toEmail, string $subject, string $htmlBody, string $plainBody): void
 {
     $mail = new PHPMailer(true);
 
@@ -522,6 +674,20 @@ function send_email(string $toEmail, string $subject, string $htmlBody, string $
     $mail->AltBody = $plainBody;
 
     $mail->send();
+}
+
+/**
+ * Route email sending to the configured method.
+ */
+function send_email(string $toEmail, string $subject, string $htmlBody, string $plainBody): void
+{
+    $method = strtolower((string)mail_constant('MAIL_SEND_VIA', 'phpmail'));
+
+    if ($method === 'graph') {
+        send_email_graph($toEmail, $subject, $htmlBody, $plainBody);
+    } else {
+        send_email_phpmail($toEmail, $subject, $htmlBody, $plainBody);
+    }
 }
 
 function reset_stale_processing_emails(PDO $pdo): void
