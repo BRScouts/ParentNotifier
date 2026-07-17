@@ -229,6 +229,8 @@ $tokenParam = urlencode($token);
 
 <div class="container" style="padding-top: 1rem; padding-bottom: 2rem;">
 
+    <?php include __DIR__ . '/pwa_install_card.php'; ?>
+
     <!-- Hero / Team Name Panel -->
     <section class="portal-hero" style="background: #7413dc; color: #ffffff; padding: 0.75rem 1.25rem; margin-bottom: 1.25rem; border-radius: 0; display: flex; align-items: center; gap: 0.75rem;">
         <h1 style="font-weight: 900; margin: 0; font-size: 1.4rem; line-height: 1.2;">

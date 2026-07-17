@@ -1493,32 +1493,4 @@ include __DIR__ . '/explorer_header.php';
     });
 </script>
 
-<script src="<?= e(url('assets/js/offline-queue.js')) ?>"></script>
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        OfflineQueue.init();
-
-        var checkinForm = document.getElementById('checkinForm');
-        if (checkinForm) {
-            OfflineQueue.interceptForm(
-                checkinForm,
-                '<?= e(url('explorer_checkin.php?token=' . urlencode($token))) ?>',
-                {
-                    onQueued: function () {
-                        // Show a success-like state so the user knows it's saved
-                        checkinForm.style.display = 'none';
-                        var savedMsg = document.createElement('div');
-                        savedMsg.className = 'success-box';
-                        savedMsg.innerHTML = '<h2>Check-in saved offline</h2>'
-                            + '<p>Your check-in has been saved to this device. '
-                            + 'It will be submitted automatically when your connection returns.</p>'
-                            + '<p>You can close this page safely.</p>';
-                        checkinForm.parentNode.insertBefore(savedMsg, checkinForm);
-                    }
-                }
-            );
-        }
-    });
-</script>
-
 <?php include __DIR__ . '/explorer_footer.php'; ?>

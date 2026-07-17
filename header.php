@@ -313,11 +313,17 @@ $isLeaderOnDuty = $headerDutyStatus['on_duty'] ?? false;
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#7413dc">
     <title><?= e(APP_NAME) ?></title>
+
+    <link rel="manifest" href="<?= e(url('manifest.json')) ?>">
+    <link rel="apple-touch-icon" href="<?= e(url('assets/logo.png')) ?>">
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="preconnect" href="https://unpkg.com" crossorigin>
 
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="<?= e(url('assets/css/app.css?v=11')) ?>">
+    <link rel="stylesheet" href="<?= e(url('assets/css/app.min.css')) ?>">
 
     <style>
         .site-header {
