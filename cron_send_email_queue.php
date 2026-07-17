@@ -493,8 +493,8 @@ function send_email(string $toEmail, string $subject, string $htmlBody, string $
 {
     $mail = new PHPMailer(true);
 
-    // Use cPanel's local sendmail (no SMTP, no credentials needed)
-    $mail->isSendmail();
+    // Use PHP's mail() function — works on cPanel without popen()
+    $mail->isMail();
 
     $mail->CharSet = 'UTF-8';
     $mail->Encoding = 'base64';
