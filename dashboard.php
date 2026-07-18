@@ -1556,7 +1556,9 @@ include __DIR__ . '/header.php';
 
 <main id="main-content" class="container my-5">
 
-    <?php include __DIR__ . '/pwa_install_card.php'; ?>
+    <?php if ($isLeader): ?>
+        <?php include __DIR__ . '/pwa_install_card.php'; ?>
+    <?php endif; ?>
 
     <?php if ($error): ?>
         <div class="alert alert-danger">
