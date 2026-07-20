@@ -55,5 +55,43 @@
         });
     }
 </script>
+
+<?php if (function_exists('is_logged_in') && is_logged_in()): ?>
+<script src="/assets/js/push.js"></script>
+<script>
+(function () {
+    var toggleBtn = document.querySelector('[data-push-role="toggle"]');
+    if (!toggleBtn) return;
+
+    var vapidKey = <?= json_encode(defined('VAPID_PUBLIC_KEY') ? VAPID_PUBLIC_KEY : '') ?>;
+    if (!vapidKey) return;
+
+    ExBeltPush.init({
+        vapidPublicKey: vapidKey,
+        subscribeEndpoint: '/push_subscribe.php',
+        swPath: '/sw.js'
+    }).then(function (isSubscribed) {
+        if (isSubscribed) {
+            toggleBtn.textContent = 'Disable Notifications';
+        } else {
+            toggleBtn.textContent = 'Enable Notifications';
+        }
+    });
+
+    toggleBtn.addEventListener('click', function () {
+        toggleBtn.disabled = true;
+        toggleBtn.textContent = 'Please wait...';
+        ExBeltPush.toggle().then(function () {
+            var state = ExBeltPush.getState();
+            toggleBtn.textContent = state.isSubscribed ? 'Disable Notifications' : 'Enable Notifications';
+            toggleBtn.disabled = false;
+        }).catch(function () {
+            toggleBtn.textContent = 'Enable Notifications';
+            toggleBtn.disabled = false;
+        });
+    });
+})();
+</script>
+<?php endif; ?>
 </body>
 </html>

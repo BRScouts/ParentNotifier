@@ -2518,26 +2518,6 @@ include __DIR__ . '/header.php';
                     <?php endif; ?>
                 <?php endif; ?>
             </section>
-
-            <?php if ($isLeader): ?>
-            <!-- Push Notifications Panel -->
-            <section class="sidebar-panel" style="margin-top: 1.5rem;">
-                <h2>Push Notifications</h2>
-                <p data-push-role="status" class="push-status push-status-inactive" style="font-size: 0.9rem; margin-bottom: 0.75rem;">
-                    Loading notification status...
-                </p>
-                <button
-                    type="button"
-                    data-push-role="toggle"
-                    class="btn btn-primary"
-                    style="width: 100%;"
-                    disabled
-                >
-                    Loading...
-                </button>
-            </section>
-            <?php endif; ?>
-
         </aside>
 
     </div>
@@ -2656,31 +2636,5 @@ include __DIR__ . '/header.php';
         }
     })();
 </script>
-
-<?php if ($isLeader): ?>
-<!-- Push notification subscription management -->
-<script src="/assets/js/push.js"></script>
-<script>
-(function () {
-    var toggleBtn = document.querySelector('[data-push-role="toggle"]');
-    if (!toggleBtn) return;
-
-    ExBeltPush.init({
-        vapidPublicKey: <?= json_encode(VAPID_PUBLIC_KEY) ?>,
-        subscribeEndpoint: '/push_subscribe.php',
-        swPath: '/sw.js'
-    });
-
-    toggleBtn.addEventListener('click', function () {
-        toggleBtn.disabled = true;
-        ExBeltPush.toggle().then(function () {
-            toggleBtn.disabled = false;
-        }).catch(function () {
-            toggleBtn.disabled = false;
-        });
-    });
-})();
-</script>
-<?php endif; ?>
 
 <?php include __DIR__ . '/footer.php'; ?>

@@ -34,7 +34,6 @@ function push_create_client(): WebPush
 
     $webPush = new WebPush($auth);
     $webPush->setReuseVAPIDHeaders(true);
-    $webPush->setAutomaticPadding(false);
 
     return $webPush;
 }
@@ -53,8 +52,11 @@ function push_get_all_subscriptions(PDO $pdo): array
              INNER JOIN leaders l ON l.id = ps.leader_id AND l.is_active = 1
              ORDER BY ps.created_at DESC'
         );
-        return $stmt->fetchAll();
+        $results = $stmt->fetchAll();
+        error_log('[Push] Found ' . count($results) . ' active subscription(s)');
+        return $results;
     } catch (Throwable $e) {
+        error_log('[Push] Error fetching subscriptions: ' . $e->getMessage());
         return [];
     }
 }

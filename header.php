@@ -1023,6 +1023,19 @@ $isLeaderOnDuty = $headerDutyStatus['on_duty'] ?? false;
                                 Analytics
                             </a>
 
+                            <a class="dropdown-item" href="<?= e(url('parent_engagement_analytics.php')) ?>">
+                                Parent Engagement
+                            </a>
+
+                            <button
+                                type="button"
+                                class="dropdown-item"
+                                data-push-role="toggle"
+                                id="pushToggleDropdown"
+                            >
+                                Enable Notifications
+                            </button>
+
                             <a class="dropdown-item" href="<?= e(url('logout.php')) ?>">
                                 Sign out
                             </a>

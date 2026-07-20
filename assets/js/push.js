@@ -40,6 +40,21 @@ var ExBeltPush = (function () {
     }
 
     /**
+     * Convert an ArrayBuffer to URL-safe base64 (no padding).
+     * Required for sending p256dh and auth keys to the server.
+     */
+    function arrayBufferToBase64Url(buffer) {
+        var bytes = new Uint8Array(buffer);
+        var binary = '';
+
+        for (var i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+
+        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    /**
      * Check if push notifications are supported in this browser.
      */
     function isSupported() {
@@ -152,8 +167,8 @@ var ExBeltPush = (function () {
             var auth = subscription.getKey('auth');
 
             body.endpoint = subscription.endpoint;
-            body.p256dh_key = key ? btoa(String.fromCharCode.apply(null, new Uint8Array(key))) : '';
-            body.auth_key = auth ? btoa(String.fromCharCode.apply(null, new Uint8Array(auth))) : '';
+            body.p256dh_key = key ? arrayBufferToBase64Url(key) : '';
+            body.auth_key = auth ? arrayBufferToBase64Url(auth) : '';
         } else {
             body.endpoint = subscription.endpoint || subscription;
         }

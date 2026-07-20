@@ -641,15 +641,15 @@ if ($submittedBy === '') {
             );
         }
 
-        // Send push notification to all subscribed leaders
+        $pdo->commit();
+
+        // Send push notification to all subscribed leaders (after commit so DB is consistent)
         try {
-            push_notify_checkin_submitted($pdo, $team, $checkin);
+            $pushResult = push_notify_checkin_submitted($pdo, $team, $checkin);
+            error_log('[Push] Check-in notification result: sent=' . ($pushResult['sent'] ?? 0) . ' failed=' . ($pushResult['failed'] ?? 0) . ' expired=' . ($pushResult['expired'] ?? 0));
         } catch (Throwable $pushError) {
-            // Don't block check-in submission if push fails
             error_log('[Push] Failed to send check-in notification: ' . $pushError->getMessage());
         }
-
-        $pdo->commit();
 
         $_SESSION['explorer_checkin_success'] = [
             'team_name' => $team['name'],
