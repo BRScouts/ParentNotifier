@@ -1524,6 +1524,76 @@ include __DIR__ . '/header.php';
         object-fit: cover;
         background: #f3f2f1;
     }
+
+    /* === Mobile optimisations === */
+    @media (max-width: 480px) {
+        .rag-grid {
+            gap: 0.5rem;
+        }
+
+        .rag-card {
+            padding: 0.65rem;
+            border-width: 3px;
+        }
+
+        .rag-card h3 {
+            font-size: 0.95rem;
+        }
+
+        .team-header-panel {
+            gap: 0.5rem;
+        }
+
+        .team-header-faces {
+            gap: 0.15rem;
+        }
+
+        .teams-panel {
+            padding: 0.75rem;
+        }
+
+        .teams-panel h2 {
+            font-size: 1.1rem;
+        }
+
+        .teams-panel .form-control,
+        .teams-panel .custom-select {
+            font-size: 16px;
+            min-height: 44px;
+        }
+
+        .teams-panel .btn {
+            min-height: 44px;
+        }
+
+        .note-log-heading {
+            grid-template-columns: 38px minmax(0, 1fr);
+            gap: 0.5rem;
+        }
+
+        .note-log-photo {
+            width: 38px;
+            height: 38px;
+        }
+
+        .leader-mini {
+            width: 26px;
+            height: 26px;
+            max-width: 26px;
+            max-height: 26px;
+            font-size: 0.6rem;
+        }
+    }
+
+    @media (max-width: 380px) {
+        .rag-card {
+            padding: 0.55rem;
+        }
+
+        .rag-card h3 {
+            font-size: 0.88rem;
+        }
+    }
 </style>
 
 <section class="page-hero">

@@ -830,3 +830,496 @@ footer a {
         white-space: normal;
     }
 }
+
+
+/* ============================================================
+   MOBILE OPTIMISATIONS
+   Comprehensive responsive improvements for phones and tablets
+   ============================================================ */
+
+/* Prevent horizontal overflow on all devices */
+html,
+body {
+    overflow-x: hidden;
+}
+
+*,
+*::before,
+*::after {
+    max-width: 100%;
+}
+
+img,
+video,
+iframe,
+embed,
+object {
+    max-width: 100%;
+    height: auto;
+}
+
+/* iOS safe area padding for notched devices */
+@supports (padding: env(safe-area-inset-bottom)) {
+    body {
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
+    }
+
+    .site-footer,
+    .enhanced-footer {
+        padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+    }
+}
+
+/* Improved touch targets - minimum 44px for all interactive elements */
+@media (max-width: 991.98px) {
+    .btn {
+        min-height: 44px;
+        padding: 0.55rem 1rem;
+        font-size: 0.95rem;
+    }
+
+    .btn-sm {
+        min-height: 38px;
+        padding: 0.4rem 0.75rem;
+        font-size: 0.88rem;
+    }
+
+    .form-control,
+    .custom-select {
+        min-height: 44px;
+        font-size: 16px; /* Prevents iOS zoom on focus */
+        padding: 0.5rem 0.75rem;
+    }
+
+    textarea.form-control {
+        min-height: 100px;
+    }
+
+    .nav-link {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+    }
+
+    .dropdown-item {
+        min-height: 44px;
+        padding: 0.65rem 1rem;
+        display: flex;
+        align-items: center;
+    }
+
+    /* Larger checkbox and radio hit areas */
+    .form-check {
+        padding-top: 0.25rem;
+        padding-bottom: 0.25rem;
+    }
+
+    .form-check-input {
+        width: 1.25rem;
+        height: 1.25rem;
+        margin-top: 0.15rem;
+    }
+
+    .form-check-label {
+        padding-left: 0.35rem;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+    }
+}
+
+/* Responsive tables - horizontal scroll wrapper */
+.table-responsive-mobile {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin-bottom: 1rem;
+}
+
+@media (max-width: 767.98px) {
+    .table {
+        font-size: 0.9rem;
+    }
+
+    .table th,
+    .table td {
+        padding: 0.55rem 0.5rem;
+        white-space: nowrap;
+    }
+
+    /* Stack table on very small screens when it has the helper class */
+    .table-stack-mobile thead {
+        display: none;
+    }
+
+    .table-stack-mobile,
+    .table-stack-mobile tbody,
+    .table-stack-mobile tr,
+    .table-stack-mobile td {
+        display: block;
+        width: 100%;
+    }
+
+    .table-stack-mobile tr {
+        border: 2px solid var(--border-light);
+        margin-bottom: 0.75rem;
+        padding: 0.75rem;
+        background: var(--white);
+    }
+
+    .table-stack-mobile td {
+        padding: 0.3rem 0;
+        border: 0;
+        white-space: normal;
+    }
+
+    .table-stack-mobile td::before {
+        content: attr(data-label);
+        display: block;
+        font-weight: 800;
+        font-size: 0.8rem;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+    }
+}
+
+/* Mobile-optimised spacing */
+@media (max-width: 767.98px) {
+    .container {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    .my-5 {
+        margin-top: 1.5rem !important;
+        margin-bottom: 1.5rem !important;
+    }
+
+    .page-hero {
+        padding: 1.25rem 0;
+        margin-bottom: 1.25rem;
+    }
+
+    .page-hero h1 {
+        font-size: 1.55rem;
+    }
+
+    .page-hero .lead {
+        font-size: 0.95rem;
+    }
+
+    h1 {
+        font-size: 1.6rem;
+    }
+
+    h2 {
+        font-size: 1.3rem;
+    }
+
+    h3 {
+        font-size: 1.1rem;
+    }
+
+    /* Tighter panels on mobile */
+    .panel,
+    .admin-panel,
+    .leader-card,
+    .update-card,
+    .team-status-panel,
+    .sidebar-panel,
+    .parent-leader-intro {
+        padding: 1rem;
+    }
+
+    .admin-panel {
+        padding: 1rem;
+    }
+
+    /* Admin tabs scroll horizontally on mobile */
+    .admin-tabs {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        flex-wrap: nowrap;
+        gap: 0;
+        padding-bottom: 2px;
+    }
+
+    .admin-tab {
+        flex-shrink: 0;
+        padding: 0.7rem 0.85rem;
+        font-size: 0.9rem;
+    }
+
+    /* Status pills tighter */
+    .status-pill,
+    .leader-status {
+        padding: 0.25rem 0.4rem;
+        font-size: 0.82rem;
+    }
+
+    /* Alerts full-bleed feel */
+    .alert {
+        margin-left: -0.25rem;
+        margin-right: -0.25rem;
+    }
+}
+
+/* Extra-small phones (320-400px) */
+@media (max-width: 400px) {
+    body {
+        font-size: 15px;
+    }
+
+    .container {
+        padding-left: 0.75rem;
+        padding-right: 0.75rem;
+    }
+
+    .page-hero h1 {
+        font-size: 1.35rem;
+    }
+
+    .page-hero .lead {
+        font-size: 0.9rem;
+    }
+
+    h1 {
+        font-size: 1.4rem;
+    }
+
+    h2 {
+        font-size: 1.15rem;
+    }
+
+    .btn {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.88rem;
+    }
+
+    .panel,
+    .admin-panel,
+    .leader-card,
+    .update-card,
+    .team-status-panel,
+    .sidebar-panel {
+        padding: 0.75rem;
+    }
+
+    .admin-tab {
+        padding: 0.6rem 0.65rem;
+        font-size: 0.82rem;
+    }
+}
+
+/* Mobile leader cards */
+@media (max-width: 540px) {
+    .leader-card {
+        padding: 0.85rem;
+    }
+
+    .leader-photo-wrap {
+        width: 90px;
+        margin: 0 auto;
+    }
+
+    .leader-photo {
+        width: 90px;
+        height: 90px;
+        max-width: 90px;
+        max-height: 90px;
+    }
+
+    .leader-card-body h2 {
+        font-size: 1.15rem;
+        text-align: center;
+    }
+
+    .leader-card-heading {
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .leader-role {
+        text-align: center;
+    }
+
+    .leader-flag {
+        font-size: 1.75rem;
+    }
+}
+
+/* Mobile map adjustments */
+@media (max-width: 767.98px) {
+    .map-box {
+        height: 220px;
+    }
+
+    .map-box-small {
+        height: 180px;
+    }
+}
+
+/* Better touch feedback */
+@media (hover: none) and (pointer: coarse) {
+    .btn:active {
+        transform: scale(0.97);
+        transition: transform 0.08s ease;
+    }
+
+    .nav-link:active,
+    .dropdown-item:active {
+        background: rgba(0, 0, 0, 0.06);
+    }
+
+    /* Disable hover states that feel sticky on touch */
+    .btn:hover {
+        opacity: 1;
+    }
+}
+
+/* Improved focus styles for mobile accessibility */
+:focus-visible {
+    outline: 3px solid var(--warning-yellow);
+    outline-offset: 2px;
+}
+
+/* Mobile-friendly modals */
+@media (max-width: 767.98px) {
+    .modal-dialog {
+        margin: 0.5rem;
+        max-width: calc(100vw - 1rem);
+    }
+
+    .modal-body {
+        padding: 1rem;
+    }
+
+    .modal-header {
+        padding: 0.85rem 1rem;
+    }
+
+    .modal-footer {
+        padding: 0.75rem 1rem;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .modal-footer .btn {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+}
+
+/* Prevent text from being too wide on tablets */
+@media (min-width: 768px) and (max-width: 991.98px) {
+    .lead,
+    .feed-content,
+    .update-card p {
+        max-width: 680px;
+    }
+}
+
+/* Smooth scrolling and momentum on mobile */
+.admin-tabs,
+.table-responsive-mobile {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+}
+
+/* Hide scrollbars on mobile navigation tabs (cleaner look) */
+@media (max-width: 767.98px) {
+    .admin-tabs::-webkit-scrollbar {
+        height: 3px;
+    }
+
+    .admin-tabs::-webkit-scrollbar-thumb {
+        background: var(--border);
+        border-radius: 2px;
+    }
+}
+
+/* Journey list mobile tightening */
+@media (max-width: 540px) {
+    .journey-list li {
+        padding: 0 0 0.75rem 0.6rem;
+    }
+
+    .journey-date {
+        font-size: 0.9rem;
+    }
+
+    .journey-place {
+        font-size: 0.9rem;
+    }
+
+    .journey-note {
+        font-size: 0.85rem;
+    }
+}
+
+/* Footer mobile */
+@media (max-width: 540px) {
+    .enhanced-footer {
+        padding: 1.25rem 0 0.85rem;
+    }
+
+    .footer-title {
+        font-size: 1.1rem;
+    }
+
+    .footer-subtitle {
+        font-size: 0.88rem;
+    }
+
+    .footer-brand-mark {
+        width: 42px;
+        height: 42px;
+        min-width: 42px;
+        font-size: 0.95rem;
+    }
+
+    .footer-message {
+        padding: 0.7rem 0.85rem;
+        font-size: 0.9rem;
+    }
+
+    .footer-lower {
+        font-size: 0.82rem;
+    }
+
+    .footer-credit {
+        flex-wrap: wrap;
+    }
+}
+
+/* Prevent zoom on input focus (iOS) */
+@media screen and (max-width: 767.98px) {
+    input[type="text"],
+    input[type="email"],
+    input[type="password"],
+    input[type="number"],
+    input[type="tel"],
+    input[type="url"],
+    input[type="search"],
+    input[type="date"],
+    input[type="time"],
+    input[type="datetime-local"],
+    select,
+    textarea {
+        font-size: 16px;
+    }
+}
+
+/* Print adjustments - keep but don't break mobile */
+@media print {
+    .site-header,
+    .site-footer,
+    .enhanced-footer,
+    .dashboard-actions,
+    .feed-admin-actions,
+    .btn {
+        display: none !important;
+    }
+}

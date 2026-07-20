@@ -1076,6 +1076,70 @@ include __DIR__ . '/header.php';
         padding: 1rem;
         margin-bottom: 1.5rem;
     }
+
+    /* === Mobile optimisations === */
+    @media (max-width: 480px) {
+        .analytics-grid {
+            gap: 0.6rem;
+        }
+
+        .metric-card {
+            padding: 0.75rem;
+        }
+
+        .metric-card h2 {
+            font-size: 0.82rem;
+        }
+
+        .metric-value {
+            font-size: 1.5rem;
+        }
+
+        .metric-sub {
+            font-size: 0.85rem;
+        }
+
+        .analytics-panel {
+            padding: 0.85rem;
+            margin-bottom: 1rem;
+        }
+
+        .analytics-panel h2 {
+            font-size: 1.1rem;
+        }
+
+        .analytics-panel-header {
+            gap: 0.5rem;
+        }
+
+        .analytics-table th,
+        .analytics-table td {
+            padding: 0.45rem 0.35rem;
+            font-size: 0.82rem;
+        }
+
+        .pagination-link,
+        .pagination-current {
+            min-width: 40px;
+            min-height: 40px;
+            padding: 0.35rem 0.5rem;
+            text-align: center;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.88rem;
+        }
+
+        .warning-box,
+        .info-box {
+            padding: 0.75rem;
+            font-size: 0.9rem;
+        }
+
+        .email-mobile-card {
+            padding: 0.75rem;
+        }
+    }
 </style>
 
 <section class="page-hero">

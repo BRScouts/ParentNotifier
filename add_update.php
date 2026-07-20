@@ -531,6 +531,59 @@ include __DIR__ . '/header.php';
     .muted {
         color: #505a5f;
     }
+
+    /* === Mobile optimisations === */
+    @media (max-width: 480px) {
+        .admin-panel,
+        .help-panel {
+            padding: 0.85rem;
+        }
+
+        .admin-panel h2,
+        .help-panel h2 {
+            font-size: 1.1rem;
+        }
+
+        .admin-panel .form-control,
+        .admin-panel .custom-select {
+            font-size: 16px;
+            min-height: 44px;
+        }
+
+        .admin-panel .btn {
+            min-height: 44px;
+            width: 100%;
+        }
+
+        #editor {
+            min-height: 160px;
+        }
+
+        .photo-help {
+            padding: 0.7rem;
+            font-size: 0.9rem;
+        }
+
+        .ql-toolbar.ql-snow {
+            padding: 4px 6px;
+        }
+
+        .ql-toolbar .ql-formats {
+            margin-right: 8px;
+        }
+    }
+
+    @media (max-width: 380px) {
+        .admin-panel,
+        .help-panel {
+            padding: 0.7rem;
+        }
+
+        .admin-panel h2,
+        .help-panel h2 {
+            font-size: 1rem;
+        }
+    }
 </style>
 
 <section class="page-hero">

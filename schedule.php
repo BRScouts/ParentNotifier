@@ -490,6 +490,38 @@ include __DIR__ . '/header.php';
         font-weight: 700;
         color: #505a5f;
     }
+
+    /* === Mobile optimisations === */
+    @media (max-width: 480px) {
+        .schedule-form-grid {
+            gap: 0.75rem;
+        }
+
+        .schedule-form-grid .form-control,
+        .schedule-form-grid .custom-select {
+            font-size: 16px;
+            min-height: 44px;
+        }
+
+        .schedule-form-grid .btn {
+            min-height: 44px;
+            width: 100%;
+        }
+
+        .schedule-day-header {
+            font-size: 1rem;
+        }
+
+        .schedule-day-header .btn {
+            min-height: 38px;
+            font-size: 0.82rem;
+        }
+
+        .schedule-empty {
+            padding: 1.25rem;
+            font-size: 0.9rem;
+        }
+    }
 </style>
 
 <section class="page-hero schedule-hero">

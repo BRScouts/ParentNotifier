@@ -2,7 +2,8 @@
     "require": {
         "thenetworg/oauth2-azure": "^2.2",
         "phpmailer/phpmailer": "^7.1",
-        "aws/aws-sdk-php": "^3.388"
+        "aws/aws-sdk-php": "^3.388",
+        "minishlink/web-push": "^9.0"
     },
     "config": {
         "platform": {

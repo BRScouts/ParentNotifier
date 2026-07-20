@@ -1539,6 +1539,259 @@ include __DIR__ . '/header.php';
         background: #eef7ff;
         text-decoration: none;
     }
+
+    /* === Mobile optimisations (small phones 320-480px) === */
+
+    @media (max-width: 480px) {
+        .dashboard-layout {
+            gap: 1rem;
+        }
+
+        .dashboard-actions {
+            gap: 0.35rem;
+            margin-bottom: 1rem;
+        }
+
+        .dashboard-actions .btn {
+            flex: 1 1 calc(50% - 0.35rem);
+            min-width: 0;
+            text-align: center;
+            padding: 0.55rem 0.5rem;
+            font-size: 0.85rem;
+        }
+
+        .feed-card {
+            margin-bottom: 0.75rem;
+            border-width: 1px;
+        }
+
+        .feed-card-pinned {
+            box-shadow: inset 5px 0 0 #7413dc;
+        }
+
+        .feed-card-header {
+            padding: 0.75rem 0.75rem 0.6rem;
+        }
+
+        .feed-heading-row {
+            grid-template-columns: 38px minmax(0, 1fr);
+            gap: 0.55rem;
+        }
+
+        .leader-avatar {
+            width: 38px;
+            height: 38px;
+            max-width: 38px;
+            max-height: 38px;
+        }
+
+        .feed-title-block h2 {
+            font-size: 1.1rem;
+        }
+
+        .feed-meta {
+            font-size: 0.82rem;
+            line-height: 1.4;
+        }
+
+        .meta-separator {
+            display: none;
+        }
+
+        .feed-meta span:not(.edited-label)::after {
+            content: " · ";
+        }
+
+        .feed-meta span:last-child::after {
+            content: "";
+        }
+
+        .feed-admin-actions {
+            gap: 0.25rem;
+            margin-top: 0.5rem;
+        }
+
+        .feed-admin-actions .btn {
+            padding: 0.35rem 0.5rem;
+            font-size: 0.78rem;
+            min-height: 36px;
+        }
+
+        .feed-card-body {
+            padding: 0.75rem;
+        }
+
+        .feed-content {
+            font-size: 0.93rem;
+            line-height: 1.5;
+        }
+
+        .feed-content blockquote {
+            padding: 0.5rem 0.75rem;
+            margin: 0.75rem 0;
+        }
+
+        .feed-photo-grid {
+            gap: 0.35rem;
+        }
+
+        .feed-photo-thumb {
+            height: 160px;
+        }
+
+        .feed-badge {
+            font-size: 0.75rem;
+            padding: 0.15rem 0.35rem;
+        }
+
+        .feed-map {
+            height: 180px;
+        }
+
+        .map-action-row {
+            gap: 0.35rem;
+        }
+
+        .map-action-row .btn {
+            font-size: 0.82rem;
+            padding: 0.4rem 0.6rem;
+        }
+
+        /* Sidebar tighter on phones */
+        .sidebar-panel {
+            padding: 0.85rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .sidebar-panel h2 {
+            font-size: 1.1rem;
+        }
+
+        .checkin-state-card {
+            padding: 0.7rem;
+            border-width: 3px;
+        }
+
+        .checkin-state-card h3 {
+            font-size: 0.95rem;
+        }
+
+        .checkin-state-label {
+            font-size: 0.82rem;
+            padding: 0.1rem 0.3rem;
+        }
+
+        .checkin-state-detail {
+            font-size: 0.82rem;
+        }
+
+        .checkin-team-face,
+        .checkin-team-face-placeholder {
+            width: 22px;
+            height: 22px;
+            max-width: 22px;
+            max-height: 22px;
+            font-size: 0.55rem;
+        }
+
+        .team-faces {
+            gap: 0.15rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .team-face,
+        .team-face-placeholder {
+            width: 28px;
+            height: 28px;
+            max-width: 28px;
+            max-height: 28px;
+            font-size: 0.65rem;
+        }
+
+        /* Pagination - bigger touch targets */
+        .pagination-wrap {
+            gap: 0.3rem;
+            margin: 1rem 0;
+            justify-content: center;
+        }
+
+        .pagination-link,
+        .pagination-current {
+            min-width: 40px;
+            min-height: 40px;
+            padding: 0.4rem 0.55rem;
+            text-align: center;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.88rem;
+        }
+
+        /* Quill editor mobile */
+        .modal-editor {
+            min-height: 160px;
+        }
+
+        .edit-photo-grid {
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+        }
+
+        .edit-photo-item img {
+            height: 90px;
+        }
+
+        /* Location/parent map */
+        .parent-map {
+            height: 220px;
+        }
+
+        .location-note {
+            padding: 0.6rem;
+            font-size: 0.88rem;
+        }
+
+        .location-summary h3 {
+            font-size: 0.95rem;
+        }
+    }
+
+    /* Slightly larger phones (481-640px) */
+    @media (min-width: 481px) and (max-width: 640px) {
+        .dashboard-actions .btn {
+            flex: 0 1 auto;
+            font-size: 0.88rem;
+        }
+
+        .feed-heading-row {
+            grid-template-columns: 42px minmax(0, 1fr) auto;
+            gap: 0.6rem;
+        }
+
+        .feed-title-block h2 {
+            font-size: 1.2rem;
+        }
+
+        .feed-photo-thumb {
+            height: 180px;
+        }
+
+        .edit-photo-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+
+    /* Landscape phones */
+    @media (max-width: 767.98px) and (orientation: landscape) {
+        .page-hero {
+            padding: 1rem 0;
+        }
+
+        .feed-map,
+        .parent-map {
+            height: 200px;
+        }
+    }
 </style>
 
 <section class="page-hero">
@@ -2265,6 +2518,26 @@ include __DIR__ . '/header.php';
                     <?php endif; ?>
                 <?php endif; ?>
             </section>
+
+            <?php if ($isLeader): ?>
+            <!-- Push Notifications Panel -->
+            <section class="sidebar-panel" style="margin-top: 1.5rem;">
+                <h2>Push Notifications</h2>
+                <p data-push-role="status" class="push-status push-status-inactive" style="font-size: 0.9rem; margin-bottom: 0.75rem;">
+                    Loading notification status...
+                </p>
+                <button
+                    type="button"
+                    data-push-role="toggle"
+                    class="btn btn-primary"
+                    style="width: 100%;"
+                    disabled
+                >
+                    Loading...
+                </button>
+            </section>
+            <?php endif; ?>
+
         </aside>
 
     </div>
@@ -2383,5 +2656,31 @@ include __DIR__ . '/header.php';
         }
     })();
 </script>
+
+<?php if ($isLeader): ?>
+<!-- Push notification subscription management -->
+<script src="/assets/js/push.js"></script>
+<script>
+(function () {
+    var toggleBtn = document.querySelector('[data-push-role="toggle"]');
+    if (!toggleBtn) return;
+
+    ExBeltPush.init({
+        vapidPublicKey: <?= json_encode(VAPID_PUBLIC_KEY) ?>,
+        subscribeEndpoint: '/push_subscribe.php',
+        swPath: '/sw.js'
+    });
+
+    toggleBtn.addEventListener('click', function () {
+        toggleBtn.disabled = true;
+        ExBeltPush.toggle().then(function () {
+            toggleBtn.disabled = false;
+        }).catch(function () {
+            toggleBtn.disabled = false;
+        });
+    });
+})();
+</script>
+<?php endif; ?>
 
 <?php include __DIR__ . '/footer.php'; ?>

@@ -2710,6 +2710,48 @@ include __DIR__ . '/header.php';
         padding: 1rem;
         font-weight: 700;
     }
+
+    /* === Mobile optimisations === */
+    @media (max-width: 480px) {
+        .people-actions {
+            gap: 0.25rem;
+        }
+
+        .people-actions .btn {
+            flex: 1 1 calc(50% - 0.25rem);
+            min-width: 0;
+            text-align: center;
+            font-size: 0.78rem;
+            padding: 0.45rem 0.4rem;
+        }
+
+        .people-panel {
+            padding: 0.7rem;
+        }
+
+        .people-panel h2 {
+            font-size: 1.1rem;
+        }
+
+        .people-layout {
+            gap: 0.75rem;
+        }
+
+        .completion-pill {
+            font-size: 0.78rem;
+            padding: 0.15rem 0.35rem;
+        }
+
+        .people-panel .form-control,
+        .people-panel .custom-select {
+            font-size: 16px;
+            min-height: 44px;
+        }
+
+        .people-panel .btn {
+            min-height: 44px;
+        }
+    }
 </style>
 
 <section class="page-hero">

@@ -1,6 +1,7 @@
 <?php
 $loadLeaflet = true;
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/push_send.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
@@ -638,6 +639,14 @@ if ($submittedBy === '') {
                 $content,
                 (int)$team['id']
             );
+        }
+
+        // Send push notification to all subscribed leaders
+        try {
+            push_notify_checkin_submitted($pdo, $team, $checkin);
+        } catch (Throwable $pushError) {
+            // Don't block check-in submission if push fails
+            error_log('[Push] Failed to send check-in notification: ' . $pushError->getMessage());
         }
 
         $pdo->commit();

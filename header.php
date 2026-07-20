@@ -312,12 +312,17 @@ $isLeaderOnDuty = $headerDutyStatus['on_duty'] ?? false;
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#7413dc">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Explorer Belt">
+    <meta name="mobile-web-app-capable" content="yes">
     <title><?= e(APP_NAME) ?></title>
 
     <link rel="manifest" href="<?= e(url('manifest.json')) ?>">
     <link rel="apple-touch-icon" href="<?= e(url('assets/logo.png')) ?>">
+    <link rel="apple-touch-icon" sizes="192x192" href="<?= e(url('assets/logo.png')) ?>">
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link rel="preconnect" href="https://unpkg.com" crossorigin>
 
@@ -696,6 +701,43 @@ $isLeaderOnDuty = $headerDutyStatus['on_duty'] ?? false;
                 min-width: 38px;
                 min-height: 38px;
             }
+
+            /* Larger toggler tap target */
+            .compact-navbar-toggler {
+                min-width: 44px;
+                min-height: 44px;
+                padding: 0.4rem 0.6rem;
+                border: 2px solid rgba(255, 255, 255, 0.6);
+            }
+
+            /* Nav links need 44px minimum touch targets */
+            .compact-nav .nav-link {
+                min-height: 44px;
+                display: flex;
+                align-items: center;
+                padding: 0.65rem 0.85rem !important;
+                font-size: 0.95rem;
+            }
+
+            /* Profile toggle bigger for thumb reach */
+            .profile-toggle {
+                min-height: 48px;
+                padding: 0.5rem 0.65rem;
+            }
+
+            .profile-dropdown .dropdown-item {
+                min-height: 44px;
+                padding: 0.7rem 0.85rem;
+                display: flex;
+                align-items: center;
+            }
+
+            /* Profile modal photo smaller on phones */
+            .profile-modal-photo {
+                width: 72px;
+                height: 72px;
+                font-size: 1.25rem;
+            }
         }
 
         @media (max-width: 380px) {
@@ -707,6 +749,92 @@ $isLeaderOnDuty = $headerDutyStatus['on_duty'] ?? false;
             .site-logo {
                 width: 144px !important;
                 transform: scale(1.06);
+            }
+
+            /* Even tighter on very small phones */
+            .compact-navbar {
+                min-height: 62px;
+            }
+
+            .site-brand {
+                height: 62px;
+                max-height: 62px;
+            }
+
+            .site-logo-frame {
+                height: 62px;
+                max-height: 62px;
+            }
+
+            .compact-nav .nav-link {
+                font-size: 0.9rem;
+                padding: 0.6rem 0.7rem !important;
+            }
+
+            .profile-dropdown-header {
+                padding: 0.65rem;
+            }
+
+            .profile-dropdown-name {
+                font-size: 0.9rem;
+            }
+
+            .profile-dropdown-email {
+                font-size: 0.8rem;
+            }
+
+            .profile-avatar {
+                width: 34px;
+                height: 34px;
+                min-width: 34px;
+                min-height: 34px;
+            }
+        }
+
+        /* iOS safe-area insets for the header on notched devices */
+        @supports (padding: env(safe-area-inset-top)) {
+            .site-header {
+                padding-top: env(safe-area-inset-top);
+            }
+
+            @media (max-width: 991.98px) {
+                #mainNav {
+                    padding-left: env(safe-area-inset-left);
+                    padding-right: env(safe-area-inset-right);
+                }
+            }
+        }
+
+        /* Landscape phones - compact the header further */
+        @media (max-height: 500px) and (orientation: landscape) {
+            .compact-navbar {
+                min-height: 56px;
+            }
+
+            .site-brand {
+                height: 56px;
+            }
+
+            .site-logo-frame {
+                height: 56px;
+                max-height: 56px;
+                width: 150px;
+                flex-basis: 150px;
+            }
+
+            .site-logo {
+                width: 150px !important;
+                transform: scale(1.05);
+            }
+
+            .compact-nav .nav-link {
+                padding: 0.45rem 0.6rem !important;
+                font-size: 0.88rem;
+            }
+
+            .profile-toggle {
+                padding: 0.3rem 0.5rem;
+                min-height: 40px;
             }
         }
     </style>

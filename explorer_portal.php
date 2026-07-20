@@ -17,6 +17,53 @@ if (!$team) {
 
 $_SESSION['explorer_portal_token'] = $token;
 
+// --- Track parent portal visit for engagement analytics ---
+try {
+    $ppvTableCheck = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM information_schema.tables
+         WHERE table_schema = DATABASE()
+           AND table_name = "parent_portal_visits"'
+    );
+    $ppvTableCheck->execute();
+
+    if ((int)$ppvTableCheck->fetchColumn() === 0) {
+        $pdo->exec('
+            CREATE TABLE parent_portal_visits (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                team_id INT UNSIGNED NOT NULL,
+                token VARCHAR(128) NOT NULL,
+                page VARCHAR(100) NOT NULL DEFAULT "portal",
+                visited_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                ip_hash VARCHAR(64) NULL,
+                user_agent_hash VARCHAR(64) NULL,
+                INDEX idx_ppv_team (team_id),
+                INDEX idx_ppv_visited (visited_at),
+                INDEX idx_ppv_page (page),
+                INDEX idx_ppv_team_date (team_id, visited_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ');
+    }
+
+    $ipHash = hash('sha256', ($_SERVER['REMOTE_ADDR'] ?? '') . date('Y-m-d'));
+    $uaHash = hash('sha256', ($_SERVER['HTTP_USER_AGENT'] ?? ''));
+
+    $ppvStmt = $pdo->prepare(
+        'INSERT INTO parent_portal_visits
+            (team_id, token, page, visited_at, ip_hash, user_agent_hash)
+         VALUES
+            (?, ?, "portal", NOW(), ?, ?)'
+    );
+    $ppvStmt->execute([
+        (int)$team['id'],
+        substr($token, 0, 128),
+        $ipHash,
+        $uaHash,
+    ]);
+} catch (Throwable $ppvError) {
+    // Don't block the portal for analytics failures
+}
+
 // --- Fetch unacknowledged announcements for this team ---
 $unreadAnnouncements = [];
 try {
