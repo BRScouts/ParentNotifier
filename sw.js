@@ -29,7 +29,7 @@ self.addEventListener('push', (event) => {
         payload = {
             title: 'Explorer Belt Live',
             body: event.data.text(),
-            icon: '/assets/logo.webp',
+            icon: '/assets/logo.png',
             url: '/dashboard.php',
         };
     }
@@ -37,17 +37,24 @@ self.addEventListener('push', (event) => {
     const title = payload.title || 'Explorer Belt Live';
     const options = {
         body: payload.body || '',
-        icon: payload.icon || '/assets/logo.webp',
-        badge: '/assets/logo.webp',
+        icon: payload.icon || '/assets/logo.png',
+        badge: '/assets/logo.png',
         tag: payload.tag || 'exbelt-notification',
-        renotify: true,
-        requireInteraction: payload.requireInteraction || false,
         data: {
             url: payload.url || '/dashboard.php',
             timestamp: Date.now(),
         },
-        actions: payload.actions || [],
     };
+
+    // Only add features supported by the platform
+    // (iOS ignores actions and renotify, but they don't break anything on other platforms)
+    if (payload.actions && payload.actions.length > 0) {
+        options.actions = payload.actions;
+    }
+
+    if (payload.requireInteraction) {
+        options.requireInteraction = true;
+    }
 
     event.waitUntil(
         self.registration.showNotification(title, options)

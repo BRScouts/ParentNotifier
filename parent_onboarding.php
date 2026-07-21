@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/image_helpers.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
@@ -1814,7 +1815,10 @@ function handle_parent_profile_upload(string $fieldName, ?string $existingPath =
         throw new RuntimeException('The uploaded photo could not be saved.');
     }
 
-    return PEOPLE_UPLOAD_PUBLIC_PATH . $filename;
+    // Optimize: resize and convert to WebP for fast loading
+    $optimizedFilename = optimize_person_image($destination, $mimeType);
+
+    return PEOPLE_UPLOAD_PUBLIC_PATH . $optimizedFilename;
 }
 
 /**

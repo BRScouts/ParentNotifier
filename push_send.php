@@ -14,7 +14,10 @@ declare(strict_types=1);
  */
 
 require_once __DIR__ . '/vendor/autoload.php';
-require_once __DIR__ . '/config.php';
+
+if (!defined('VAPID_PUBLIC_KEY')) {
+    require_once __DIR__ . '/config.php';
+}
 
 use Minishlink\WebPush\WebPush;
 use Minishlink\WebPush\Subscription;
@@ -235,7 +238,7 @@ function push_notify_checkin_submitted(PDO $pdo, array $team, array $checkin): a
     $payload = [
         'title' => 'Check-in: ' . $teamName,
         'body' => $teamName . ' has checked in at ' . $locationName . '. Tap to review.',
-        'icon' => '/assets/logo.webp',
+        'icon' => '/assets/logo.png',
         'url' => '/add_location.php?checkin_id=' . $checkinId,
         'tag' => 'checkin-' . $checkinId,
         'requireInteraction' => true,
@@ -269,7 +272,7 @@ function push_notify_checkin_to_leaders(PDO $pdo, array $team, array $checkin, a
     $payload = [
         'title' => 'Check-in: ' . $teamName,
         'body' => $teamName . ' has checked in at ' . $locationName . '. Tap to review.',
-        'icon' => '/assets/logo.webp',
+        'icon' => '/assets/logo.png',
         'url' => '/add_location.php?checkin_id=' . $checkinId,
         'tag' => 'checkin-' . $checkinId,
         'requireInteraction' => true,
@@ -292,7 +295,7 @@ function push_notify_all_leaders(PDO $pdo, string $title, string $body, string $
     $payload = [
         'title' => $title,
         'body' => $body,
-        'icon' => '/assets/logo.webp',
+        'icon' => '/assets/logo.png',
         'url' => $url,
         'tag' => 'exbelt-' . time(),
     ];
