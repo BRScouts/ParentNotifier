@@ -360,27 +360,27 @@ $isLeaderOnDuty = $headerDutyStatus['on_duty'] ?? false;
         }
 
         .site-logo-frame {
-            width: 225px;
+            width: 200px;
             height: 80px;
             max-height: 80px;
             display: flex;
             align-items: center;
             justify-content: flex-start;
-            overflow: visible;
+            overflow: hidden;
             background: transparent !important;
             border: 0 !important;
             box-shadow: none !important;
             padding: 0;
             margin: 0;
             line-height: 1;
-            flex: 0 0 225px;
+            flex: 0 0 200px;
         }
 
         .site-logo {
-            width: 225px !important;
+            width: 100% !important;
             height: auto !important;
-            max-width: none !important;
-            max-height: none !important;
+            max-width: 200px !important;
+            max-height: 70px !important;
             object-fit: contain;
             object-position: left center;
             display: block;
@@ -390,8 +390,6 @@ $isLeaderOnDuty = $headerDutyStatus['on_duty'] ?? false;
             padding: 0 !important;
             margin: 0 !important;
             line-height: 1;
-            transform: scale(1.14);
-            transform-origin: left center;
         }
 
         .site-logo-placeholder {
@@ -594,13 +592,12 @@ $isLeaderOnDuty = $headerDutyStatus['on_duty'] ?? false;
 
         @media (max-width: 1199.98px) {
             .site-logo-frame {
-                width: 198px;
-                flex-basis: 198px;
+                width: 170px;
+                flex-basis: 170px;
             }
 
             .site-logo {
-                width: 198px !important;
-                transform: scale(1.12);
+                max-width: 170px !important;
             }
 
             .compact-nav .nav-link {
@@ -623,15 +620,15 @@ $isLeaderOnDuty = $headerDutyStatus['on_duty'] ?? false;
             }
 
             .site-logo-frame {
-                width: 189px;
+                width: 160px;
                 height: 74px;
                 max-height: 74px;
-                flex-basis: 189px;
+                flex-basis: 160px;
             }
 
             .site-logo {
-                width: 189px !important;
-                transform: scale(1.1);
+                max-width: 160px !important;
+                max-height: 60px !important;
             }
 
             #mainNav {
@@ -854,7 +851,7 @@ $isLeaderOnDuty = $headerDutyStatus['on_duty'] ?? false;
                 <?php if (LOGO_URL !== ''): ?>
                     <span class="site-logo-frame">
                         <img
-                            src="<?= e(url('assets/logo-512 useme(2).png')) ?>"
+                            src="<?= e(url('assets/logo-generator-linear-blackwhite-png.png')) ?>"
                             alt="<?= e(APP_NAME) ?> logo"
                             class="site-logo compact-site-logo"
                         >
