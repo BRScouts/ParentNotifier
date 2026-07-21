@@ -1579,9 +1579,68 @@ function render_people_form(array $teams, ?array $formPerson = null): void
                 >
 
                 <?php if ($isEdit && !empty($formPerson['photo_url'])): ?>
+                    <div class="photo-rotate-wrap mt-2">
+                        <img
+                            class="photo-rotate-preview"
+                            id="rotate-preview"
+                            src="<?= e(url($formPerson['photo_url'])) ?>?t=<?= time() ?>"
+                            alt="Current photo"
+                        >
+                        <div class="photo-rotate-buttons">
+                            <button
+                                type="button"
+                                class="btn btn-sm btn-outline-secondary"
+                                id="rotate-ccw-btn"
+                                title="Rotate left"
+                            >&#8634; Left</button>
+                            <button
+                                type="button"
+                                class="btn btn-sm btn-outline-secondary"
+                                id="rotate-cw-btn"
+                                title="Rotate right"
+                            >&#8635; Right</button>
+                        </div>
+                    </div>
                     <small class="form-text text-muted">
                         Current photo is kept unless a new one is uploaded.
                     </small>
+
+                    <script>
+                    (function() {
+                        var personId = <?= (int)$formPerson['id'] ?>;
+                        var preview = document.getElementById('rotate-preview');
+                        var cwBtn = document.getElementById('rotate-cw-btn');
+                        var ccwBtn = document.getElementById('rotate-ccw-btn');
+
+                        function rotatePhoto(direction) {
+                            cwBtn.disabled = true;
+                            ccwBtn.disabled = true;
+
+                            var form = new FormData();
+                            form.append('action', 'rotate_photo');
+                            form.append('person_id', personId);
+                            form.append('direction', direction);
+
+                            fetch('people.php', { method: 'POST', body: form })
+                                .then(function(r) { return r.json(); })
+                                .then(function(data) {
+                                    if (data.success) {
+                                        preview.src = data.photo_url + '?t=' + Date.now();
+                                    } else {
+                                        alert(data.error || 'Rotation failed.');
+                                    }
+                                })
+                                .catch(function() { alert('Network error.'); })
+                                .finally(function() {
+                                    cwBtn.disabled = false;
+                                    ccwBtn.disabled = false;
+                                });
+                        }
+
+                        cwBtn.addEventListener('click', function() { rotatePhoto('cw'); });
+                        ccwBtn.addEventListener('click', function() { rotatePhoto('ccw'); });
+                    })();
+                    </script>
                 <?php endif; ?>
             </div>
 
@@ -2088,6 +2147,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         redirect('people.php?person_id=' . $personId . '#logs');
     }
+
+    if ($action === 'rotate_photo') {
+        $personId = (int)($_POST['person_id'] ?? 0);
+        $direction = $_POST['direction'] ?? 'cw';
+
+        header('Content-Type: application/json');
+
+        if ($personId < 1) {
+            echo json_encode(['success' => false, 'error' => 'Invalid person ID.']);
+            exit;
+        }
+
+        $stmt = $pdo->prepare('SELECT photo_url FROM young_people WHERE id = ?');
+        $stmt->execute([$personId]);
+        $row = $stmt->fetch();
+
+        if (!$row || empty($row['photo_url'])) {
+            echo json_encode(['success' => false, 'error' => 'No photo to rotate.']);
+            exit;
+        }
+
+        $photoFile = basename($row['photo_url']);
+        $absolutePath = rtrim(PEOPLE_UPLOAD_DIR, '/') . '/' . $photoFile;
+
+        if ($direction === 'ccw') {
+            $ok = rotate_person_image_ccw($absolutePath);
+        } else {
+            $ok = rotate_person_image_cw($absolutePath);
+        }
+
+        if ($ok) {
+            echo json_encode(['success' => true, 'photo_url' => $row['photo_url']]);
+        } else {
+            echo json_encode(['success' => false, 'error' => 'Rotation failed.']);
+        }
+        exit;
+    }
     } // end else (not readonly)
 }
 
@@ -2292,6 +2388,26 @@ include __DIR__ . '/header.php';
 ?>
 
 <style>
+    .photo-rotate-wrap {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .photo-rotate-preview {
+        width: 100px;
+        height: 100px;
+        object-fit: cover;
+        border-radius: 6px;
+        border: 2px solid var(--border);
+    }
+
+    .photo-rotate-buttons {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
     .page-hero,
     .page-hero h1,
     .page-hero h2,
@@ -3089,7 +3205,6 @@ include __DIR__ . '/header.php';
                             <th>Name</th>
                             <th class="col-team">Team</th>
                             <th class="col-dob">Date of birth</th>
-                            <th>Alerts</th>
                         </tr>
                     </thead>
 
@@ -3115,14 +3230,6 @@ include __DIR__ . '/header.php';
                                 <td class="col-team"><?= e($person['team_name'] ?: 'Not assigned') ?></td>
 
                                 <td class="col-dob"><?= e(person_age($person['dob'] ?? null)) ?></td>
-
-                                <td>
-                                    <?php if (person_has_allergies($person)): ?>
-                                        <span class="allergy-warning">Allergies</span>
-                                    <?php else: ?>
-                                        <span class="muted">None recorded</span>
-                                    <?php endif; ?>
-                                </td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>

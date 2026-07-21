@@ -1213,16 +1213,16 @@ include __DIR__ . '/header.php';
     .team-faces {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.25rem;
+        gap: 0.35rem;
         margin: 0 0 0.75rem;
     }
 
     .team-face,
     .team-face-placeholder {
-        width: 34px;
-        height: 34px;
-        max-width: 34px;
-        max-height: 34px;
+        width: 48px;
+        height: 48px;
+        max-width: 48px;
+        max-height: 48px;
         border-radius: 50%;
         border: 2px solid #ffffff;
         box-shadow: 0 0 0 1px #1d1d1d;
@@ -1231,7 +1231,7 @@ include __DIR__ . '/header.php';
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        font-size: 0.75rem;
+        font-size: 0.85rem;
         font-weight: 900;
         color: #1d1d1d;
         text-decoration: none;
@@ -1313,16 +1313,16 @@ include __DIR__ . '/header.php';
     .checkin-team-faces {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.2rem;
+        gap: 0.3rem;
         margin: 0.55rem 0 0;
     }
 
     .checkin-team-face,
     .checkin-team-face-placeholder {
-        width: 26px;
-        height: 26px;
-        max-width: 26px;
-        max-height: 26px;
+        width: 38px;
+        height: 38px;
+        max-width: 38px;
+        max-height: 38px;
         border-radius: 50%;
         border: 2px solid #ffffff;
         box-shadow: 0 0 0 1px #1d1d1d;
@@ -1331,7 +1331,7 @@ include __DIR__ . '/header.php';
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        font-size: 0.65rem;
+        font-size: 0.75rem;
         font-weight: 900;
         color: #1d1d1d;
     }
@@ -1687,25 +1687,25 @@ include __DIR__ . '/header.php';
 
         .checkin-team-face,
         .checkin-team-face-placeholder {
-            width: 22px;
-            height: 22px;
-            max-width: 22px;
-            max-height: 22px;
-            font-size: 0.55rem;
+            width: 32px;
+            height: 32px;
+            max-width: 32px;
+            max-height: 32px;
+            font-size: 0.65rem;
         }
 
         .team-faces {
-            gap: 0.15rem;
+            gap: 0.25rem;
             margin-bottom: 0.5rem;
         }
 
         .team-face,
         .team-face-placeholder {
-            width: 28px;
-            height: 28px;
-            max-width: 28px;
-            max-height: 28px;
-            font-size: 0.65rem;
+            width: 40px;
+            height: 40px;
+            max-width: 40px;
+            max-height: 40px;
+            font-size: 0.75rem;
         }
 
         /* Pagination - bigger touch targets */

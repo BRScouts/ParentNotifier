@@ -43,6 +43,14 @@ function optimize_person_image(string $sourcePath, string $mimeType): string
         return basename($sourcePath);
     }
 
+    // Correct EXIF orientation for JPEGs (phones store rotation in metadata)
+    if ($mimeType === 'image/jpeg' && function_exists('exif_read_data')) {
+        $exif = @exif_read_data($sourcePath);
+        if ($exif && !empty($exif['Orientation'])) {
+            $sourceImage = apply_exif_orientation($sourceImage, (int) $exif['Orientation']);
+        }
+    }
+
     $origWidth  = imagesx($sourceImage);
     $origHeight = imagesy($sourceImage);
 
@@ -96,4 +104,105 @@ function optimize_person_image(string $sourcePath, string $mimeType): string
 
     // Fallback: WebP write failed, keep original
     return basename($sourcePath);
+}
+
+/**
+ * Apply EXIF orientation correction to a GD image resource.
+ *
+ * Mobile phones often store photos in landscape with an EXIF orientation
+ * tag indicating how to display them. GD ignores this, so we apply it manually.
+ */
+function apply_exif_orientation(\GdImage $image, int $orientation): \GdImage
+{
+    switch ($orientation) {
+        case 2: // Horizontal flip
+            imageflip($image, IMG_FLIP_HORIZONTAL);
+            break;
+        case 3: // 180 degrees
+            $image = imagerotate($image, 180, 0);
+            break;
+        case 4: // Vertical flip
+            imageflip($image, IMG_FLIP_VERTICAL);
+            break;
+        case 5: // 90 CW + horizontal flip
+            $image = imagerotate($image, -90, 0);
+            imageflip($image, IMG_FLIP_HORIZONTAL);
+            break;
+        case 6: // 90 CW
+            $image = imagerotate($image, -90, 0);
+            break;
+        case 7: // 90 CCW + horizontal flip
+            $image = imagerotate($image, 90, 0);
+            imageflip($image, IMG_FLIP_HORIZONTAL);
+            break;
+        case 8: // 90 CCW
+            $image = imagerotate($image, 90, 0);
+            break;
+    }
+
+    return $image;
+}
+
+/**
+ * Rotate an existing WebP person photo by 90 degrees clockwise and save in place.
+ *
+ * @param string $absolutePath Absolute path to the .webp file on disk.
+ * @return bool True on success, false on failure.
+ */
+function rotate_person_image_cw(string $absolutePath): bool
+{
+    if (!file_exists($absolutePath)) {
+        return false;
+    }
+
+    $image = @imagecreatefromwebp($absolutePath);
+
+    if ($image === false) {
+        return false;
+    }
+
+    // GD's imagerotate uses counter-clockwise degrees, so -90 = 90 CW
+    $rotated = imagerotate($image, -90, 0);
+    unset($image);
+
+    if ($rotated === false) {
+        return false;
+    }
+
+    $success = imagewebp($rotated, $absolutePath, IMAGE_WEBP_QUALITY);
+    unset($rotated);
+
+    return $success;
+}
+
+/**
+ * Rotate an existing WebP person photo by 90 degrees counter-clockwise and save in place.
+ *
+ * @param string $absolutePath Absolute path to the .webp file on disk.
+ * @return bool True on success, false on failure.
+ */
+function rotate_person_image_ccw(string $absolutePath): bool
+{
+    if (!file_exists($absolutePath)) {
+        return false;
+    }
+
+    $image = @imagecreatefromwebp($absolutePath);
+
+    if ($image === false) {
+        return false;
+    }
+
+    // GD's imagerotate uses counter-clockwise degrees, so 90 = 90 CCW
+    $rotated = imagerotate($image, 90, 0);
+    unset($image);
+
+    if ($rotated === false) {
+        return false;
+    }
+
+    $success = imagewebp($rotated, $absolutePath, IMAGE_WEBP_QUALITY);
+    unset($rotated);
+
+    return $success;
 }
