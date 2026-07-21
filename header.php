@@ -321,6 +321,8 @@ $isLeaderOnDuty = $headerDutyStatus['on_duty'] ?? false;
     <title><?= e(APP_NAME) ?></title>
 
     <link rel="manifest" href="<?= e(url('manifest.json')) ?>">
+    <link rel="icon" type="image/x-icon" href="<?= e(url('favicon.ico')) ?>">
+    <link rel="icon" type="image/png" sizes="192x192" href="<?= e(url('assets/logo.png')) ?>">
     <link rel="apple-touch-icon" href="<?= e(url('assets/logo.png')) ?>">
     <link rel="apple-touch-icon" sizes="192x192" href="<?= e(url('assets/logo.png')) ?>">
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
