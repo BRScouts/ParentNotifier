@@ -1274,7 +1274,7 @@ include __DIR__ . '/header.php';
         width: 100%;
         border: 4px solid #b1b4b6;
         background: #ffffff;
-        padding: 0.85rem;
+        padding: 1rem;
         color: #1d1d1d;
         text-decoration: none;
         margin: 0;
@@ -1288,8 +1288,8 @@ include __DIR__ . '/header.php';
     }
 
     .checkin-state-card h3 {
-        font-size: 1.05rem;
-        margin: 0 0 0.45rem;
+        font-size: 1.15rem;
+        margin: 0 0 0.5rem;
         font-weight: 900;
         color: #1d1d1d;
     }
@@ -1297,9 +1297,9 @@ include __DIR__ . '/header.php';
     .checkin-state-label {
         display: inline-block;
         font-weight: 900;
-        margin-bottom: 0.35rem;
+        margin-bottom: 0.5rem;
         border: 2px solid #1d1d1d;
-        padding: 0.15rem 0.35rem;
+        padding: 0.2rem 0.45rem;
         background: #ffffff;
     }
 
@@ -1313,17 +1313,17 @@ include __DIR__ . '/header.php';
     .checkin-team-faces {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.3rem;
-        margin: 0.55rem 0 0;
+        gap: 0.5rem;
+        margin: 0.75rem 0 0;
     }
 
     .checkin-team-face,
     .checkin-team-face-placeholder {
-        width: 38px;
-        height: 38px;
-        max-width: 38px;
-        max-height: 38px;
-        border-radius: 50%;
+        width: 50px;
+        height: 50px;
+        max-width: 50px;
+        max-height: 50px;
+        border-radius: 6px;
         border: 2px solid #ffffff;
         box-shadow: 0 0 0 1px #1d1d1d;
         object-fit: cover;
@@ -1331,7 +1331,7 @@ include __DIR__ . '/header.php';
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        font-size: 0.75rem;
+        font-size: 0.85rem;
         font-weight: 900;
         color: #1d1d1d;
     }
@@ -1668,17 +1668,17 @@ include __DIR__ . '/header.php';
         }
 
         .checkin-state-card {
-            padding: 0.7rem;
+            padding: 0.85rem;
             border-width: 3px;
         }
 
         .checkin-state-card h3 {
-            font-size: 0.95rem;
+            font-size: 1.05rem;
         }
 
         .checkin-state-label {
             font-size: 0.82rem;
-            padding: 0.1rem 0.3rem;
+            padding: 0.15rem 0.35rem;
         }
 
         .checkin-state-detail {
@@ -1687,11 +1687,11 @@ include __DIR__ . '/header.php';
 
         .checkin-team-face,
         .checkin-team-face-placeholder {
-            width: 32px;
-            height: 32px;
-            max-width: 32px;
-            max-height: 32px;
-            font-size: 0.65rem;
+            width: 42px;
+            height: 42px;
+            max-width: 42px;
+            max-height: 42px;
+            font-size: 0.75rem;
         }
 
         .team-faces {

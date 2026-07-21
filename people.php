@@ -1409,8 +1409,11 @@ function render_person_photo(array $person, string $className): void
     $classes = trim($className . $completionClass);
 
     if (!empty($person['photo_url'])) {
+        $photoSrc = url($person['photo_url']);
+        $filePath = rtrim(PEOPLE_UPLOAD_DIR, '/') . '/' . basename($person['photo_url']);
+        $cacheBust = file_exists($filePath) ? filemtime($filePath) : time();
         ?>
-        <img class="<?= e($classes) ?>" src="<?= e(url($person['photo_url'])) ?>" alt="Photo of <?= e($name) ?>">
+        <img class="<?= e($classes) ?>" src="<?= e($photoSrc) ?>?v=<?= $cacheBust ?>" alt="Photo of <?= e($name) ?>">
         <?php
     } else {
         ?>
@@ -2535,13 +2538,13 @@ include __DIR__ . '/header.php';
         }
 
         .person-face {
-            width: 32px !important;
-            height: 32px !important;
-            min-width: 32px !important;
-            min-height: 32px !important;
-            max-width: 32px !important;
-            max-height: 32px !important;
-            font-size: 0.75rem;
+            width: 44px !important;
+            height: 44px !important;
+            min-width: 44px !important;
+            min-height: 44px !important;
+            max-width: 44px !important;
+            max-height: 44px !important;
+            font-size: 0.8rem;
         }
     }
 
@@ -2557,12 +2560,12 @@ include __DIR__ . '/header.php';
     }
 
     .person-face {
-        width: 36px !important;
-        height: 36px !important;
-        min-width: 36px !important;
-        min-height: 36px !important;
-        max-width: 36px !important;
-        max-height: 36px !important;
+        width: 50px !important;
+        height: 50px !important;
+        min-width: 50px !important;
+        min-height: 50px !important;
+        max-width: 50px !important;
+        max-height: 50px !important;
         border: 2px solid #1d1d1d;
         object-fit: cover;
         background: #7413dc;
@@ -2570,11 +2573,11 @@ include __DIR__ . '/header.php';
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        font-size: 0.8rem;
+        font-size: 0.9rem;
         font-weight: 900;
         text-decoration: none;
         overflow: hidden;
-        border-radius: 50%;
+        border-radius: 6px;
     }
 
     .parent-form-complete {
