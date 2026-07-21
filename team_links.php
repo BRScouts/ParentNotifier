@@ -1032,8 +1032,8 @@ include __DIR__ . '/header.php';
         display: flex;
         flex-wrap: wrap;
         justify-content: flex-end;
-        gap: 0.25rem;
-        max-width: 320px;
+        gap: 0.35rem;
+        max-width: 400px;
     }
 
     @media (max-width: 800px) {
@@ -1139,6 +1139,48 @@ include __DIR__ . '/header.php';
         font-weight: 900;
     }
 
+    @media (max-width: 900px) {
+        .teams-table,
+        .teams-table thead,
+        .teams-table tbody,
+        .teams-table tr,
+        .teams-table th,
+        .teams-table td {
+            display: block;
+            width: 100%;
+        }
+
+        .teams-table thead {
+            display: none;
+        }
+
+        .teams-table tr {
+            border: 2px solid #d8d8d8;
+            background: #ffffff;
+            margin-bottom: 1rem;
+            padding: 1rem;
+        }
+
+        .teams-table td {
+            border-bottom: none;
+            padding: 0.5rem 0;
+        }
+
+        .teams-table td:first-child {
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid #eee;
+            margin-bottom: 0.5rem;
+        }
+
+        .mobile-label {
+            display: inline;
+        }
+    }
+
+    .mobile-label {
+        display: none;
+    }
+
     .team-row-link {
         color: #1d1d1d;
         text-decoration: none;
@@ -1159,23 +1201,23 @@ include __DIR__ . '/header.php';
     .face-row {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.25rem;
+        gap: 0.35rem;
     }
 
     .tiny-face {
-        width: 28px !important;
-        height: 28px !important;
-        min-width: 28px !important;
-        min-height: 28px !important;
-        max-width: 28px !important;
-        max-height: 28px !important;
+        width: 42px !important;
+        height: 42px !important;
+        min-width: 42px !important;
+        min-height: 42px !important;
+        max-width: 42px !important;
+        max-height: 42px !important;
         border: 2px solid #1d1d1d;
         background: #7413dc;
         color: #ffffff;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        font-size: 0.7rem;
+        font-size: 0.85rem;
         font-weight: 900;
         text-decoration: none;
         overflow: hidden;
@@ -1224,6 +1266,7 @@ include __DIR__ . '/header.php';
         justify-content: center;
         font-weight: 900;
         font-size: 0.8rem;
+        flex-shrink: 0;
     }
 
     .checkin-good {
@@ -1545,7 +1588,17 @@ include __DIR__ . '/header.php';
         }
 
         .team-header-faces {
-            gap: 0.15rem;
+            gap: 0.25rem;
+        }
+
+        .tiny-face {
+            width: 36px !important;
+            height: 36px !important;
+            min-width: 36px !important;
+            min-height: 36px !important;
+            max-width: 36px !important;
+            max-height: 36px !important;
+            font-size: 0.75rem;
         }
 
         .teams-panel {
@@ -1592,6 +1645,16 @@ include __DIR__ . '/header.php';
 
         .rag-card h3 {
             font-size: 0.88rem;
+        }
+
+        .tiny-face {
+            width: 32px !important;
+            height: 32px !important;
+            min-width: 32px !important;
+            min-height: 32px !important;
+            max-width: 32px !important;
+            max-height: 32px !important;
+            font-size: 0.7rem;
         }
     }
 </style>
@@ -2637,6 +2700,7 @@ include __DIR__ . '/header.php';
                                 </td>
 
                                 <td>
+                                    <strong class="mobile-label">Distance: </strong>
                                     <span class="distance-big">
                                         <?= e(number_format($summary['distance_miles'], 1)) ?> miles
                                     </span>
@@ -2644,6 +2708,7 @@ include __DIR__ . '/header.php';
                                 </td>
 
                                 <td>
+                                    <strong class="mobile-label">Check-ins: </strong>
                                     <div class="checkin-strip">
                                         <?php foreach ($checkinDates as $dateInfo): ?>
                                             <?php
@@ -2667,6 +2732,7 @@ include __DIR__ . '/header.php';
                                 </td>
 
                                 <td>
+                                    <strong class="mobile-label">Status: </strong>
                                     <p>
                                         <span class="status-pill <?= e(status_class($team['status'])) ?>">
                                             <?= e(status_label($team['status'])) ?>
