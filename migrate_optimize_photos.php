@@ -19,7 +19,7 @@ if (php_sapi_name() === 'cli') {
     require_login();
 
     $user = current_user();
-    if (empty($user) || ($user['role'] ?? '') !== 'admin') {
+    if (empty($user) || ($user['role'] ?? '') !== 'trip_admin') {
         http_response_code(403);
         die('Admin access required.');
     }
