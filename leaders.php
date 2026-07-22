@@ -13,6 +13,11 @@ $isAdmin = (bool)$user;
 $error = '';
 $success = '';
 
+if (!empty($_SESSION['leaders_success'])) {
+    $success = (string)$_SESSION['leaders_success'];
+    unset($_SESSION['leaders_success']);
+}
+
 /**
  * General helpers
  */
@@ -928,6 +933,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isAdmin) {
             eb_leaders_ensure_duty_table($pdo);
             eb_leaders_save_duty_bulk($pdo);
             redirect('leaders.php?tab=duty');
+        }
+
+        if ($action === 'set_password') {
+            $targetLeaderId = (int)($_POST['leader_id'] ?? 0);
+            $newPassword = (string)($_POST['new_password'] ?? '');
+            $confirmPassword = (string)($_POST['confirm_password'] ?? '');
+
+            if ($targetLeaderId <= 0) {
+                throw new RuntimeException('Invalid leader.');
+            }
+
+            if ($newPassword === '') {
+                throw new RuntimeException('Password cannot be empty.');
+            }
+
+            if (strlen($newPassword) < 8) {
+                throw new RuntimeException('Password must be at least 8 characters.');
+            }
+
+            if ($newPassword !== $confirmPassword) {
+                throw new RuntimeException('Passwords do not match.');
+            }
+
+            if (!is_trip_admin()) {
+                throw new RuntimeException('Only trip admins can set passwords.');
+            }
+
+            $hash = password_hash($newPassword, PASSWORD_DEFAULT);
+
+            $stmt = $pdo->prepare('UPDATE leaders SET password_hash = ? WHERE id = ?');
+            $stmt->execute([$hash, $targetLeaderId]);
+
+            $_SESSION['leaders_success'] = 'Password updated successfully.';
+            redirect('leaders.php?tab=manage');
         }
     } catch (Throwable $exception) {
         $error = $exception->getMessage();
@@ -2035,6 +2074,43 @@ include __DIR__ . '/header.php';
 
                         <button class="btn btn-primary"<?php if (is_readonly()): ?> disabled<?php endif; ?>>Save leader</button>
                     </form>
+
+                    <?php if (is_trip_admin()): ?>
+                        <hr style="margin: 1.5rem 0;">
+                        <h4 style="margin-bottom: 0.75rem;">Set login password</h4>
+                        <p style="font-size: 0.9rem; color: #505a5f; margin-bottom: 0.75rem;">
+                            Login email: <?php if (eb_leaders_val($leader, ['email'], '') !== ''): ?>
+                                <strong><?= e(eb_leaders_val($leader, ['email'], '')) ?></strong>
+                            <?php else: ?>
+                                <em>No email set</em>
+                            <?php endif; ?>
+                        </p>
+                        <?php if (eb_leaders_val($leader, ['email'], '') !== ''): ?>
+                            <form method="post">
+                                <input type="hidden" name="action" value="set_password">
+                                <input type="hidden" name="leader_id" value="<?= $leaderId ?>">
+
+                                <div class="admin-leader-form-grid">
+                                    <div class="form-group">
+                                        <label for="new_password_<?= $leaderId ?>">New password</label>
+                                        <input class="form-control" type="password" name="new_password" id="new_password_<?= $leaderId ?>" required minlength="8" autocomplete="new-password">
+                                        <small class="form-text text-muted">Minimum 8 characters.</small>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="confirm_password_<?= $leaderId ?>">Confirm password</label>
+                                        <input class="form-control" type="password" name="confirm_password" id="confirm_password_<?= $leaderId ?>" required minlength="8" autocomplete="new-password">
+                                    </div>
+                                </div>
+
+                                <button class="btn btn-secondary">Set password</button>
+                            </form>
+                        <?php else: ?>
+                            <p class="text-muted" style="font-size: 0.9rem;">
+                                Add an email address above and save the leader first, then you can set a password.
+                            </p>
+                        <?php endif; ?>
+                    <?php endif; ?>
                 </details>
             <?php endforeach; ?>
         </section>
