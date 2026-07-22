@@ -238,7 +238,7 @@ function push_notify_checkin_submitted(PDO $pdo, array $team, array $checkin): a
     $payload = [
         'title' => 'Check-in: ' . $teamName,
         'body' => $teamName . ' has checked in at ' . $locationName . '. Tap to review.',
-        'icon' => '/assets/logo.png',
+        'icon' => '/assets/logo-generator-linear-blackwhite-png.png',
         'url' => '/add_location.php?checkin_id=' . $checkinId,
         'tag' => 'checkin-' . $checkinId,
         'requireInteraction' => true,
@@ -272,7 +272,7 @@ function push_notify_checkin_to_leaders(PDO $pdo, array $team, array $checkin, a
     $payload = [
         'title' => 'Check-in: ' . $teamName,
         'body' => $teamName . ' has checked in at ' . $locationName . '. Tap to review.',
-        'icon' => '/assets/logo.png',
+        'icon' => '/assets/logo-generator-linear-blackwhite-png.png',
         'url' => '/add_location.php?checkin_id=' . $checkinId,
         'tag' => 'checkin-' . $checkinId,
         'requireInteraction' => true,
@@ -295,7 +295,7 @@ function push_notify_all_leaders(PDO $pdo, string $title, string $body, string $
     $payload = [
         'title' => $title,
         'body' => $body,
-        'icon' => '/assets/logo.png',
+        'icon' => '/assets/logo-generator-linear-blackwhite-png.png',
         'url' => $url,
         'tag' => 'exbelt-' . time(),
     ];

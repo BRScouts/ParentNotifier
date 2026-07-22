@@ -1085,7 +1085,7 @@ function send_health_form_pdf(array $person, array $snapshot = [], ?array $submi
 
     $imageResources = [];
 
-    $logoPath = __DIR__ . '/assets/logo.png';
+    $logoPath = __DIR__ . '/assets/logo-generator-linear-blackwhite-png.png';
     $logoImage = health_pdf_image_object_from_path($objects, $nextObjectId, $logoPath);
 
     if ($logoImage) {

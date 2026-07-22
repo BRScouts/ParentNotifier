@@ -29,7 +29,7 @@ self.addEventListener('push', (event) => {
         payload = {
             title: 'Explorer Belt Live',
             body: event.data.text(),
-            icon: '/assets/logo.png',
+            icon: '/assets/logo-generator-linear-blackwhite-png.png',
             url: '/dashboard.php',
         };
     }
@@ -37,8 +37,8 @@ self.addEventListener('push', (event) => {
     const title = payload.title || 'Explorer Belt Live';
     const options = {
         body: payload.body || '',
-        icon: payload.icon || '/assets/logo.png',
-        badge: '/assets/logo.png',
+        icon: payload.icon || '/assets/logo-generator-linear-blackwhite-png.png',
+        badge: '/assets/logo-generator-linear-blackwhite-png.png',
         tag: payload.tag || 'exbelt-notification',
         data: {
             url: payload.url || '/dashboard.php',

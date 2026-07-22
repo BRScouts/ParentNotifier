@@ -368,7 +368,7 @@ function email_all_make_template_replacements(string $subject, string $content):
     $appName = (string)email_all_mail_constant('APP_NAME', 'Explorer Belt Live');
     $logoUrl = (string)email_all_mail_constant(
         'MAIL_LOGO_URL',
-        'https://exbelt2026.irvalscouts.org.uk/assets/logo.png'
+        'https://exbelt2026.irvalscouts.org.uk/assets/logo-generator-linear-blackwhite-png.png'
     );
 
     $ckUrl = (string)email_all_mail_constant('MAIL_CK_URL', 'https://ckenterprises.co.uk');
@@ -416,7 +416,7 @@ function email_all_render_template_preview(string $subject, string $content): st
         return '
             <div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;border:1px solid #ddd;background:#ffffff;">
                 <div style="background:#7413dc;color:#fff;padding:20px;text-align:center;">
-                    <img src="https://exbelt2026.irvalscouts.org.uk/assets/logo.png" alt="' . e(APP_NAME) . '" width="180" style="display:block;width:180px;max-width:180px;height:auto;border:0;margin:0 auto;">
+                    <img src="https://exbelt2026.irvalscouts.org.uk/assets/logo-generator-linear-blackwhite-png.png" alt="' . e(APP_NAME) . '" width="180" style="display:block;width:180px;max-width:180px;height:auto;border:0;margin:0 auto;">
                 </div>
                 <div style="padding:24px;">
                     <h2>' . e($subject) . '</h2>

@@ -418,7 +418,7 @@ function make_placeholder_replacements(string $subject, string $content): array
 
     $logoUrl = (string)mail_constant(
         'MAIL_LOGO_URL',
-        app_base_url() . '/assets/logo.png'
+        app_base_url() . '/assets/logo-generator-linear-blackwhite-png.png'
     );
 
     $ckUrl = (string)mail_constant('MAIL_CK_URL', 'https://ckenterprises.co.uk');
