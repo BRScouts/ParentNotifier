@@ -480,7 +480,7 @@ $tokenParam = urlencode($token);
     <nav class="portal-nav">
         <a href="<?= e(url('explorer_checkin.php?token=' . $tokenParam)) ?>">
             <strong>Check in</strong>
-            <span>Daily location &amp; welfare</span>
+            <span>Check in at 7pm each day &amp; let us know where you're staying</span>
         </a>
         <a href="<?= e(url('explorer_announcements.php?token=' . $tokenParam)) ?>">
             <strong>Announcements</strong>
