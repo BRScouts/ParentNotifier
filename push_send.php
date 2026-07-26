@@ -53,6 +53,7 @@ function push_get_all_subscriptions(PDO $pdo): array
             'SELECT ps.*, l.name AS leader_name
              FROM push_subscriptions ps
              INNER JOIN leaders l ON l.id = ps.leader_id AND l.is_active = 1
+             WHERE (l.role IS NULL OR l.role != "readonly")
              ORDER BY ps.created_at DESC'
         );
         $results = $stmt->fetchAll();

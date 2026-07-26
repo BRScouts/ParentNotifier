@@ -136,7 +136,7 @@ function explorer_fetch_on_duty_in_country_leader_emails(PDO $pdo): array
             ? (clone $now)->modify('-1 day')->format('Y-m-d')
             : $now->format('Y-m-d');
 
-        // Leaders who are on-duty today AND have an active in_country schedule
+        // Leaders who are on-duty today AND have an active in_country schedule (excluding readonly)
         $stmt = $pdo->prepare(
             'SELECT DISTINCT l.email
              FROM leader_duty_roster r
@@ -147,7 +147,8 @@ function explorer_fetch_on_duty_in_country_leader_emails(PDO $pdo): array
                AND ls.status = "in_country"
                AND NOW() BETWEEN ls.schedule_start AND ls.schedule_end
                AND l.email IS NOT NULL
-               AND l.email != ""'
+               AND l.email != ""
+               AND (l.role IS NULL OR l.role != "readonly")'
         );
         $stmt->execute([$dutyDate]);
 
@@ -168,7 +169,8 @@ function explorer_fetch_on_duty_in_country_leader_emails(PDO $pdo): array
                    AND r.status = "on_duty"
                    AND (l.is_in_country = 1)
                    AND l.email IS NOT NULL
-                   AND l.email != ""'
+                   AND l.email != ""
+                   AND (l.role IS NULL OR l.role != "readonly")'
             );
             $stmt->execute([$dutyDate]);
 
@@ -204,6 +206,7 @@ function explorer_fetch_leader_emails(PDO $pdo): array
                     is_active = 1
                     OR is_active IS NULL
                )
+               AND (role IS NULL OR role != "readonly")
              ORDER BY name ASC'
         );
     } catch (Throwable $exception) {
@@ -212,6 +215,7 @@ function explorer_fetch_leader_emails(PDO $pdo): array
              FROM leaders
              WHERE email IS NOT NULL
                AND email <> ""
+               AND (role IS NULL OR role != "readonly")
              ORDER BY name ASC'
         );
     }
