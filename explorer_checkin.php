@@ -933,6 +933,18 @@ include __DIR__ . '/explorer_header.php';
                 Submit another check-in
             </a>
         </p>
+
+        <script>
+            // Clear cached form data after successful submission
+            try {
+                var keys = Object.keys(localStorage);
+                for (var i = 0; i < keys.length; i++) {
+                    if (keys[i].indexOf('explorer_checkin_draft_') === 0) {
+                        localStorage.removeItem(keys[i]);
+                    }
+                }
+            } catch(e) {}
+        </script>
     <?php else: ?>
 
         <?php if ($error): ?>
@@ -1526,6 +1538,162 @@ include __DIR__ . '/explorer_header.php';
                 }
             });
         });
+
+        // === localStorage form cache ===
+        // Saves form progress so if signal drops, data isn't lost.
+        var CACHE_KEY = 'explorer_checkin_draft_' + (document.querySelector('input[name="csrf_token"]')?.form?.querySelector('input[name="latitude"]')?.closest('form')?.id || 'default');
+
+        (function initFormCache() {
+            var form = document.getElementById('checkinForm');
+            if (!form) return;
+
+            var fieldsToCache = [
+                'location_name',
+                'accommodation_type',
+                'accommodation_notes',
+                'welfare_notes',
+                'has_injuries',
+                'has_medication',
+                'submitted_by'
+            ];
+
+            // Also cache textareas for member reports (injury_description, medication_detail, first_aid_given)
+            function getMemberReportData() {
+                var data = {};
+                form.querySelectorAll('[name^="injury_description["]').forEach(function(el) {
+                    data[el.name] = el.value;
+                });
+                form.querySelectorAll('[name^="medication_detail["]').forEach(function(el) {
+                    data[el.name] = el.value;
+                });
+                form.querySelectorAll('[name^="first_aid_given["]').forEach(function(el) {
+                    data[el.name] = el.value;
+                });
+                // Member issue checkboxes
+                form.querySelectorAll('.member-issue-toggle').forEach(function(el) {
+                    data['checkbox_' + el.name + '_' + el.value] = el.checked;
+                });
+                return data;
+            }
+
+            function saveToCache() {
+                var data = {};
+
+                fieldsToCache.forEach(function(name) {
+                    var el = form.querySelector('[name="' + name + '"]');
+                    if (el) {
+                        if (el.type === 'radio') {
+                            var checked = form.querySelector('[name="' + name + '"]:checked');
+                            data[name] = checked ? checked.value : '';
+                        } else {
+                            data[name] = el.value;
+                        }
+                    }
+                });
+
+                data._memberReports = getMemberReportData();
+
+                try {
+                    localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+                } catch (e) {
+                    // Storage full or unavailable — fail silently
+                }
+            }
+
+            function restoreFromCache() {
+                var raw;
+                try {
+                    raw = localStorage.getItem(CACHE_KEY);
+                } catch (e) {
+                    return;
+                }
+
+                if (!raw) return;
+
+                var data;
+                try {
+                    data = JSON.parse(raw);
+                } catch (e) {
+                    return;
+                }
+
+                fieldsToCache.forEach(function(name) {
+                    if (!(name in data)) return;
+
+                    var el = form.querySelector('[name="' + name + '"]');
+                    if (!el) return;
+
+                    if (el.type === 'radio' || el.tagName === 'INPUT' && el.type === 'hidden') {
+                        // For radios, check the matching one
+                        var radios = form.querySelectorAll('[name="' + name + '"]');
+                        if (radios.length > 1) {
+                            radios.forEach(function(r) {
+                                r.checked = (r.value === data[name]);
+                            });
+                        } else {
+                            // Hidden input (submitted_by)
+                            el.value = data[name];
+                            // Re-highlight the selected member button
+                            if (name === 'submitted_by' && data[name]) {
+                                var btns = document.querySelectorAll('#submittedBySelector .member-select-btn');
+                                btns.forEach(function(btn) {
+                                    if (btn.getAttribute('data-name') === data[name]) {
+                                        btn.classList.add('selected');
+                                    }
+                                });
+                            }
+                        }
+                    } else {
+                        el.value = data[name];
+                    }
+                });
+
+                // Restore member report fields
+                if (data._memberReports) {
+                    Object.keys(data._memberReports).forEach(function(key) {
+                        if (key.startsWith('checkbox_')) {
+                            // Restore checkboxes later after DOM is ready
+                            return;
+                        }
+                        var el = form.querySelector('[name="' + key + '"]');
+                        if (el) el.value = data._memberReports[key];
+                    });
+
+                    // Restore checkboxes
+                    Object.keys(data._memberReports).forEach(function(key) {
+                        if (!key.startsWith('checkbox_')) return;
+                        var isChecked = data._memberReports[key];
+                        // Parse: checkbox_member_issue[123]_123
+                        var match = key.match(/^checkbox_(.+?)_(\d+)$/);
+                        if (match && isChecked) {
+                            var checkbox = form.querySelector('[name="' + match[1] + '"][value="' + match[2] + '"]');
+                            if (checkbox) {
+                                checkbox.checked = true;
+                                checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+                            }
+                        }
+                    });
+                }
+
+                // Trigger UI updates for welfare toggles
+                updateWelfarePanel();
+            }
+
+            // Restore on load
+            restoreFromCache();
+
+            // Save on any input/change
+            form.addEventListener('input', saveToCache);
+            form.addEventListener('change', saveToCache);
+
+            // Clear cache on successful submit
+            form.addEventListener('submit', function() {
+                // Small delay to ensure submit goes through, then clear
+                setTimeout(function() {
+                    try { localStorage.removeItem(CACHE_KEY); } catch(e) {}
+                }, 500);
+            });
+        })();
     });
 </script>
 
