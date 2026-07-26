@@ -71,10 +71,14 @@ $encouragements = [
 $encouragement = $encouragements[array_rand($encouragements)];
 
 // Build the WhatsApp message
-$firstName = explode(' ', trim($submitterName))[0] ?? $submitterName;
+$firstName = explode(' ', trim($submitterName))[0] ?: $submitterName;
 
 $whatsappMessage = "Hi {$firstName}\n\n";
-$whatsappMessage .= "We have got your check in and can see you are staying at {$locationName}.\n\n";
+if ($locationName !== '') {
+    $whatsappMessage .= "We have got your check in and can see you are staying at {$locationName}.\n\n";
+} else {
+    $whatsappMessage .= "We have got your check in.\n\n";
+}
 $whatsappMessage .= "{$encouragement}\n\n";
 $whatsappMessage .= "Thanks\n\n";
 $whatsappMessage .= $leaderName;

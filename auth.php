@@ -32,7 +32,17 @@ if (session_status() === PHP_SESSION_NONE) {
 
 function current_user(): ?array
 {
+    static $cached = null;
+    static $fetched = false;
+
+    if ($fetched) {
+        return $cached;
+    }
+
+    $fetched = true;
+
     if (empty($_SESSION['leader_id'])) {
+        $cached = null;
         return null;
     }
 
@@ -40,7 +50,8 @@ function current_user(): ?array
     $stmt->execute([(int)$_SESSION['leader_id']]);
     $user = $stmt->fetch();
 
-    return $user ?: null;
+    $cached = $user ?: null;
+    return $cached;
 }
 
 function is_logged_in(): bool
