@@ -286,14 +286,14 @@ foreach ($inCountryLeaders as $leader) {
         <?php else: ?>
 
             <div class="alert alert-warning" style="border: 2px solid #ffc107; padding: 1.5rem; font-size: 1.1rem;">
-                <p style="font-weight: 800; margin-bottom: 0.75rem;">No leaders currently on duty</p>
+                <p style="font-weight: 800; margin-bottom: 0.75rem;">Failed to load current on duty leaders</p>
                 <p style="margin-bottom: 0;">
                     No leaders are currently listed as on duty.
                     <?php if ($emergencyPhone !== ''): ?>
                         For urgent support, call
                         <a href="tel:<?= e($emergencyPhone) ?>" style="font-weight: 700;"><?= e($emergencyPhone) ?></a>.
                     <?php else: ?>
-                        Please check back later or refer to the emergency numbers above.
+                        Please check back later or refer to the emergency numbers given to you.
                     <?php endif; ?>
                 </p>
             </div>
