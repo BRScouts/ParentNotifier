@@ -1301,6 +1301,17 @@ include __DIR__ . '/explorer_header.php';
             confirmBtn.addEventListener('click', function () {
                 duplicateWarning.style.display = 'none';
                 checkinForm.style.display = 'block';
+
+                // If the map was already initialized while the form was hidden,
+                // tiles will be misaligned. Invalidate size now that it's visible.
+                // If the map hasn't loaded yet, trigger initialization now.
+                setTimeout(function () {
+                    if (mapLoaded && mapElement && mapElement._leaflet_map) {
+                        mapElement._leaflet_map.invalidateSize();
+                    } else if (!mapLoaded && typeof L !== 'undefined') {
+                        initCheckinMap();
+                    }
+                }, 150);
             });
         }
 
@@ -1326,6 +1337,10 @@ include __DIR__ . '/explorer_header.php';
             var defaultLng = 25.7482;
 
             var map = L.map(mapElement).setView([defaultLat, defaultLng], 6);
+
+            // Store map instance on element so we can call invalidateSize later
+            // (needed when form is revealed after duplicate check-in warning)
+            mapElement._leaflet_map = map;
 
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 maxZoom: 19,

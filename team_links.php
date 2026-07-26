@@ -317,7 +317,7 @@ function build_parent_checkin_body(
         return trim($publicNote);
     }
 
-    $body = $teamName . ' has checked in for the evening.';
+    $body = $teamName . ' has checked in for the evening and the team are making great progress!';
 
     if ($locationName !== '') {
         $body .= "\n\nApproximate location: " . $locationName . '.';
@@ -326,6 +326,8 @@ function build_parent_checkin_body(
     if ($accommodationType !== '') {
         $body .= "\n\nThey are staying: " . $accommodationType . '.';
     }
+
+    $body .= "\n\nEveryone is safe, well, and in good spirits. We hope you're enjoying following their adventure!";
 
     $body .= "\n\n";
 
