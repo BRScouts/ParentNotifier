@@ -1323,3 +1323,240 @@ object {
         display: none !important;
     }
 }
+
+
+/* ============================================
+   Global Search Results Page
+   ============================================ */
+
+.search-results-page {
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.search-results-title {
+    font-size: 1.8rem;
+    font-weight: 900;
+    margin-bottom: 1.25rem;
+    color: var(--ink);
+}
+
+.search-results-form {
+    margin-bottom: 1.5rem;
+}
+
+.search-results-input-wrap {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.search-results-input {
+    flex: 1;
+    border: 2px solid var(--border);
+    border-radius: 0;
+    padding: 0.65rem 0.85rem;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.search-results-input:focus {
+    border-color: var(--scout-purple);
+    box-shadow: 0 0 0 3px rgba(116, 19, 220, 0.15);
+    outline: none;
+}
+
+.search-results-btn {
+    border-radius: 0;
+    font-weight: 800;
+    padding: 0.65rem 1.25rem;
+    background: var(--scout-purple);
+    border-color: var(--scout-purple);
+}
+
+.search-results-btn:hover,
+.search-results-btn:focus {
+    background: var(--scout-purple-dark);
+    border-color: var(--scout-purple-dark);
+}
+
+.search-help-text {
+    color: var(--muted);
+    font-size: 0.88rem;
+    margin-top: 0.5rem;
+    margin-bottom: 0;
+}
+
+.search-results-count {
+    color: var(--muted);
+    font-size: 0.95rem;
+    margin-bottom: 1rem;
+}
+
+/* Result cards */
+
+.search-results-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.search-result-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.15rem;
+    border: 2px solid var(--border-light);
+    border-bottom: 0;
+    background: var(--white);
+    text-decoration: none;
+    color: var(--ink);
+    transition: background 0.12s ease;
+}
+
+.search-result-card:last-child {
+    border-bottom: 2px solid var(--border-light);
+}
+
+.search-result-card:hover,
+.search-result-card:focus {
+    background: var(--panel-light);
+    text-decoration: none;
+    color: var(--ink);
+    outline: 3px solid var(--scout-purple);
+    outline-offset: -3px;
+    z-index: 1;
+    position: relative;
+}
+
+.search-result-card.search-result-inactive {
+    opacity: 0.6;
+}
+
+.search-result-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.search-result-name {
+    font-weight: 900;
+    font-size: 1.05rem;
+    margin-bottom: 0.2rem;
+    color: var(--scout-purple);
+}
+
+.search-result-name mark {
+    background: var(--warning-yellow);
+    color: var(--ink);
+    padding: 0 2px;
+    font-weight: 900;
+}
+
+.search-result-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    font-size: 0.88rem;
+    color: var(--muted);
+    margin-bottom: 0.35rem;
+}
+
+.search-result-meta span::before {
+    content: '';
+    display: inline-block;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--border);
+    margin-right: 0.4rem;
+    vertical-align: middle;
+}
+
+.search-result-meta span:first-child::before {
+    display: none;
+}
+
+.search-result-matches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.35rem;
+}
+
+.match-badge {
+    display: inline-block;
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 0.15rem 0.5rem;
+    border-radius: 0;
+    border: 1px solid;
+}
+
+.match-badge-name {
+    background: #f3e8ff;
+    border-color: #d4a5ff;
+    color: #5b0ea3;
+}
+
+.match-badge-email {
+    background: #e8f4ff;
+    border-color: #93c5fd;
+    color: #1e40af;
+}
+
+.match-badge-phone {
+    background: #ecfdf5;
+    border-color: #6ee7b7;
+    color: #065f46;
+}
+
+.match-badge-dob {
+    background: #fef3c7;
+    border-color: #fbbf24;
+    color: #92400e;
+}
+
+.match-badge-parent {
+    background: #fce7f3;
+    border-color: #f9a8d4;
+    color: #9d174d;
+}
+
+.match-badge-contact {
+    background: #fff7ed;
+    border-color: #fdba74;
+    color: #9a3412;
+}
+
+.search-result-arrow {
+    color: var(--border);
+    margin-left: 1rem;
+    flex-shrink: 0;
+}
+
+.search-result-card:hover .search-result-arrow {
+    color: var(--scout-purple);
+}
+
+/* Responsive adjustments */
+
+@media (max-width: 575.98px) {
+    .search-results-input-wrap {
+        flex-direction: column;
+    }
+
+    .search-results-btn {
+        width: 100%;
+    }
+
+    .search-result-card {
+        padding: 0.85rem;
+    }
+
+    .search-result-meta {
+        gap: 0.3rem 0.6rem;
+    }
+
+    .search-result-name {
+        font-size: 0.98rem;
+    }
+}

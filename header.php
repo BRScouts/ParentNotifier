@@ -836,6 +836,79 @@ $isLeaderOnDuty = $headerDutyStatus['on_duty'] ?? false;
                 min-height: 40px;
             }
         }
+        /* Global search in navbar */
+        .global-search-form {
+            margin-left: 0.75rem;
+            display: flex;
+            align-items: center;
+        }
+
+        .global-search-wrap {
+            display: flex;
+            align-items: center;
+            border: 2px solid rgba(255, 255, 255, 0.6);
+            background: rgba(255, 255, 255, 0.12);
+            border-radius: 0;
+            overflow: hidden;
+        }
+
+        .global-search-input {
+            border: 0;
+            background: transparent;
+            color: #ffffff;
+            padding: 0.4rem 0.6rem;
+            font-size: 0.88rem;
+            width: 160px;
+            outline: none;
+            font-weight: 600;
+        }
+
+        .global-search-input::placeholder {
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .global-search-input:focus {
+            width: 220px;
+            background: rgba(255, 255, 255, 0.18);
+        }
+
+        .global-search-btn {
+            border: 0;
+            background: rgba(255, 255, 255, 0.15);
+            color: #ffffff;
+            padding: 0.4rem 0.55rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+        }
+
+        .global-search-btn:hover,
+        .global-search-btn:focus {
+            background: rgba(255, 255, 255, 0.3);
+            outline: 2px solid #ffdd00;
+        }
+
+        @media (max-width: 991.98px) {
+            .global-search-form {
+                margin: 0.75rem 0 0.5rem;
+                width: 100%;
+            }
+
+            .global-search-wrap {
+                width: 100%;
+            }
+
+            .global-search-input {
+                width: 100%;
+                flex: 1;
+            }
+
+            .global-search-input:focus {
+                width: 100%;
+            }
+        }
     </style>
 </head>
 
@@ -949,6 +1022,27 @@ $isLeaderOnDuty = $headerDutyStatus['on_duty'] ?? false;
                     <?php endif; ?>
 
                 </ul>
+
+                <?php if ($user): ?>
+                    <form class="global-search-form" action="<?= e(url('search.php')) ?>" method="get" role="search" aria-label="Search participants">
+                        <div class="global-search-wrap">
+                            <input
+                                type="search"
+                                name="q"
+                                class="global-search-input"
+                                placeholder="Search people..."
+                                aria-label="Search by name, email, phone, or DOB"
+                                autocomplete="off"
+                                value="<?= e($_GET['q'] ?? '') ?>"
+                            >
+                            <button type="submit" class="global-search-btn" aria-label="Search">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                                    <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85zm-5.242.656a5 5 0 1 1 0-10 5 5 0 0 1 0 10z"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </form>
+                <?php endif; ?>
 
                 <?php if ($user): ?>
                     <div class="dropdown profile-menu">

@@ -9,6 +9,24 @@ if (file_exists($composerAutoload)) {
 require_once __DIR__ . '/config.php';
 
 if (session_status() === PHP_SESSION_NONE) {
+    // Leader sessions last 7 days (604800 seconds) instead of the PHP default 24 minutes
+    $sessionLifetime = 604800;
+    ini_set('session.gc_maxlifetime', (string)$sessionLifetime);
+
+    // Use a private session directory so cPanel's shared GC doesn't purge our sessions early
+    $sessionDir = dirname(__DIR__) . '/pn_sessions';
+    if (!is_dir($sessionDir)) {
+        mkdir($sessionDir, 0700, true);
+    }
+    ini_set('session.save_path', $sessionDir);
+
+    session_set_cookie_params([
+        'lifetime' => $sessionLifetime,
+        'path' => '/',
+        'secure' => true,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
     session_start();
 }
 
