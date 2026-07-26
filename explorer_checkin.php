@@ -880,6 +880,18 @@ include __DIR__ . '/explorer_header.php';
         line-height: 1.2;
         word-break: break-word;
     }
+
+    /* Validation error highlighting */
+    .field-error {
+        border: 2px solid #d4351c !important;
+        border-radius: 4px;
+        box-shadow: 0 0 0 3px rgba(212, 53, 28, 0.15);
+    }
+
+    .checkin-panel.field-error {
+        border: 2px solid #d4351c;
+        box-shadow: 0 0 0 3px rgba(212, 53, 28, 0.15);
+    }
 </style>
 
 <div class="container mb-5">
@@ -1450,27 +1462,46 @@ include __DIR__ . '/explorer_header.php';
 
         if (form) {
             form.addEventListener('submit', function (event) {
+                // Clear any previous error highlights
+                form.querySelectorAll('.field-error').forEach(function(el) {
+                    el.classList.remove('field-error');
+                });
+
+                var hasErrors = false;
+
                 var lat = document.getElementById('latitude');
                 var lng = document.getElementById('longitude');
                 var confirmLocation = document.getElementById('confirm_location');
 
                 if (!lat || !lng || lat.value === '' || lng.value === '') {
                     event.preventDefault();
-                    alert('Please select your location on the map.');
-                    return;
+                    var mapPanel = form.querySelector('.map-box')?.closest('.checkin-panel');
+                    if (mapPanel) mapPanel.classList.add('field-error');
+                    hasErrors = true;
                 }
 
                 if (!confirmLocation || !confirmLocation.checked) {
                     event.preventDefault();
-                    alert('Please confirm the map location is correct.');
-                    return;
+                    var confirmGroup = confirmLocation?.closest('.form-group') || confirmLocation?.closest('.checkin-panel');
+                    if (confirmGroup) confirmGroup.classList.add('field-error');
+                    hasErrors = true;
                 }
 
                 var submittedBy = document.getElementById('submitted_by');
                 if (!submittedBy || submittedBy.value === '') {
                     event.preventDefault();
-                    alert('Please select who is completing this form.');
-                    return;
+                    var selectorEl = document.getElementById('submittedBySelector');
+                    var selectorGroup = selectorEl?.closest('.form-group');
+                    if (selectorGroup) selectorGroup.classList.add('field-error');
+                    hasErrors = true;
+                }
+
+                var accommodationType = form.querySelector('[name="accommodation_type"]');
+                if (accommodationType && accommodationType.value === '') {
+                    event.preventDefault();
+                    var accomGroup = accommodationType.closest('.form-group');
+                    if (accomGroup) accomGroup.classList.add('field-error');
+                    hasErrors = true;
                 }
 
                 var hasInjuries = document.querySelector('input[name="has_injuries"]:checked');
@@ -1484,7 +1515,17 @@ include __DIR__ . '/explorer_header.php';
 
                     if (checkedMembers.length === 0) {
                         event.preventDefault();
-                        alert('Please select the team member or members who need first aid, welfare or medication notes.');
+                        var reportsPanel = document.getElementById('memberReportsPanel');
+                        if (reportsPanel) reportsPanel.classList.add('field-error');
+                        hasErrors = true;
+                    }
+                }
+
+                if (hasErrors) {
+                    event.preventDefault();
+                    var firstError = form.querySelector('.field-error');
+                    if (firstError) {
+                        firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     }
                 }
             });
@@ -1541,6 +1582,7 @@ include __DIR__ . '/explorer_header.php';
 
         // === localStorage form cache ===
         // Saves form progress so if signal drops, data isn't lost.
+        // Checkboxes restore their data but panels stay collapsed until re-selected.
         var CACHE_KEY = 'explorer_checkin_draft_' + (document.querySelector('input[name="csrf_token"]')?.form?.querySelector('input[name="latitude"]')?.closest('form')?.id || 'default');
 
         (function initFormCache() {
@@ -1557,7 +1599,6 @@ include __DIR__ . '/explorer_header.php';
                 'submitted_by'
             ];
 
-            // Also cache textareas for member reports (injury_description, medication_detail, first_aid_given)
             function getMemberReportData() {
                 var data = {};
                 form.querySelectorAll('[name^="injury_description["]').forEach(function(el) {
@@ -1569,7 +1610,6 @@ include __DIR__ . '/explorer_header.php';
                 form.querySelectorAll('[name^="first_aid_given["]').forEach(function(el) {
                     data[el.name] = el.value;
                 });
-                // Member issue checkboxes
                 form.querySelectorAll('.member-issue-toggle').forEach(function(el) {
                     data['checkbox_' + el.name + '_' + el.value] = el.checked;
                 });
@@ -1595,27 +1635,16 @@ include __DIR__ . '/explorer_header.php';
 
                 try {
                     localStorage.setItem(CACHE_KEY, JSON.stringify(data));
-                } catch (e) {
-                    // Storage full or unavailable — fail silently
-                }
+                } catch (e) {}
             }
 
             function restoreFromCache() {
                 var raw;
-                try {
-                    raw = localStorage.getItem(CACHE_KEY);
-                } catch (e) {
-                    return;
-                }
-
+                try { raw = localStorage.getItem(CACHE_KEY); } catch (e) { return; }
                 if (!raw) return;
 
                 var data;
-                try {
-                    data = JSON.parse(raw);
-                } catch (e) {
-                    return;
-                }
+                try { data = JSON.parse(raw); } catch (e) { return; }
 
                 fieldsToCache.forEach(function(name) {
                     if (!(name in data)) return;
@@ -1623,17 +1652,16 @@ include __DIR__ . '/explorer_header.php';
                     var el = form.querySelector('[name="' + name + '"]');
                     if (!el) return;
 
-                    if (el.type === 'radio' || el.tagName === 'INPUT' && el.type === 'hidden') {
-                        // For radios, check the matching one
+                    if (el.type === 'radio' || (el.tagName === 'INPUT' && el.type === 'hidden')) {
                         var radios = form.querySelectorAll('[name="' + name + '"]');
                         if (radios.length > 1) {
+                            // Radios (has_injuries, has_medication) — restore selection
                             radios.forEach(function(r) {
                                 r.checked = (r.value === data[name]);
                             });
                         } else {
                             // Hidden input (submitted_by)
                             el.value = data[name];
-                            // Re-highlight the selected member button
                             if (name === 'submitted_by' && data[name]) {
                                 var btns = document.querySelectorAll('#submittedBySelector .member-select-btn');
                                 btns.forEach(function(btn) {
@@ -1648,50 +1676,65 @@ include __DIR__ . '/explorer_header.php';
                     }
                 });
 
-                // Restore member report fields
+                // Restore member report text fields silently (data is there but panels stay collapsed)
                 if (data._memberReports) {
                     Object.keys(data._memberReports).forEach(function(key) {
-                        if (key.startsWith('checkbox_')) {
-                            // Restore checkboxes later after DOM is ready
-                            return;
-                        }
+                        if (key.startsWith('checkbox_')) return;
                         var el = form.querySelector('[name="' + key + '"]');
                         if (el) el.value = data._memberReports[key];
                     });
 
-                    // Restore checkboxes
+                    // Restore member issue checkboxes and expand their panels
                     Object.keys(data._memberReports).forEach(function(key) {
                         if (!key.startsWith('checkbox_')) return;
                         var isChecked = data._memberReports[key];
-                        // Parse: checkbox_member_issue[123]_123
                         var match = key.match(/^checkbox_(.+?)_(\d+)$/);
                         if (match && isChecked) {
                             var checkbox = form.querySelector('[name="' + match[1] + '"][value="' + match[2] + '"]');
                             if (checkbox) {
                                 checkbox.checked = true;
-                                checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+                                // Expand the panel
+                                var report = checkbox.closest('[data-member-report]');
+                                if (report) report.classList.add('active');
                             }
                         }
                     });
                 }
 
-                // Trigger UI updates for welfare toggles
+                // Update welfare panel visibility based on restored radio state
                 updateWelfarePanel();
             }
 
-            // Restore on load
             restoreFromCache();
 
-            // Save on any input/change
             form.addEventListener('input', saveToCache);
             form.addEventListener('change', saveToCache);
 
             // Clear cache on successful submit
             form.addEventListener('submit', function() {
-                // Small delay to ensure submit goes through, then clear
                 setTimeout(function() {
                     try { localStorage.removeItem(CACHE_KEY); } catch(e) {}
                 }, 500);
+            });
+        })();
+
+        // === Validation error highlighting ===
+        // Clear red borders when user interacts with the errored field
+        (function initValidationClear() {
+            var form = document.getElementById('checkinForm');
+            if (!form) return;
+
+            form.addEventListener('input', function(e) {
+                var wrapper = e.target.closest('.field-error');
+                if (wrapper) wrapper.classList.remove('field-error');
+            });
+            form.addEventListener('change', function(e) {
+                var wrapper = e.target.closest('.field-error');
+                if (wrapper) wrapper.classList.remove('field-error');
+            });
+            form.addEventListener('click', function(e) {
+                var wrapper = e.target.closest('.field-error');
+                if (wrapper) wrapper.classList.remove('field-error');
             });
         })();
     });

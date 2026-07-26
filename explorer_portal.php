@@ -482,6 +482,10 @@ $tokenParam = urlencode($token);
             <strong>Check in</strong>
             <span>Check in at 7pm each day &amp; let us know where you're staying</span>
         </a>
+        <a href="<?= e(url('explorer_schedule.php?token=' . $tokenParam)) ?>">
+            <strong>Schedule</strong>
+            <span>Upcoming activities &amp; plans</span>
+        </a>
         <a href="<?= e(url('explorer_announcements.php?token=' . $tokenParam)) ?>">
             <strong>Announcements</strong>
             <span>Messages from leaders</span>

@@ -51,6 +51,7 @@ $explorerTokenParam = urlencode($token);
 $explorerNavLinks = [
     ['label' => 'Home',            'file' => 'explorer_portal.php'],
     ['label' => 'Check In',        'file' => 'explorer_checkin.php'],
+    ['label' => 'Schedule',        'file' => 'explorer_schedule.php'],
     ['label' => 'Announcements',   'file' => 'explorer_announcements.php', 'badge' => true],
     ['label' => 'Contact & Emergency', 'file' => 'explorer_contact.php'],
 ];
