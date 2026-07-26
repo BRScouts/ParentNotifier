@@ -654,6 +654,7 @@ if ($submittedBy === '') {
         $_SESSION['explorer_checkin_success'] = [
             'team_name' => $team['name'],
             'submitted_at' => $submittedAt,
+            'submitted_by' => $submittedBy,
         ];
 
         redirect('explorer_checkin.php?token=' . urlencode($token) . '&submitted=1');
@@ -884,6 +885,26 @@ include __DIR__ . '/explorer_header.php';
 <div class="container mb-5">
 
     <?php if ($submittedSuccess): ?>
+        <?php
+        // Look up submitter's phone for WhatsApp note
+        $successSubmitterPhone = '';
+        $successSubmitterName = $successData['submitted_by'] ?? '';
+        if ($successSubmitterName !== '' && $team) {
+            try {
+                $phoneStmt = $pdo->prepare(
+                    'SELECT participant_phone FROM young_people
+                     WHERE team_id = ? AND name = ? AND is_active = 1 LIMIT 1'
+                );
+                $phoneStmt->execute([(int)$team['id'], $successSubmitterName]);
+                $phoneResult = $phoneStmt->fetch();
+                if ($phoneResult && !empty($phoneResult['participant_phone'])) {
+                    $successSubmitterPhone = trim($phoneResult['participant_phone']);
+                }
+            } catch (Throwable $e) {
+                // Graceful fallback
+            }
+        }
+        ?>
         <section class="success-box">
             <h2>Check-in submitted</h2>
 
@@ -897,6 +918,12 @@ include __DIR__ . '/explorer_header.php';
                 If you need help, have an urgent welfare issue, or need immediate support, contact the leadership team by phone:
                 <strong><?= e(explorer_contact_phone()) ?></strong>.
             </p>
+
+            <?php if ($successSubmitterPhone !== ''): ?>
+                <p style="margin-top: 1rem; padding: 0.75rem 1rem; background: #dcf8c6; border-radius: 8px; border: 1px solid #25d366;">
+                    💬 Once reviewed by leaders, a WhatsApp confirmation will be sent to <strong><?= e($successSubmitterPhone) ?></strong>.
+                </p>
+            <?php endif; ?>
 
             
         </section>

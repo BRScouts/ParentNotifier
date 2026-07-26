@@ -659,7 +659,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $pdo->commit();
 
-                redirect('team_links.php?view=team&team_id=' . $teamId . '&tab=pending');
+                // Redirect to WhatsApp confirmation page if check-in had a phone number
+                if ($checkinId !== null) {
+                    redirect('checkin_approved.php?checkin_id=' . $checkinId . '&team_id=' . $teamId);
+                } else {
+                    redirect('team_links.php?view=team&team_id=' . $teamId . '&tab=pending');
+                }
             } catch (Throwable $exception) {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();

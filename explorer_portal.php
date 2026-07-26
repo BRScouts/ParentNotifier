@@ -161,7 +161,7 @@ $tokenParam = urlencode($token);
         border-left: 8px solid #7413dc;
         background: #faf5ff;
         padding: 1.25rem 1.5rem;
-        margin-bottom: 1.5rem;
+        margin-bottom: 1.25rem;
     }
     .portal-unread-banner h3 {
         margin: 0 0 0.5rem 0;
@@ -181,14 +181,15 @@ $tokenParam = urlencode($token);
         margin-bottom: 0.3rem;
     }
     .portal-checkin-warning {
-        border-left: 8px solid #ffdd00;
-        background: #fff7bf;
+        border-left: 8px solid #00703c;
+        background: #e6f4ea;
         padding: 1rem 1.25rem;
-        margin-bottom: 1.5rem;
+        margin-bottom: 1.25rem;
     }
     .portal-checkin-warning strong {
         display: block;
         margin-bottom: 0.25rem;
+        color: #00703c;
     }
     .portal-checkin-history {
         background: #ffffff;
@@ -245,31 +246,238 @@ $tokenParam = urlencode($token);
         margin-bottom: 1rem;
     }
 
+    /* Portal hero */
+    .portal-hero {
+        background: #7413dc;
+        color: #ffffff;
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 1.25rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+    .portal-hero-logo {
+        width: 48px;
+        height: 48px;
+        min-width: 48px;
+        background: rgba(255,255,255,0.15);
+        border: 2px solid rgba(255,255,255,0.4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .portal-hero-logo img {
+        width: 40px;
+        height: 40px;
+        object-fit: contain;
+    }
+    .portal-hero h1 {
+        font-weight: 900;
+        margin: 0;
+        font-size: 1.4rem;
+        line-height: 1.2;
+    }
+    .portal-hero-sub {
+        opacity: 0.85;
+        font-size: 0.9rem;
+        margin-top: 0.15rem;
+    }
+
+    /* Status strip */
+    .portal-status-strip {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
+        margin-bottom: 1.25rem;
+    }
+    .portal-status-card {
+        background: #ffffff;
+        border: 2px solid #d8d8d8;
+        padding: 1rem;
+        text-align: center;
+    }
+    .portal-status-card-highlight {
+        border-color: #00703c;
+        background: #e6f4ea;
+    }
+    .portal-status-card-warn {
+        border-color: #b58900;
+        background: #fff7bf;
+    }
+    .portal-status-icon {
+        font-size: 1.5rem;
+        display: block;
+        margin-bottom: 0.25rem;
+    }
+    .portal-status-label {
+        font-size: 0.8rem;
+        color: #505a5f;
+        text-transform: uppercase;
+        font-weight: 800;
+        letter-spacing: 0.03em;
+    }
+    .portal-status-value {
+        font-size: 1.1rem;
+        font-weight: 900;
+        color: #1d1d1d;
+        margin-top: 0.1rem;
+    }
+
+    /* Quick link cards */
+    .portal-links-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
+        margin-bottom: 1.5rem;
+    }
+    .portal-link-card {
+        display: flex;
+        flex-direction: column;
+        background: #ffffff;
+        border: 2px solid #d8d8d8;
+        padding: 1.1rem 1rem;
+        text-decoration: none;
+        color: #1d1d1d;
+        position: relative;
+        transition: border-color 0.15s;
+    }
+    .portal-link-card:hover,
+    .portal-link-card:focus {
+        border-color: #7413dc;
+        text-decoration: none;
+        color: #1d1d1d;
+        outline: 3px solid #ffdd00;
+        outline-offset: 1px;
+    }
+    .portal-link-icon {
+        font-size: 1.6rem;
+        margin-bottom: 0.4rem;
+        line-height: 1;
+    }
+    .portal-link-title {
+        font-size: 1rem;
+        font-weight: 900;
+        color: #7413dc;
+        margin-bottom: 0.25rem;
+    }
+    .portal-link-desc {
+        font-size: 0.82rem;
+        color: #505a5f;
+        line-height: 1.35;
+    }
+    .portal-link-badge {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.5rem;
+        background: #d4351c;
+        color: #fff;
+        font-size: 0.72rem;
+        font-weight: 900;
+        padding: 0.15rem 0.4rem;
+        min-width: 1.2rem;
+        text-align: center;
+    }
+
+    /* Pinned announcement */
+    .portal-pinned {
+        border: 3px solid #7413dc;
+        border-left: 10px solid #7413dc;
+        background: #faf5ff;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1.25rem;
+    }
+    .portal-pinned h3 {
+        margin: 0 0 0.35rem 0;
+        font-weight: 900;
+        color: #7413dc;
+        font-size: 1.05rem;
+    }
+    .portal-pinned-content {
+        line-height: 1.6;
+        margin-bottom: 0.5rem;
+        font-size: 0.95rem;
+    }
+    .portal-pinned-meta {
+        color: #505a5f;
+        font-size: 0.82rem;
+    }
+
     /* Mobile optimisation */
     @media (max-width: 575.98px) {
         .container {
             padding-left: 0.75rem;
             padding-right: 0.75rem;
         }
+        .portal-hero {
+            padding: 1rem 1rem;
+            gap: 0.75rem;
+        }
+        .portal-hero h1 {
+            font-size: 1.2rem;
+        }
+        .portal-hero-logo {
+            width: 40px;
+            height: 40px;
+            min-width: 40px;
+        }
+        .portal-hero-logo img {
+            width: 32px;
+            height: 32px;
+        }
+        .portal-status-strip {
+            gap: 0.5rem;
+        }
+        .portal-status-card {
+            padding: 0.75rem 0.5rem;
+        }
+        .portal-status-icon {
+            font-size: 1.25rem;
+        }
+        .portal-status-value {
+            font-size: 0.95rem;
+        }
+        .portal-status-label {
+            font-size: 0.72rem;
+        }
+        .portal-links-grid {
+            gap: 0.5rem;
+        }
+        .portal-link-card {
+            padding: 0.85rem 0.75rem;
+        }
+        .portal-link-icon {
+            font-size: 1.3rem;
+            margin-bottom: 0.3rem;
+        }
+        .portal-link-title {
+            font-size: 0.9rem;
+        }
+        .portal-link-desc {
+            font-size: 0.78rem;
+        }
         .portal-checkin-history {
             padding: 1rem;
         }
         .portal-journey-map {
-            height: 220px;
+            height: 200px;
         }
-        .portal-hero {
-            flex-direction: column;
-            gap: 0.25rem !important;
-            padding: 0.75rem 1rem !important;
+        .portal-pinned {
+            padding: 0.85rem 1rem;
         }
+        .portal-unread-banner {
+            padding: 1rem 1rem;
+        }
+    }
+
+    @media (max-width: 380px) {
         .portal-hero h1 {
-            font-size: 1.2rem !important;
+            font-size: 1.05rem;
         }
-        .portal-welcome {
-            padding: 1rem !important;
+        .portal-links-grid {
+            grid-template-columns: 1fr;
         }
-        .portal-welcome h2 {
-            font-size: 1.2rem !important;
+        .portal-status-strip {
+            grid-template-columns: 1fr;
         }
     }
 </style>
@@ -277,17 +485,34 @@ $tokenParam = urlencode($token);
 <div class="container" style="padding-top: 1rem; padding-bottom: 2rem;">
 
     <!-- Hero / Team Name Panel -->
-    <section class="portal-hero" style="background: #7413dc; color: #ffffff; padding: 0.75rem 1.25rem; margin-bottom: 1.25rem; border-radius: 0; display: flex; align-items: center; gap: 0.75rem;">
-        <h1 style="font-weight: 900; margin: 0; font-size: 1.4rem; line-height: 1.2;">
-            <?= e($team['name']) ?>
-        </h1>
-        <span style="opacity: 0.85; font-size: 0.95rem; white-space: nowrap;">— Explorer Portal</span>
+    <section class="portal-hero">
+        <div class="portal-hero-logo">
+            <img src="<?= e(url('assets/logo-192.png')) ?>" alt="">
+        </div>
+        <div>
+            <h1><?= e($team['name']) ?></h1>
+            <div class="portal-hero-sub">Explorer Portal</div>
+        </div>
+    </section>
+
+    <!-- Status strip - at-a-glance info -->
+    <section class="portal-status-strip">
+        <div class="portal-status-card <?= $hasCheckedInToday ? 'portal-status-card-highlight' : 'portal-status-card-warn' ?>">
+            <span class="portal-status-icon"><?= $hasCheckedInToday ? '&#x2705;' : '&#x1F4CD;' ?></span>
+            <div class="portal-status-label">Today's Check-in</div>
+            <div class="portal-status-value"><?= $hasCheckedInToday ? 'Done' : 'Needed' ?></div>
+        </div>
+        <div class="portal-status-card <?= empty($unreadAnnouncements) ? '' : 'portal-status-card-warn' ?>">
+            <span class="portal-status-icon">&#x1F4E2;</span>
+            <div class="portal-status-label">Announcements</div>
+            <div class="portal-status-value"><?= count($unreadAnnouncements) ?> unread</div>
+        </div>
     </section>
 
     <!-- Unread Announcements Warning -->
     <?php if (!empty($unreadAnnouncements)): ?>
         <section class="portal-unread-banner" role="alert">
-            <h3>⚠️ You have <?= count($unreadAnnouncements) ?> unread announcement<?= count($unreadAnnouncements) > 1 ? 's' : '' ?></h3>
+            <h3>You have <?= count($unreadAnnouncements) ?> unread announcement<?= count($unreadAnnouncements) > 1 ? 's' : '' ?></h3>
             <ul>
                 <?php foreach (array_slice($unreadAnnouncements, 0, 3) as $ann): ?>
                     <li>
@@ -302,76 +527,58 @@ $tokenParam = urlencode($token);
                 <?php endif; ?>
             </ul>
             <a href="<?= e(url('explorer_announcements.php?token=' . $tokenParam)) ?>" class="btn btn-primary btn-sm" style="border-radius: 0; font-weight: 800;">
-                View & Acknowledge Announcements
+                View &amp; Acknowledge
             </a>
         </section>
     <?php endif; ?>
 
     <!-- Pinned Announcement (always shown regardless of acknowledgement) -->
     <?php if ($pinnedAnnouncement): ?>
-        <section style="border: 3px solid #7413dc; border-left: 10px solid #7413dc; background: #faf5ff; padding: 1.25rem 1.5rem; margin-bottom: 1.5rem;">
-            <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
-                <span style="font-size: 1.3rem;">📌</span>
-                <div style="flex: 1;">
-                    <h3 style="margin: 0 0 0.35rem 0; font-weight: 900; color: #7413dc; font-size: 1.1rem;">
-                        <?= e($pinnedAnnouncement['title']) ?>
-                    </h3>
-                    <div style="line-height: 1.6; margin-bottom: 0.5rem;">
-                        <?= nl2br(e($pinnedAnnouncement['content'])) ?>
-                    </div>
-                    <p style="margin: 0; color: #505a5f; font-size: 0.85rem;">
-                        Pinned by <?= e($pinnedAnnouncement['sender_name'] ?? 'Leader') ?> &middot; <?= e(format_datetime($pinnedAnnouncement['created_at'])) ?>
-                    </p>
-                </div>
+        <section class="portal-pinned">
+            <h3>&#x1F4CC; <?= e($pinnedAnnouncement['title']) ?></h3>
+            <div class="portal-pinned-content">
+                <?= nl2br(e($pinnedAnnouncement['content'])) ?>
             </div>
+            <p class="portal-pinned-meta">
+                Pinned by <?= e($pinnedAnnouncement['sender_name'] ?? 'Leader') ?> &middot; <?= e(format_datetime($pinnedAnnouncement['created_at'])) ?>
+            </p>
         </section>
     <?php endif; ?>
 
-    <!-- Today's Check-in Warning -->
+    <!-- Today's Check-in Confirmation -->
     <?php if ($hasCheckedInToday): ?>
         <section class="portal-checkin-warning">
-            <strong>✓ You have already checked in today</strong>
-            <span>Your last check-in was submitted at <?= e(format_datetime($todayCheckinTime)) ?>. You only need to check in once per day unless instructed otherwise by a leader.</span>
+            <strong>&#x2713; Checked in today</strong>
+            <span>Submitted at <?= e(format_datetime($todayCheckinTime)) ?>. You only need to check in once per day unless told otherwise.</span>
         </section>
     <?php endif; ?>
 
-    <!-- Welcome Panel -->
-    <section class="portal-welcome" style="background: #ffffff; border: 2px solid #d8d8d8; padding: 1.5rem; margin-bottom: 1.5rem;">
-        <h2 style="font-weight: 900; margin-bottom: 0.75rem; color: #1d1d1d;">Welcome to your Expedition Portal</h2>
-        <p style="font-size: 1rem; line-height: 1.6; margin-bottom: 0.5rem;">
-            This is your team's central hub during the expedition. 
-        </p>
-     
-    </section>
-
     <!-- Quick Links -->
-    <section style="margin-bottom: 1.5rem;">
-        <h2 style="font-weight: 900; margin-bottom: 0.75rem; color: #1d1d1d;">Quick Links</h2>
-        <div class="row">
-            <div class="col-6 col-lg-3 mb-3">
-                <a href="<?= e(url('explorer_checkin.php?token=' . $tokenParam)) ?>"
-                   style="display: block; background: #ffffff; border: 2px solid #d8d8d8; padding: 1rem; text-decoration: none; color: #1d1d1d; height: 100%;">
-                    <strong style="display: block; font-size: 1.05rem; margin-bottom: 0.4rem; color: #7413dc;">Check In</strong>
-                    <span style="font-size: 0.9rem;">Submit your daily location and welfare check-in.</span>
-                </a>
-            </div>
-            <div class="col-6 col-lg-3 mb-3">
-                <a href="<?= e(url('explorer_announcements.php?token=' . $tokenParam)) ?>"
-                   style="display: block; background: #ffffff; border: 2px solid #d8d8d8; padding: 1rem; text-decoration: none; color: #1d1d1d; height: 100%; position: relative;">
-                    <strong style="display: block; font-size: 1.05rem; margin-bottom: 0.4rem; color: #7413dc;">Announcements</strong>
-                    <span style="font-size: 0.9rem;">View messages and updates from the leadership team.</span>
-                    <?php if (!empty($unreadAnnouncements)): ?>
-                        <span style="position: absolute; top: 0.5rem; right: 0.5rem; background: #d4351c; color: #fff; font-size: 0.75rem; font-weight: 900; padding: 0.15rem 0.4rem;"><?= count($unreadAnnouncements) ?></span>
-                    <?php endif; ?>
-                </a>
-            </div>
-            <div class="col-6 col-lg-3 mb-3">
-                <a href="<?= e(url('explorer_contact.php?token=' . $tokenParam)) ?>"
-                   style="display: block; background: #ffffff; border: 2px solid #d8d8d8; padding: 1rem; text-decoration: none; color: #1d1d1d; height: 100%;">
-                    <strong style="display: block; font-size: 1.05rem; margin-bottom: 0.4rem; color: #7413dc;">Contact & Emergency</strong>
-                    <span style="font-size: 0.9rem;">Emergency numbers and on-duty leader contacts.</span>
-                </a>
-            </div>
+    <section>
+        <div class="portal-links-grid">
+            <a href="<?= e(url('explorer_checkin.php?token=' . $tokenParam)) ?>" class="portal-link-card">
+                <span class="portal-link-icon">&#x1F4CD;</span>
+                <span class="portal-link-title">Check In</span>
+                <span class="portal-link-desc">Submit your daily location and welfare check-in.</span>
+            </a>
+            <a href="<?= e(url('explorer_announcements.php?token=' . $tokenParam)) ?>" class="portal-link-card">
+                <span class="portal-link-icon">&#x1F4E3;</span>
+                <span class="portal-link-title">Announcements</span>
+                <span class="portal-link-desc">Messages from the leadership team.</span>
+                <?php if (!empty($unreadAnnouncements)): ?>
+                    <span class="portal-link-badge"><?= count($unreadAnnouncements) ?></span>
+                <?php endif; ?>
+            </a>
+            <a href="<?= e(url('explorer_contact.php?token=' . $tokenParam)) ?>" class="portal-link-card">
+                <span class="portal-link-icon">&#x1F6A8;</span>
+                <span class="portal-link-title">Contact &amp; Emergency</span>
+                <span class="portal-link-desc">Emergency numbers and on-duty leader info.</span>
+            </a>
+            <a href="<?= e(url('explorer_emergencies.php?token=' . $tokenParam)) ?>" class="portal-link-card">
+                <span class="portal-link-icon">&#x2139;&#xFE0F;</span>
+                <span class="portal-link-title">Emergencies</span>
+                <span class="portal-link-desc">What to do in an emergency situation.</span>
+            </a>
         </div>
     </section>
 

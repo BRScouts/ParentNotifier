@@ -191,7 +191,7 @@ $explorerNavLinks = [
         <div class="container">
             <a class="navbar-brand" href="<?= e(url('explorer_portal.php?token=' . $explorerTokenParam)) ?>">
                 <?php if (defined('LOGO_URL') && LOGO_URL !== ''): ?>
-                    <img src="<?= e(LOGO_URL) ?>" alt="<?= e(APP_NAME) ?>">
+                    <img src="<?= e(url('assets/logo-generator-linear-blackwhite-png.png')) ?>" alt="<?= e(APP_NAME) ?>">
                 <?php else: ?>
                     <?= e(APP_NAME) ?>
                 <?php endif; ?>
