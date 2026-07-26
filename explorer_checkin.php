@@ -941,8 +941,8 @@ include __DIR__ . '/explorer_header.php';
         </section>
 
         <p>
-            <a class="btn btn-primary" href="<?= e(url('explorer_checkin.php?token=' . urlencode($token))) ?>">
-                Submit another check-in
+            <a class="btn btn-outline-secondary btn-sm" href="<?= e(url('explorer_portal.php?token=' . urlencode($token))) ?>">
+                Back to portal
             </a>
         </p>
 
