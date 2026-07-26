@@ -1297,6 +1297,10 @@ include __DIR__ . '/explorer_header.php';
         var confirmBtn = document.getElementById('confirmDuplicateCheckin');
         var checkinForm = document.getElementById('checkinForm');
 
+        var mapElement = document.getElementById('checkinMap');
+        var mapPlaceholder = document.getElementById('checkinMapPlaceholder');
+        var mapLoaded = false;
+
         if (confirmBtn && duplicateWarning && checkinForm) {
             confirmBtn.addEventListener('click', function () {
                 duplicateWarning.style.display = 'none';
@@ -1315,13 +1319,15 @@ include __DIR__ . '/explorer_header.php';
             });
         }
 
-        var mapElement = document.getElementById('checkinMap');
-        var mapPlaceholder = document.getElementById('checkinMapPlaceholder');
-        var mapLoaded = false;
-
         function initCheckinMap() {
             if (mapLoaded) return;
             if (!mapElement || typeof L === 'undefined') return;
+
+            // Don't initialize if the map container is hidden (e.g. form hidden
+            // behind duplicate check-in warning). We'll init when it becomes visible.
+            if (mapElement.offsetParent === null && checkinForm && checkinForm.style.display === 'none') {
+                return;
+            }
 
             mapLoaded = true;
 

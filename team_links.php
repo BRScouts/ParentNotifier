@@ -323,9 +323,7 @@ function build_parent_checkin_body(
         $body .= "\n\nApproximate location: " . $locationName . '.';
     }
 
-    if ($accommodationType !== '') {
-        $body .= "\n\nThey are staying: " . $accommodationType . '.';
-    }
+
 
     $body .= "\n\nEveryone is safe, well, and in good spirits. We hope you're enjoying following their adventure!";
 
