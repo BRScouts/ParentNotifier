@@ -386,7 +386,7 @@ $eventEnd = new DateTime('2026-08-13');
 
 if ($today <= $eventEnd) {
     $defaultFrom = '2026-07-28';
-    $defaultTo = '2026-08-13';
+    $defaultTo = '2026-08-14';
 } else {
     $defaultFrom = '2000-01-01';
     $defaultTo = $today->format('Y-m-d');
