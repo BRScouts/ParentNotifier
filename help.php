@@ -66,42 +66,92 @@ include __DIR__ . '/header.php';
             <h3 style="font-weight: 700; font-size: 1.05rem;">Steps:</h3>
             <ol>
                 <li>Go to <a href="<?= e(url('team_links.php')) ?>"><strong>Teams</strong></a> to see all teams and their current check-in status.</li>
-                <li>Look at the colour-coded status badges to quickly identify which teams need attention (see below).</li>
-                <li>Click into the team with a pending check-in to review the details (location, team status, any notes).</li>
+                <li>Look at the colour-coded team cards to quickly identify which teams need attention (see below).</li>
+                <li>Click the team card to open it, then go to the <strong>"Pending reviews"</strong> tab.</li>
+                <li>Review the check-in details (location, team status, welfare notes).</li>
                 <li>Click <strong>"Approve"</strong> to confirm the check-in is valid.</li>
                 <li>Once approved, the system automatically sends a push notification and/or email to the parents of that team letting them know their explorer has checked in safely.</li>
             </ol>
 
-            <h3 style="font-weight: 700; font-size: 1.05rem;">Check-in status colours:</h3>
-            <table class="table table-bordered" style="max-width: 500px;">
+            <h3 style="font-weight: 700; font-size: 1.05rem;">Team card status colours:</h3>
+            <p>Each team card on the overview has a coloured border showing its check-in status at a glance:</p>
+
+            <!-- Visual examples of team cards -->
+            <div style="display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;">
+                <div style="border: 4px solid #00703c; background: #ffffff; padding: 1rem 1.25rem; min-width: 200px; flex: 1; max-width: 280px;">
+                    <div style="font-weight: 900; font-size: 1.05rem;">Team Example</div>
+                    <div style="font-size: 0.9rem; color: #00703c; font-weight: 700; margin-top: 0.25rem;">Parents notified</div>
+                    <div style="font-size: 0.8rem; color: #505a5f; margin-top: 0.25rem;">Last approved: 26 Jul, 18:30</div>
+                </div>
+
+                <div style="border: 4px solid transparent; background: linear-gradient(#ffffff, #ffffff) padding-box, repeating-linear-gradient(45deg, #00703c 0, #00703c 10px, #ffdd00 10px, #ffdd00 20px) border-box; padding: 1rem 1.25rem; min-width: 200px; flex: 1; max-width: 280px;">
+                    <div style="font-weight: 900; font-size: 1.05rem;">Team Example</div>
+                    <div style="font-size: 0.9rem; color: #1d1d1d; font-weight: 700; margin-top: 0.25rem;">Submitted, pending review</div>
+                    <div style="font-size: 0.8rem; color: #505a5f; margin-top: 0.25rem;">Waiting for leader review</div>
+                </div>
+
+                <div style="border: 4px solid #ffdd00; background: #fff7bf; padding: 1rem 1.25rem; min-width: 200px; flex: 1; max-width: 280px;">
+                    <div style="font-weight: 900; font-size: 1.05rem;">Team Example</div>
+                    <div style="font-size: 0.9rem; color: #1d1d1d; font-weight: 700; margin-top: 0.25rem;">No check-in after 19:00 Finland</div>
+                    <div style="font-size: 0.8rem; color: #505a5f; margin-top: 0.25rem;">No approved check-in today</div>
+                </div>
+
+                <div style="border: 4px solid #b1b4b6; background: #f8f8f8; padding: 1rem 1.25rem; min-width: 200px; flex: 1; max-width: 280px;">
+                    <div style="font-weight: 900; font-size: 1.05rem;">Team Example</div>
+                    <div style="font-size: 0.9rem; color: #505a5f; font-weight: 700; margin-top: 0.25rem;">Normal</div>
+                    <div style="font-size: 0.8rem; color: #505a5f; margin-top: 0.25rem;">No approved check-in today</div>
+                </div>
+            </div>
+
+            <table class="table table-bordered" style="max-width: 600px;">
                 <thead>
                     <tr>
-                        <th>Colour</th>
+                        <th>Card style</th>
                         <th>Status</th>
                         <th>Meaning</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td><span style="display:inline-block; width:20px; height:20px; background:#00703c; border:1px solid #1d1d1d;"></span> <strong>Green</strong></td>
-                        <td>Approved and published</td>
-                        <td>Check-in has been reviewed and approved. Parents have been notified.</td>
+                        <td><span style="display:inline-block; width:20px; height:20px; border: 3px solid #00703c; background:#ffffff;"></span> <strong>Green border</strong></td>
+                        <td>Parents notified</td>
+                        <td>Check-in approved. Parents have been notified automatically.</td>
                     </tr>
                     <tr>
-                        <td><span style="display:inline-block; width:20px; height:20px; background:#ffdd00; border:1px solid #1d1d1d;"></span> <strong>Yellow</strong></td>
-                        <td>Pending review</td>
-                        <td>Team has checked in but a leader hasn't approved it yet. No notification sent to parents.</td>
+                        <td><span style="display:inline-block; width:20px; height:20px; border: 3px solid transparent; background: repeating-linear-gradient(45deg, #00703c 0, #00703c 5px, #ffdd00 5px, #ffdd00 10px);"></span> <strong>Green &amp; yellow striped</strong></td>
+                        <td>Submitted, pending review</td>
+                        <td>Team has submitted a check-in but a leader hasn't approved it yet. No notification sent.</td>
                     </tr>
                     <tr>
-                        <td><span style="display:inline-block; width:20px; height:20px; background:#d4351c; border:1px solid #1d1d1d;"></span> <strong>Red</strong></td>
-                        <td>Rejected</td>
-                        <td>Check-in was rejected by a leader. No notification sent. Team may need to resubmit.</td>
+                        <td><span style="display:inline-block; width:20px; height:20px; border: 3px solid #ffdd00; background:#fff7bf;"></span> <strong>Yellow border</strong></td>
+                        <td>Overdue</td>
+                        <td>No check-in received after 19:00 (Finland time). May need follow-up.</td>
+                    </tr>
+                    <tr>
+                        <td><span style="display:inline-block; width:20px; height:20px; border: 3px solid #b1b4b6; background:#f8f8f8;"></span> <strong>Grey border</strong></td>
+                        <td>Normal</td>
+                        <td>Before the deadline &mdash; no check-in yet but not overdue.</td>
                     </tr>
                 </tbody>
             </table>
 
             <div class="alert alert-info" style="border-radius: 0; border-width: 2px;">
                 <strong>Note:</strong> Parents only receive notifications for approved (green) check-ins. If you reject or ignore a check-in, no notification is sent.
+            </div>
+
+            <h3 style="font-weight: 700; font-size: 1.05rem;">Manual check-in (when a team can't submit):</h3>
+            <p>If a team is unable to submit their own check-in (e.g. no phone signal, dead battery, or technical issue), a leader can submit one on their behalf:</p>
+            <ol>
+                <li>Go to <a href="<?= e(url('team_links.php')) ?>"><strong>Teams</strong></a> and click on the team.</li>
+                <li>Select the <strong>"Manual check-in"</strong> tab.</li>
+                <li>Search for the team's location on the map or enter coordinates manually.</li>
+                <li>Fill in the form: location name, accommodation type, team status, and any welfare/first aid notes.</li>
+                <li>Click <strong>"Submit manual check-in"</strong>.</li>
+                <li>The check-in is created as if the team submitted it and follows the normal approval flow.</li>
+            </ol>
+
+            <div class="alert alert-warning" style="border-radius: 0; border-width: 2px;">
+                <strong>Tip:</strong> Use manual check-in as a last resort. Encourage teams to submit their own check-ins so the welfare questions are answered directly by the participants.
             </div>
         </section>
 
