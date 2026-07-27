@@ -381,8 +381,16 @@ function analytics_increment_group(array &$groups, string $key, array $base, int
 }
 
 $today = new DateTime('today');
-$defaultFrom = (clone $today)->modify('-30 days')->format('Y-m-d');
-$defaultTo = $today->format('Y-m-d');
+
+$eventEnd = new DateTime('2026-08-13');
+
+if ($today <= $eventEnd) {
+    $defaultFrom = '2026-07-28';
+    $defaultTo = '2026-08-13';
+} else {
+    $defaultFrom = '2000-01-01';
+    $defaultTo = $today->format('Y-m-d');
+}
 
 $dateFrom = analytics_query_date('from', $defaultFrom);
 $dateTo = analytics_query_date('to', $defaultTo);
