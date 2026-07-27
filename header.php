@@ -1129,6 +1129,12 @@ $isLeaderOnDuty = $headerDutyStatus['on_duty'] ?? false;
                                 Enable Notifications
                             </button>
 
+                            <div class="dropdown-divider"></div>
+
+                            <a class="dropdown-item" href="<?= e(url('help.php')) ?>">
+                                Help Guide
+                            </a>
+
                             <a class="dropdown-item" href="<?= e(url('logout.php')) ?>">
                                 Sign out
                             </a>

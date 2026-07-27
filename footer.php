@@ -23,6 +23,16 @@
                     <a href="<?= e(url('privacy.php')) ?>">Read more</a>
                 </span>
             </div>
+
+            <?php if (function_exists('is_logged_in') && is_logged_in()): ?>
+            <div class="footer-message" style="margin-top: 0.75rem;">
+                <strong>Leader Help</strong>
+                <span>
+                    Guides for common tasks including check-ins, emails, and announcements.
+                    <a href="<?= e(url('help.php')) ?>">View help guide</a>
+                </span>
+            </div>
+            <?php endif; ?>
         </div>
 
         <div class="footer-lower">
