@@ -149,6 +149,15 @@ function analytics_normalise_email(?string $email): string
     return strtolower(trim((string)$email));
 }
 
+/**
+ * Returns a SQL fragment that excludes leader emails from the email_queue results.
+ * Use as: "AND eq.to_email " . analytics_exclude_leader_emails_sql()
+ */
+function analytics_exclude_leader_emails_sql(): string
+{
+    return 'NOT IN (SELECT LOWER(TRIM(email)) FROM leaders WHERE email IS NOT NULL AND email <> "")';
+}
+
 function analytics_json_items(?string $json): array
 {
     if (!$json) {
@@ -434,7 +443,8 @@ try {
              FROM email_queue eq
              LEFT JOIN email_tracking_tokens ett ON ett.email_queue_id = eq.id
              WHERE eq.status = "sent"
-               AND eq.sent_at BETWEEN ? AND ?'
+               AND eq.sent_at BETWEEN ? AND ?
+               AND LOWER(TRIM(eq.to_email)) ' . analytics_exclude_leader_emails_sql()
         );
 
         $stmt->execute([$fromDateTime, $toDateTime]);
@@ -450,7 +460,8 @@ try {
             'SELECT COUNT(*)
              FROM email_queue eq
              WHERE eq.status = "sent"
-               AND eq.sent_at BETWEEN ? AND ?'
+               AND eq.sent_at BETWEEN ? AND ?
+               AND LOWER(TRIM(eq.to_email)) ' . analytics_exclude_leader_emails_sql()
         );
 
         $stmt->execute([$fromDateTime, $toDateTime]);
@@ -491,6 +502,7 @@ try {
              ' . $teamJoin . '
              WHERE eq.status = "sent"
                AND eq.sent_at BETWEEN ? AND ?
+               AND LOWER(TRIM(eq.to_email)) ' . analytics_exclude_leader_emails_sql() . '
              ORDER BY eq.sent_at DESC, eq.id DESC
              LIMIT ' . ANALYTICS_EMAILS_PER_PAGE . ' OFFSET ' . $emailOffset
         );
@@ -521,6 +533,7 @@ try {
              WHERE eq.status = "sent"
                AND eq.sent_at BETWEEN ? AND ?
                AND COALESCE(ett.click_count, 0) = 0
+               AND LOWER(TRIM(eq.to_email)) ' . analytics_exclude_leader_emails_sql() . '
              ORDER BY eq.sent_at DESC
              LIMIT 50'
         );
@@ -551,6 +564,7 @@ try {
              WHERE eq.status = "sent"
                AND eq.sent_at BETWEEN ? AND ?
                AND ett.first_clicked_at IS NOT NULL
+               AND LOWER(TRIM(eq.to_email)) ' . analytics_exclude_leader_emails_sql() . '
              ORDER BY seconds_to_first_click ASC
              LIMIT 1'
         );
@@ -578,6 +592,7 @@ try {
                AND eq.last_error IS NOT NULL
                AND eq.last_error <> ""
                AND eq.queued_at BETWEEN ? AND ?
+               AND LOWER(TRIM(eq.to_email)) ' . analytics_exclude_leader_emails_sql() . '
              ORDER BY eq.updated_at DESC
              LIMIT 50'
         );
@@ -818,6 +833,7 @@ try {
                     OR ete.request_path LIKE "%leaders.php%"
                     OR ete.request_path LIKE "%contact.php%"
                )
+               AND LOWER(TRIM(ete.recipient_email)) ' . analytics_exclude_leader_emails_sql() . '
              ORDER BY ete.created_at DESC
              LIMIT 50'
         );

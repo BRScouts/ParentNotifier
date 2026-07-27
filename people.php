@@ -109,6 +109,51 @@ function json_list_from_array(array $items): ?string
     return empty($clean) ? null : json_encode($clean, JSON_UNESCAPED_UNICODE);
 }
 
+function valid_unique_emails(array $emails): array
+{
+    $clean = [];
+
+    foreach ($emails as $email) {
+        $email = trim((string)$email);
+
+        if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $clean[strtolower($email)] = $email;
+        }
+    }
+
+    return array_values($clean);
+}
+
+function merged_parent_emails_from_post(?string $emergencyContactsJson): ?string
+{
+    $contactEmails = [];
+
+    if ($emergencyContactsJson !== null) {
+        $contacts = json_decode($emergencyContactsJson, true);
+
+        if (is_array($contacts)) {
+            foreach ($contacts as $contact) {
+                if (!is_array($contact)) {
+                    continue;
+                }
+
+                $email = trim((string)($contact['email'] ?? ''));
+
+                if ($email !== '') {
+                    $contactEmails[] = $email;
+                }
+            }
+        }
+    }
+
+    $additionalEmails = $_POST['parent_emails'] ?? [];
+    $additionalEmails = is_array($additionalEmails) ? $additionalEmails : [];
+
+    $merged = valid_unique_emails(array_merge($contactEmails, $additionalEmails));
+
+    return empty($merged) ? null : json_encode($merged, JSON_UNESCAPED_UNICODE);
+}
+
 function emergency_contacts_from_post(): ?string
 {
     $names = $_POST['contact_name'] ?? [];
@@ -1946,6 +1991,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
                 );
 
+                $emergencyContactsJson = emergency_contacts_from_post();
+                $parentEmailsJson = merged_parent_emails_from_post($emergencyContactsJson);
+
                 $stmt->execute([
                     $teamId > 0 ? $teamId : null,
                     $name,
@@ -1966,8 +2014,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $familyDoctorPhone !== '' ? $familyDoctorPhone : null,
                     $familyDoctorAddress !== '' ? $familyDoctorAddress : null,
                     $photoPath,
-                    emergency_contacts_from_post(),
-                    json_list_from_array($_POST['parent_emails'] ?? []),
+                    $emergencyContactsJson,
+                    $parentEmailsJson,
                     json_list_from_array($_POST['phones'] ?? []),
                     json_list_from_array($_POST['medications'] ?? []),
                     json_list_from_array($_POST['allergies'] ?? []),
@@ -2056,6 +2104,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                      WHERE id = ?'
                 );
 
+                $emergencyContactsJson = emergency_contacts_from_post();
+                $parentEmailsJson = merged_parent_emails_from_post($emergencyContactsJson);
+
                 $stmt->execute([
                     $teamId > 0 ? $teamId : null,
                     $name,
@@ -2076,8 +2127,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $familyDoctorPhone !== '' ? $familyDoctorPhone : null,
                     $familyDoctorAddress !== '' ? $familyDoctorAddress : null,
                     $photoPath,
-                    emergency_contacts_from_post(),
-                    json_list_from_array($_POST['parent_emails'] ?? []),
+                    $emergencyContactsJson,
+                    $parentEmailsJson,
                     json_list_from_array($_POST['phones'] ?? []),
                     json_list_from_array($_POST['medications'] ?? []),
                     json_list_from_array($_POST['allergies'] ?? []),
