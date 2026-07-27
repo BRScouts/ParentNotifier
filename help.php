@@ -61,32 +61,76 @@ include __DIR__ . '/header.php';
         <!-- Section 1: Approve a Check-In -->
         <section class="help-section mb-5" id="help-checkin">
             <h2 style="font-weight: 800; font-size: 1.3rem;">1. Approve a Check-In</h2>
-            <p>When a team submits a check-in, it appears on the dashboard awaiting leader approval.</p>
+            <p>When a team submits a check-in, it appears on the <a href="<?= e(url('team_links.php')) ?>"><strong>Teams</strong></a> page awaiting leader approval.</p>
 
             <h3 style="font-weight: 700; font-size: 1.05rem;">Steps:</h3>
             <ol>
-                <li>Go to <a href="<?= e(url('dashboard.php')) ?>"><strong>Dashboard</strong></a> and look for any pending check-ins highlighted at the top.</li>
-                <li>Review the check-in details (location, team status, any notes).</li>
+                <li>Go to <a href="<?= e(url('team_links.php')) ?>"><strong>Teams</strong></a> to see all teams and their current check-in status.</li>
+                <li>Look at the colour-coded status badges to quickly identify which teams need attention (see below).</li>
+                <li>Click into the team with a pending check-in to review the details (location, team status, any notes).</li>
                 <li>Click <strong>"Approve"</strong> to confirm the check-in is valid.</li>
                 <li>Once approved, the system automatically sends a push notification and/or email to the parents of that team letting them know their explorer has checked in safely.</li>
             </ol>
 
+            <h3 style="font-weight: 700; font-size: 1.05rem;">Check-in status colours:</h3>
+            <table class="table table-bordered" style="max-width: 500px;">
+                <thead>
+                    <tr>
+                        <th>Colour</th>
+                        <th>Status</th>
+                        <th>Meaning</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span style="display:inline-block; width:20px; height:20px; background:#00703c; border:1px solid #1d1d1d;"></span> <strong>Green</strong></td>
+                        <td>Approved and published</td>
+                        <td>Check-in has been reviewed and approved. Parents have been notified.</td>
+                    </tr>
+                    <tr>
+                        <td><span style="display:inline-block; width:20px; height:20px; background:#ffdd00; border:1px solid #1d1d1d;"></span> <strong>Yellow</strong></td>
+                        <td>Pending review</td>
+                        <td>Team has checked in but a leader hasn't approved it yet. No notification sent to parents.</td>
+                    </tr>
+                    <tr>
+                        <td><span style="display:inline-block; width:20px; height:20px; background:#d4351c; border:1px solid #1d1d1d;"></span> <strong>Red</strong></td>
+                        <td>Rejected</td>
+                        <td>Check-in was rejected by a leader. No notification sent. Team may need to resubmit.</td>
+                    </tr>
+                </tbody>
+            </table>
+
             <div class="alert alert-info" style="border-radius: 0; border-width: 2px;">
-                <strong>Note:</strong> Parents only receive notifications for approved check-ins. If you reject or ignore a check-in, no notification is sent.
+                <strong>Note:</strong> Parents only receive notifications for approved (green) check-ins. If you reject or ignore a check-in, no notification is sent.
             </div>
         </section>
 
         <!-- Section 2: How Links Work -->
         <section class="help-section mb-5" id="help-links">
             <h2 style="font-weight: 800; font-size: 1.3rem;">2. How Links Work</h2>
-            <p>Each team has a unique parent access link (token-based URL) that gives parents read-only access to their team's updates.</p>
+            <p>Each team has <strong>two unique links</strong> &mdash; one for parents and one for participants (explorers). Both are managed from the <a href="<?= e(url('team_links.php')) ?>"><strong>Teams</strong></a> page.</p>
 
-            <h3 style="font-weight: 700; font-size: 1.05rem;">Key points:</h3>
+            <h3 style="font-weight: 700; font-size: 1.1rem;">Parent Links</h3>
+            <p>The parent link gives parents read-only access to their team's updates via the main dashboard.</p>
             <ul>
-                <li><strong>Team Links page:</strong> Go to <a href="<?= e(url('team_links.php')) ?>"><strong>Teams</strong></a> in the navigation to view and manage all team parent links.</li>
-                <li><strong>Sharing:</strong> Copy the link and share it with parents via email or message. Anyone with the link can view that team's updates.</li>
-                <li><strong>Regenerating:</strong> If a link is compromised, you can regenerate the token which invalidates the old link.</li>
-                <li><strong>What it shows:</strong> Parents using the link see the dashboard, schedule, leaders list, and contact page scoped to their team.</li>
+                <li><strong>What it shows:</strong> Parents see the dashboard with update posts and photos, check-in status, schedule, leaders list, and the contact page &mdash; all scoped to their team.</li>
+                <li><strong>Sharing:</strong> Copy the parent link from <a href="<?= e(url('team_links.php')) ?>">Teams</a> and share it with parents via email or message. Anyone with the link can view that team's updates.</li>
+                <li><strong>What parents can't do:</strong> They cannot edit anything, see other teams, view announcements, or access admin features.</li>
+            </ul>
+
+            <h3 style="font-weight: 700; font-size: 1.1rem;">Participant (Explorer) Links</h3>
+            <p>The explorer link gives the team access to the Explorer Portal where they manage their check-ins and view announcements.</p>
+            <ul>
+                <li><strong>What it shows:</strong> The Explorer Portal with check-in submission, announcements, schedule, and the ability to contact leaders.</li>
+                <li><strong>Sharing:</strong> Give the explorer link to the team members before the expedition starts. This is how they'll submit their daily check-ins.</li>
+                <li><strong>What participants can't do:</strong> They cannot see other teams' data, access parent views, or use any leader admin tools.</li>
+            </ul>
+
+            <h3 style="font-weight: 700; font-size: 1.05rem;">Managing links:</h3>
+            <ul>
+                <li>Both links are found on the <a href="<?= e(url('team_links.php')) ?>"><strong>Teams</strong></a> page under each team.</li>
+                <li><strong>Regenerating:</strong> If a link is compromised, you can regenerate the token which invalidates the old link. Make sure to re-share the new one.</li>
+                <li>Parent links and explorer links are separate &mdash; regenerating one does not affect the other.</li>
             </ul>
         </section>
 
@@ -112,7 +156,7 @@ include __DIR__ . '/header.php';
         <!-- Section 4: Announcements -->
         <section class="help-section mb-5" id="help-announcement">
             <h2 style="font-weight: 800; font-size: 1.3rem;">4. How to Send an Announcement</h2>
-            <p>Announcements are pinned notices that appear <strong>only in the Explorer Portal</strong> for participants (teams). They are not visible to parents or on the leader dashboard.</p>
+            <p>Announcements are pinned notices that appear <strong>only in the Explorer Portal</strong> for participants (teams). They are used to communicate important information that teams need to acknowledge. They are not visible to parents or on the leader dashboard.</p>
 
             <h3 style="font-weight: 700; font-size: 1.05rem;">Steps:</h3>
             <ol>
@@ -123,10 +167,18 @@ include __DIR__ . '/header.php';
                 <li>Save the announcement &mdash; it will immediately appear in the Explorer Portal for all teams.</li>
             </ol>
 
+            <h3 style="font-weight: 700; font-size: 1.05rem;">How participants see announcements:</h3>
+            <ul>
+                <li>Unacknowledged announcements are shown to teams <strong>during the check-in process</strong> &mdash; they must acknowledge them before they can complete their check-in.</li>
+                <li>Teams can also view and acknowledge announcements from the <strong>Announcements page</strong> in the Explorer Portal at any time.</li>
+                <li>A badge count shows how many unacknowledged announcements remain.</li>
+                <li>Once acknowledged, the announcement is marked as read for that team.</li>
+            </ul>
+
             <h3 style="font-weight: 700; font-size: 1.05rem;">Managing announcements:</h3>
             <ul>
                 <li>You can edit or delete announcements from the same <a href="<?= e(url('announcements_manage.php')) ?>">Announcements</a> page.</li>
-                <li>Teams can acknowledge announcements, and you can track which teams have seen them.</li>
+                <li>You can track which teams have acknowledged each announcement.</li>
             </ul>
 
             <div class="alert alert-info" style="border-radius: 0; border-width: 2px;">
