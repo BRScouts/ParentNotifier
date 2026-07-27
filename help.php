@@ -65,7 +65,7 @@ include __DIR__ . '/header.php';
 
             <h3 style="font-weight: 700; font-size: 1.05rem;">Steps:</h3>
             <ol>
-                <li>Go to <strong>Dashboard</strong> and look for any pending check-ins highlighted at the top.</li>
+                <li>Go to <a href="<?= e(url('dashboard.php')) ?>"><strong>Dashboard</strong></a> and look for any pending check-ins highlighted at the top.</li>
                 <li>Review the check-in details (location, team status, any notes).</li>
                 <li>Click <strong>"Approve"</strong> to confirm the check-in is valid.</li>
                 <li>Once approved, the system automatically sends a push notification and/or email to the parents of that team letting them know their explorer has checked in safely.</li>
@@ -83,7 +83,7 @@ include __DIR__ . '/header.php';
 
             <h3 style="font-weight: 700; font-size: 1.05rem;">Key points:</h3>
             <ul>
-                <li><strong>Team Links page:</strong> Go to <strong>Teams</strong> in the navigation to view and manage all team parent links.</li>
+                <li><strong>Team Links page:</strong> Go to <a href="<?= e(url('team_links.php')) ?>"><strong>Teams</strong></a> in the navigation to view and manage all team parent links.</li>
                 <li><strong>Sharing:</strong> Copy the link and share it with parents via email or message. Anyone with the link can view that team's updates.</li>
                 <li><strong>Regenerating:</strong> If a link is compromised, you can regenerate the token which invalidates the old link.</li>
                 <li><strong>What it shows:</strong> Parents using the link see the dashboard, schedule, leaders list, and contact page scoped to their team.</li>
@@ -97,7 +97,7 @@ include __DIR__ . '/header.php';
 
             <h3 style="font-weight: 700; font-size: 1.05rem;">Steps:</h3>
             <ol>
-                <li>Navigate to <strong>Email</strong> in the top menu.</li>
+                <li>Navigate to <a href="<?= e(url('email_all.php')) ?>"><strong>Email</strong></a> in the top menu.</li>
                 <li>Select the recipients &mdash; you can email all parents, a specific team's parents, or leaders.</li>
                 <li>Write your subject and message body. The email uses a branded HTML template automatically.</li>
                 <li>Click <strong>"Send Email"</strong> to queue the email for delivery.</li>
@@ -105,39 +105,43 @@ include __DIR__ . '/header.php';
             </ol>
 
             <div class="alert alert-warning" style="border-radius: 0; border-width: 2px;">
-                <strong>Tip:</strong> Check the Analytics page afterwards to see open rates and delivery status for your emails.
+                <strong>Tip:</strong> Check the <a href="<?= e(url('analytics.php')) ?>">Analytics</a> page afterwards to see open rates and delivery status for your emails.
             </div>
         </section>
 
         <!-- Section 4: Announcements -->
         <section class="help-section mb-5" id="help-announcement">
             <h2 style="font-weight: 800; font-size: 1.3rem;">4. How to Send an Announcement</h2>
-            <p>Announcements are pinned notices visible to all parents and teams on the dashboard and explorer portal.</p>
+            <p>Announcements are pinned notices that appear <strong>only in the Explorer Portal</strong> for participants (teams). They are not visible to parents or on the leader dashboard.</p>
 
             <h3 style="font-weight: 700; font-size: 1.05rem;">Steps:</h3>
             <ol>
-                <li>Go to <strong>Announcements</strong> in the navigation.</li>
+                <li>Go to <a href="<?= e(url('announcements_manage.php')) ?>"><strong>Announcements</strong></a> in the navigation.</li>
                 <li>Click <strong>"New Announcement"</strong>.</li>
                 <li>Enter a title and body for the announcement.</li>
                 <li>Choose the priority level if available (normal or urgent).</li>
-                <li>Save the announcement &mdash; it will immediately appear on the dashboard for all users.</li>
+                <li>Save the announcement &mdash; it will immediately appear in the Explorer Portal for all teams.</li>
             </ol>
 
             <h3 style="font-weight: 700; font-size: 1.05rem;">Managing announcements:</h3>
             <ul>
-                <li>You can edit or delete announcements from the same Announcements page.</li>
-                <li>Parents can acknowledge announcements, and you can track who has seen them.</li>
+                <li>You can edit or delete announcements from the same <a href="<?= e(url('announcements_manage.php')) ?>">Announcements</a> page.</li>
+                <li>Teams can acknowledge announcements, and you can track which teams have seen them.</li>
             </ul>
+
+            <div class="alert alert-info" style="border-radius: 0; border-width: 2px;">
+                <strong>Remember:</strong> Announcements are only for explorer participants via the Explorer Portal. To communicate with parents, use the <a href="<?= e(url('email_all.php')) ?>">Email</a> feature or post an update on the <a href="<?= e(url('dashboard.php')) ?>">Dashboard</a>.
+            </div>
         </section>
 
         <!-- Section 5: Edit a Person -->
         <section class="help-section mb-5" id="help-edit-person">
             <h2 style="font-weight: 800; font-size: 1.3rem;">5. How to Edit a Person</h2>
-            <p>The People page lets you manage all explorers and parents in the system.</p>
+            <p>The <a href="<?= e(url('people.php')) ?>">People</a> page lets you manage all explorers and parents in the system.</p>
 
             <h3 style="font-weight: 700; font-size: 1.05rem;">Steps:</h3>
             <ol>
-                <li>Go to <strong>People</strong> in the navigation.</li>
+                <li>Go to <a href="<?= e(url('people.php')) ?>"><strong>People</strong></a> in the navigation.</li>
                 <li>Find the person using the search bar or by scrolling through the list.</li>
                 <li>Click on the person's name or the <strong>"Edit"</strong> button.</li>
                 <li>Update their details (name, email, phone, team assignment, emergency contacts, medical info, etc.).</li>
@@ -156,7 +160,7 @@ include __DIR__ . '/header.php';
 
             <h3 style="font-weight: 700; font-size: 1.05rem;">Steps:</h3>
             <ol>
-                <li>Go to <strong>People</strong> and find the relevant person.</li>
+                <li>Go to <a href="<?= e(url('people.php')) ?>"><strong>People</strong></a> and find the relevant person.</li>
                 <li>Open their profile and look for the <strong>"Logs"</strong> or <strong>"Welfare"</strong> section.</li>
                 <li>Click <strong>"Add Log Entry"</strong>.</li>
                 <li>Select the type: <strong>First Aid</strong> or <strong>Behaviour</strong>.</li>
@@ -178,7 +182,6 @@ include __DIR__ . '/header.php';
             <ul>
                 <li><strong>Dashboard:</strong> Latest update posts and photos from their team.</li>
                 <li><strong>Check-in status:</strong> Whether their team has checked in today and the last known location (approximate).</li>
-                <li><strong>Announcements:</strong> Any active announcements from leaders (they can acknowledge them).</li>
                 <li><strong>Schedule:</strong> The expedition schedule and any upcoming events.</li>
                 <li><strong>Leaders:</strong> Who the leaders are and their on-duty status.</li>
                 <li><strong>Contact:</strong> How to contact the leadership team in an emergency.</li>
@@ -188,6 +191,7 @@ include __DIR__ . '/header.php';
             <ul>
                 <li>Edit any information or post updates.</li>
                 <li>See other teams' data.</li>
+                <li>View announcements (these are only shown in the Explorer Portal for participants).</li>
                 <li>Access the People page, Email, or admin features.</li>
             </ul>
         </section>
@@ -220,7 +224,7 @@ include __DIR__ . '/header.php';
             <div class="mb-3">
                 <h3 style="font-weight: 700; font-size: 1.05rem;">Parents say they aren't receiving notifications</h3>
                 <ul>
-                    <li>Check the parent's email address is correct in the People section.</li>
+                    <li>Check the parent's email address is correct in the <a href="<?= e(url('people.php')) ?>">People</a> section.</li>
                     <li>Ask them to check their spam/junk folder.</li>
                     <li>Ensure the check-in was <strong>approved</strong> (pending check-ins don't trigger notifications).</li>
                     <li>If using push notifications, the parent must have enabled them in their browser.</li>
@@ -230,7 +234,7 @@ include __DIR__ . '/header.php';
             <div class="mb-3">
                 <h3 style="font-weight: 700; font-size: 1.05rem;">A team's link isn't working</h3>
                 <ul>
-                    <li>Go to <strong>Teams</strong> and check the link is still active.</li>
+                    <li>Go to <a href="<?= e(url('team_links.php')) ?>"><strong>Teams</strong></a> and check the link is still active.</li>
                     <li>If the token was regenerated, the old link will no longer work &mdash; share the new one.</li>
                     <li>Ensure the parent is using the full URL (sometimes links get truncated in messages).</li>
                 </ul>
@@ -240,7 +244,7 @@ include __DIR__ . '/header.php';
                 <h3 style="font-weight: 700; font-size: 1.05rem;">Emails aren't sending</h3>
                 <ul>
                     <li>Emails are queued and sent in batches. Allow a few minutes for delivery.</li>
-                    <li>Check the <strong>Analytics</strong> page to see if emails are stuck in the queue.</li>
+                    <li>Check the <a href="<?= e(url('analytics.php')) ?>"><strong>Analytics</strong></a> page to see if emails are stuck in the queue.</li>
                     <li>If the issue persists, contact the system administrator.</li>
                 </ul>
             </div>
@@ -248,9 +252,9 @@ include __DIR__ . '/header.php';
             <div class="mb-3">
                 <h3 style="font-weight: 700; font-size: 1.05rem;">I can't find a person in the system</h3>
                 <ul>
-                    <li>Use the search bar at the top of the page or in the People section.</li>
+                    <li>Use the search bar at the top of the page or in the <a href="<?= e(url('people.php')) ?>">People</a> section.</li>
                     <li>Try searching by email or phone number as well as name.</li>
-                    <li>Check if the person has been imported &mdash; new participants need to be added via People or Import.</li>
+                    <li>Check if the person has been imported &mdash; new participants need to be added via <a href="<?= e(url('people.php')) ?>">People</a> or Import.</li>
                 </ul>
             </div>
 
@@ -266,7 +270,7 @@ include __DIR__ . '/header.php';
             <div class="mb-3">
                 <h3 style="font-weight: 700; font-size: 1.05rem;">Need more help?</h3>
                 <ul>
-                    <li>Contact the system administrator or development team via the <strong>Contact</strong> page.</li>
+                    <li>Contact the system administrator or development team via the <a href="<?= e(url('contact.php')) ?>"><strong>Contact</strong></a> page.</li>
                     <li>Report bugs or feature requests to <a href="https://ckenterprises.co.uk" target="_blank" rel="noopener">CK Enterprises UK</a>.</li>
                 </ul>
             </div>
