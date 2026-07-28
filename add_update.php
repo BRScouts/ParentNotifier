@@ -103,53 +103,87 @@ function decode_json_items(?string $json): array
     }));
 }
 
-function get_team_parent_emails(PDO $pdo, int $teamId): array
+/**
+ * Return one recipient record per unique parent email address.
+ *
+ * Each recipient retains every team associated with that email. This allows an
+ * all-team update to be queued once per address while still including the
+ * correct tokenised portal link for each of that parent's teams.
+ */
+function get_parent_recipients(PDO $pdo, ?int $onlyTeamId = null): array
 {
-    $stmt = $pdo->prepare(
-        'SELECT parent_emails_json
-         FROM young_people
-         WHERE team_id = ?
-           AND is_active = 1'
-    );
+    $sql =
+        'SELECT
+            t.id AS team_id,
+            t.name AS team_name,
+            t.parent_token,
+            yp.parent_emails_json
+         FROM young_people yp
+         INNER JOIN teams t ON t.id = yp.team_id
+         WHERE yp.is_active = 1';
 
-    $stmt->execute([$teamId]);
+    $params = [];
 
-    $emails = [];
+    if ($onlyTeamId !== null) {
+        $sql .= ' AND yp.team_id = ?';
+        $params[] = $onlyTeamId;
+    }
+
+    $sql .= ' ORDER BY t.name ASC, yp.name ASC, yp.id ASC';
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+
+    $recipients = [];
 
     foreach ($stmt->fetchAll() as $row) {
+        $teamId = (int)$row['team_id'];
+        $team = [
+            'id' => $teamId,
+            'name' => (string)($row['team_name'] ?? 'Team'),
+            'parent_token' => trim((string)($row['parent_token'] ?? '')),
+        ];
+
         foreach (decode_json_items($row['parent_emails_json'] ?? null) as $email) {
             $email = trim((string)$email);
 
-            if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                $emails[strtolower($email)] = $email;
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                continue;
             }
+
+            $emailKey = strtolower($email);
+
+            if (!isset($recipients[$emailKey])) {
+                $recipients[$emailKey] = [
+                    'email' => $email,
+                    'teams' => [],
+                ];
+            }
+
+            // Deduplicate the same parent address appearing on multiple people
+            // within the same team.
+            $recipients[$emailKey]['teams'][$teamId] = $team;
         }
     }
 
-    return array_values($emails);
+    foreach ($recipients as &$recipient) {
+        $recipient['teams'] = array_values($recipient['teams']);
+    }
+    unset($recipient);
+
+    return array_values($recipients);
 }
 
-function get_all_parent_emails(PDO $pdo): array
+function build_team_post_url(array $team, int $postId): string
 {
-    $stmt = $pdo->query(
-        'SELECT parent_emails_json
-         FROM young_people
-         WHERE is_active = 1'
-    );
+    $token = trim((string)($team['parent_token'] ?? ''));
+    $path = 'dashboard.php';
 
-    $emails = [];
-
-    foreach ($stmt->fetchAll() as $row) {
-        foreach (decode_json_items($row['parent_emails_json'] ?? null) as $email) {
-            $email = trim((string)$email);
-
-            if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                $emails[strtolower($email)] = $email;
-            }
-        }
+    if ($token !== '') {
+        $path .= '?token=' . rawurlencode($token);
     }
 
-    return array_values($emails);
+    return url($path . '#post-' . $postId);
 }
 
 function queue_email(
@@ -181,24 +215,54 @@ function queue_update_emails(
     ?int $teamId,
     string $visibility,
     string $subject,
-    string $content,
+    string $title,
+    string $bodyText,
     int $postId
 ): int {
-    if ($visibility === 'team' && $teamId) {
-        $emails = get_team_parent_emails($pdo, $teamId);
-    } else {
-        $emails = get_all_parent_emails($pdo);
-    }
-
+    $onlyTeamId = $visibility === 'team' ? $teamId : null;
+    $recipients = get_parent_recipients($pdo, $onlyTeamId);
     $count = 0;
 
-    foreach ($emails as $email) {
+    foreach ($recipients as $recipient) {
+        $recipientTeams = $recipient['teams'] ?? [];
+
+        if (empty($recipientTeams)) {
+            continue;
+        }
+
+        $portalLinks = [];
+
+        foreach ($recipientTeams as $recipientTeam) {
+            $portalLinks[] = [
+                'team_name' => (string)($recipientTeam['name'] ?? 'Team'),
+                'url' => build_team_post_url($recipientTeam, $postId),
+            ];
+        }
+
+        $teamLabel = $visibility === 'team'
+            ? (string)($recipientTeams[0]['name'] ?? 'Team')
+            : 'All teams';
+
+        $content = build_update_email_content(
+            $title,
+            $teamLabel,
+            $bodyText,
+            $portalLinks
+        );
+
+        // When a parent address belongs to multiple teams, the first team is
+        // used for analytics attribution. All associated tokenised links are
+        // still included in the email content.
+        $relatedTeamId = isset($recipientTeams[0]['id'])
+            ? (int)$recipientTeams[0]['id']
+            : null;
+
         queue_email(
             $pdo,
-            $email,
+            (string)$recipient['email'],
             $subject,
             $content,
-            $visibility === 'team' ? $teamId : null,
+            $relatedTeamId,
             $postId
         );
 
@@ -303,16 +367,36 @@ function build_update_email_content(
     string $title,
     string $teamLabel,
     string $bodyText,
-    string $postUrl
+    array $portalLinks
 ): string {
+    $linkLines = [];
+    $hasMultipleLinks = count($portalLinks) > 1;
+
+    foreach ($portalLinks as $portalLink) {
+        $url = trim((string)($portalLink['url'] ?? ''));
+
+        if ($url === '') {
+            continue;
+        }
+
+        if ($hasMultipleLinks) {
+            $teamName = trim((string)($portalLink['team_name'] ?? 'Team'));
+            $linkLines[] = $teamName . ': ' . $url;
+        } else {
+            $linkLines[] = $url;
+        }
+    }
+
+    $linkSection = !empty($linkLines)
+        ? implode("\n", $linkLines)
+        : url('dashboard.php');
+
     return
         $title . "\n\n" .
         "Team: " . $teamLabel . "\n\n" .
-        $bodyText . "\n\n" .
         "View the update here:\n" .
-        $postUrl . "\n\n" .
-        "This is an notification that a new update has been posted on the Explorer Belt parent portal. " .
-        "If you have any questions about the update, please contact the home contact who will be able to assist you. Details for them can be found in the link under Contacts on the portal.";
+        $linkSection . "\n\n" .
+        $bodyText . "\n\n" ;
 }
 
 /**
@@ -398,38 +482,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($sendEmail === 1) {
                 $teamLabel = 'All teams';
-                $parentUrl = url('dashboard.php#post-' . $postId);
 
                 if ($visibility === 'team' && $teamId) {
-                    $stmt = $pdo->prepare('SELECT name, parent_token FROM teams WHERE id = ? LIMIT 1');
+                    $stmt = $pdo->prepare('SELECT name FROM teams WHERE id = ? LIMIT 1');
                     $stmt->execute([$teamId]);
                     $team = $stmt->fetch();
 
-                    $teamLabel = $team['name'] ?? 'Team';
-                    $parentToken = $team['parent_token'] ?? '';
+                    if (!$team) {
+                        throw new RuntimeException('The selected team could not be found.');
+                    }
 
-                    $parentUrl = $parentToken !== ''
-                        ? url('dashboard.php?token=' . $parentToken . '#post-' . $postId)
-                        : url('dashboard.php#post-' . $postId);
+                    $teamLabel = (string)($team['name'] ?? 'Team');
                 }
 
                 $emailSubject = $visibility === 'team'
                     ? $teamLabel . ' update: ' . $title
                     : 'Explorer Belt update: ' . $title;
 
-                $emailContent = build_update_email_content(
-                    $title,
-                    $teamLabel,
-                    html_to_email_text($bodyHtml),
-                    $parentUrl
-                );
-
                 queue_update_emails(
                     $pdo,
                     $teamId,
                     $visibility,
                     $emailSubject,
-                    $emailContent,
+                    $title,
+                    html_to_email_text($bodyHtml),
                     $postId
                 );
             }
@@ -750,7 +826,7 @@ include __DIR__ . '/header.php';
             </p>
 
             <p class="muted mb-0">
-                For all-team updates, email notifications are queued once per unique parent email address.
+                For all-team updates, one email is queued per unique parent email address. The email contains the private team link for every team associated with that address.
             </p>
         </aside>
 

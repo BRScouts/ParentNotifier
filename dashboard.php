@@ -2057,7 +2057,7 @@ include __DIR__ . '/header.php';
                             <?php endif; ?>
                             <?php if (!empty($postPhotos) || !empty($post['photo_url'])): ?>
     <p class="photo-permission-warning">
-        Please do not download, share or reproduce these photos without the express permission of the people shown in them.
+        Please do not share or reproduce these photos without the expressed permission of the people shown in them.
     </p>
 <?php endif; ?>
 
