@@ -952,6 +952,15 @@ include __DIR__ . '/header.php';
         color: #ffffff !important;
     }
 
+    .photo-permission-warning {
+    margin: 0.65rem 0 0;
+    padding: 0.45rem 0.6rem;
+    border-left: 4px solid #7413dc;
+    background: #f3f2f1;
+    color: #505a5f;
+    font-size: 0.78rem;
+    line-height: 1.4;
+}
     .dashboard-layout {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 390px;
@@ -2046,6 +2055,11 @@ include __DIR__ . '/header.php';
                                     >
                                 </a>
                             <?php endif; ?>
+                            <?php if (!empty($postPhotos) || !empty($post['photo_url'])): ?>
+    <p class="photo-permission-warning">
+        Please do not download, share or reproduce these photos without the express permission of the people shown in them.
+    </p>
+<?php endif; ?>
 
                             <?php if ($isLocation && $locationForPost): ?>
                                 <div
