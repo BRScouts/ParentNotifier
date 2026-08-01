@@ -105,8 +105,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $team) {
             throw new RuntimeException('Please enter a valid date.');
         }
 
-        // Handle receipt upload
-        $receiptPath = null;
+        // Handle receipt upload - validate first, move after insert to get transaction ID
+        $receiptTmpName = null;
+        $receiptExt = null;
         if (!empty($_FILES['receipt']) && $_FILES['receipt']['error'] !== UPLOAD_ERR_NO_FILE) {
             $file = $_FILES['receipt'];
             if ($file['error'] !== UPLOAD_ERR_OK) {
@@ -115,12 +116,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $team) {
             if ((int)$file['size'] > 10 * 1024 * 1024) {
                 throw new RuntimeException('Receipt file must be smaller than 10MB.');
             }
-            $tmpName = $file['tmp_name'];
-            if (!is_uploaded_file($tmpName)) {
+            $receiptTmpName = $file['tmp_name'];
+            if (!is_uploaded_file($receiptTmpName)) {
                 throw new RuntimeException('Invalid receipt upload.');
             }
             $finfo = finfo_open(FILEINFO_MIME_TYPE);
-            $mimeType = finfo_file($finfo, $tmpName);
+            $mimeType = finfo_file($finfo, $receiptTmpName);
             finfo_close($finfo);
             $allowedTypes = [
                 'image/jpeg' => 'jpg', 'image/png' => 'png',
@@ -130,33 +131,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $team) {
             if (!isset($allowedTypes[$mimeType])) {
                 throw new RuntimeException('Receipt must be a JPG, PNG, WEBP, GIF or PDF file.');
             }
-            $ext = $allowedTypes[$mimeType];
-            $filename = 'receipt-' . (int)$team['id'] . '-' . bin2hex(random_bytes(10)) . '.' . $ext;
-            $uploadDir = '/home/brscouts/exbelt2026.irvalscouts.org.uk/assets/receipts/';
-            if (!is_dir($uploadDir)) { $uploadDir = __DIR__ . '/assets/receipts/'; }
-            if (!is_dir($uploadDir)) { mkdir($uploadDir, 0755, true); }
-            $destination = rtrim($uploadDir, '/') . '/' . $filename;
-            if (!move_uploaded_file($tmpName, $destination)) {
-                throw new RuntimeException('Could not save receipt file.');
-            }
-            $receiptPath = 'assets/receipts/' . $filename;
+            $receiptExt = $allowedTypes[$mimeType];
         }
 
         // Insert transaction
         $stmt = $pdo->prepare(
             'INSERT INTO team_transactions
                 (team_id, type, amount, currency, category, description, receipt_path, submitted_by, transaction_date)
-             VALUES (?, "debit", ?, "EUR", ?, ?, ?, ?, ?)'
+             VALUES (?, "debit", ?, "EUR", ?, ?, NULL, ?, ?)'
         );
         $stmt->execute([
             (int)$team['id'],
             round((float)$amount, 2),
             $category,
             substr(strip_tags($description), 0, 500),
-            $receiptPath,
             substr(strip_tags($submittedBy), 0, 150),
             $transactionDate,
         ]);
+        $transactionId = (int)$pdo->lastInsertId();
+
+        // Now move receipt with proper filename: {ID}-{TeamName}_{Date}.ext
+        $receiptPath = null;
+        if ($receiptTmpName && $receiptExt) {
+            $teamSlug = preg_replace('/[^a-zA-Z0-9]/', '', $team['name'] ?? 'team');
+            $filename = $transactionId . '-' . $teamSlug . '_' . $transactionDate . '.' . $receiptExt;
+            $uploadDir = '/home/brscouts/exbelt2026.irvalscouts.org.uk/assets/receipts/';
+            if (!is_dir($uploadDir)) { $uploadDir = __DIR__ . '/assets/receipts/'; }
+            if (!is_dir($uploadDir)) { mkdir($uploadDir, 0755, true); }
+            $destination = rtrim($uploadDir, '/') . '/' . $filename;
+            if (move_uploaded_file($receiptTmpName, $destination)) {
+                $receiptPath = 'assets/receipts/' . $filename;
+                $upd = $pdo->prepare('UPDATE team_transactions SET receipt_path = ? WHERE id = ?');
+                $upd->execute([$receiptPath, $transactionId]);
+            }
+        }
 
         $_SESSION['explorer_expense_success'] = [
             'amount' => round((float)$amount, 2),
