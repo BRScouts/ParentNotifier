@@ -1039,30 +1039,6 @@ if ($view === 'team' && $currentTeamId > 0) {
     }
 }
 
-// Task 7: Fetch on-duty leaders for today
-$onDutyLeadersToday = [];
-try {
-    $tz = new DateTimeZone(defined('APP_TIMEZONE') ? APP_TIMEZONE : 'Europe/Helsinki');
-    $now = new DateTime('now', $tz);
-    $currentHour = (int)$now->format('G');
-    $activeDutyDate = ($currentHour < 9)
-        ? (clone $now)->modify('-1 day')->format('Y-m-d')
-        : $now->format('Y-m-d');
-
-    $stmt = $pdo->prepare(
-        'SELECT l.name, l.photo_url
-         FROM leader_duty_roster r
-         JOIN leaders l ON l.id = r.leader_id
-         WHERE r.duty_date = ?
-           AND r.status = "on_duty"
-         ORDER BY l.name ASC'
-    );
-    $stmt->execute([$activeDutyDate]);
-    $onDutyLeadersToday = $stmt->fetchAll();
-} catch (Throwable $e) {
-    $onDutyLeadersToday = [];
-}
-
 include __DIR__ . '/header.php';
 ?>
 
@@ -1087,14 +1063,6 @@ include __DIR__ . '/header.php';
         flex-wrap: wrap;
         gap: 0.5rem;
         margin-bottom: 1.5rem;
-    }
-
-    .on-duty-bar {
-        background: #eef7ff;
-        border: 2px solid #1d70b8;
-        padding: 0.6rem 1rem;
-        margin-bottom: 1rem;
-        font-size: 0.92rem;
     }
 
     .teams-panel {
@@ -1955,16 +1923,6 @@ include __DIR__ . '/header.php';
     <?php if ($error): ?>
         <div class="alert alert-danger">
             <?= e($error) ?>
-        </div>
-    <?php endif; ?>
-
-    <?php if (!empty($onDutyLeadersToday)): ?>
-        <div class="on-duty-bar">
-            <strong>On duty today:</strong>
-            <?php
-            $dutyNames = array_map(function ($l) { return e($l['name']); }, $onDutyLeadersToday);
-            echo implode(', ', $dutyNames);
-            ?>
         </div>
     <?php endif; ?>
 

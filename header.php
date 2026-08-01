@@ -307,6 +307,32 @@ if ($user && !empty($user['id'])) {
     }
 }
 $isLeaderOnDuty = $headerDutyStatus['on_duty'] ?? false;
+
+// Fetch all on-duty leaders for today (global bar)
+$headerOnDutyLeaders = [];
+if ($user) {
+    try {
+        $headerTz = new DateTimeZone(defined('APP_TIMEZONE') ? APP_TIMEZONE : 'Europe/Helsinki');
+        $headerNow = new DateTime('now', $headerTz);
+        $headerHour = (int)$headerNow->format('G');
+        $headerDutyDate = ($headerHour < 9)
+            ? (clone $headerNow)->modify('-1 day')->format('Y-m-d')
+            : $headerNow->format('Y-m-d');
+
+        $stmt = $pdo->prepare(
+            'SELECT l.name
+             FROM leader_duty_roster r
+             JOIN leaders l ON l.id = r.leader_id
+             WHERE r.duty_date = ?
+               AND r.status = "on_duty"
+             ORDER BY l.name ASC'
+        );
+        $stmt->execute([$headerDutyDate]);
+        $headerOnDutyLeaders = $stmt->fetchAll();
+    } catch (Throwable $e) {
+        $headerOnDutyLeaders = [];
+    }
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -836,6 +862,19 @@ $isLeaderOnDuty = $headerDutyStatus['on_duty'] ?? false;
                 min-height: 40px;
             }
         }
+        /* On-duty global bar */
+        .on-duty-global-bar {
+            background: #1d70b8;
+            color: #ffffff;
+            font-size: 0.85rem;
+            padding: 0.4rem 0;
+            font-weight: 600;
+        }
+
+        .on-duty-global-bar strong {
+            font-weight: 900;
+        }
+
         /* Global search in navbar */
         .global-search-form {
             margin-left: 0.75rem;
@@ -1161,6 +1200,18 @@ $isLeaderOnDuty = $headerDutyStatus['on_duty'] ?? false;
         </div>
     <?php endif; ?>
 </header>
+
+<?php if ($user && !empty($headerOnDutyLeaders)): ?>
+    <div class="on-duty-global-bar">
+        <div class="container" style="padding-top: 0; padding-bottom: 0;">
+            <strong>On duty:</strong>
+            <?php
+            $onDutyNames = array_map(function ($l) { return e($l['name']); }, $headerOnDutyLeaders);
+            echo implode(', ', $onDutyNames);
+            ?>
+        </div>
+    </div>
+<?php endif; ?>
 
 <?php if ($user): ?>
     <div
