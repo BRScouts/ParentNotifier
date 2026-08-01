@@ -415,6 +415,7 @@ try {
             $cardClass = $isAcknowledged ? 'announcement-card--acknowledged' : 'announcement-card--unacknowledged';
             ?>
             <div class="announcement-card <?= $cardClass ?>">
+                <span class="read-track-pixel" data-announcement-id="<?= (int)$announcement['id'] ?>" style="display:none;"></span>
                 <div class="announcement-title"><?= e($announcement['title']) ?></div>
                 <div class="announcement-meta">
                     <?php if ($announcement['sender_name']): ?>
@@ -518,6 +519,56 @@ try {
             var nameInput = document.querySelector('.ann-ack-name-input[data-ann-ack-id="' + ackId + '"]');
             if (nameInput) {
                 nameInput.value = btn.getAttribute('data-name');
+            }
+
+            // Track read for all announcements when a person is selected
+            trackReadsForPerson(btn.getAttribute('data-name'));
+        });
+    });
+
+    // Track reads: fire a read tracking call for each announcement on the page
+    function trackReadsForPerson(readerName) {
+        if (!readerName) return;
+        var token = <?= json_encode($token) ?>;
+        var announcements = document.querySelectorAll('.announcement-card');
+
+        announcements.forEach(function (card) {
+            var ackForm = card.querySelector('form[action*="explorer_announcements"]');
+            var annIdInput = card.querySelector('input[name="announcement_id"]');
+            var annId = annIdInput ? annIdInput.value : null;
+
+            // Also check acknowledged cards (they have no form, get ID from data attribute)
+            if (!annId) {
+                var trackPixel = card.querySelector('.read-track-pixel');
+                annId = trackPixel ? trackPixel.getAttribute('data-announcement-id') : null;
+            }
+
+            if (annId && token && readerName) {
+                var url = 'announcement_read_track.php?a=' + encodeURIComponent(annId) +
+                          '&t=' + encodeURIComponent(token) +
+                          '&n=' + encodeURIComponent(readerName);
+                // Use a beacon or image request (fire and forget)
+                if (navigator.sendBeacon) {
+                    navigator.sendBeacon(url);
+                } else {
+                    new Image().src = url;
+                }
+            }
+        });
+    }
+
+    // If there's a stored reader name in sessionStorage, auto-track on page load
+    var storedReader = sessionStorage.getItem('announcement_reader_name');
+    if (storedReader) {
+        trackReadsForPerson(storedReader);
+    }
+
+    // Store name when selected for future visits
+    document.querySelectorAll('.ann-ack-select-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var name = btn.getAttribute('data-name');
+            if (name) {
+                sessionStorage.setItem('announcement_reader_name', name);
             }
         });
     });

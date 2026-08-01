@@ -869,7 +869,7 @@ if (dashboard_table_exists($pdo, 'explorer_checkins') && !empty($visibleTeamIds)
 
         foreach ($stmt->fetchAll() as $checkin) {
             if (dashboard_date_in_finland($checkin['submitted_at'] ?? null) === dashboard_finland_today()) {
-                $pendingCheckinTodayByTeam[(int)$checkin['team_id']] = true;
+                $pendingCheckinTodayByTeam[(int)$checkin['team_id']] = $checkin['submitted_at'];
             }
         }
     } catch (Throwable $exception) {

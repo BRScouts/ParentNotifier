@@ -953,6 +953,18 @@ if ($user) {
 
 <body>
 <header class="site-header compact-site-header">
+    <?php if ($user && !empty($headerOnDutyLeaders)): ?>
+        <a href="<?= e(url('leaders.php')) ?>" class="on-duty-global-bar" aria-label="View duty roster">
+            <div class="container" style="padding-top: 0; padding-bottom: 0; text-align: center;">
+                <strong>On duty:</strong>
+                <?php
+                $onDutyNames = array_map(function ($l) { return e($l['name']); }, $headerOnDutyLeaders);
+                echo implode(', ', $onDutyNames);
+                ?>
+            </div>
+        </a>
+    <?php endif; ?>
+
     <div class="container">
         <nav class="navbar navbar-expand-lg navbar-dark px-0 compact-navbar">
             <a
@@ -1200,18 +1212,6 @@ if ($user) {
         </div>
     <?php endif; ?>
 </header>
-
-<?php if ($user && !empty($headerOnDutyLeaders)): ?>
-    <div class="on-duty-global-bar">
-        <div class="container" style="padding-top: 0; padding-bottom: 0;">
-            <strong>On duty:</strong>
-            <?php
-            $onDutyNames = array_map(function ($l) { return e($l['name']); }, $headerOnDutyLeaders);
-            echo implode(', ', $onDutyNames);
-            ?>
-        </div>
-    </div>
-<?php endif; ?>
 
 <?php if ($user): ?>
     <div

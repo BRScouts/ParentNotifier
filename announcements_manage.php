@@ -440,6 +440,12 @@ include __DIR__ . '/header.php';
 
     <h1 style="font-weight: 900; margin-bottom: 1.5rem;">Announcement Management</h1>
 
+    <p style="margin-bottom: 1.5rem;">
+        <a href="<?= e(url('announcements_sent.php')) ?>" style="display: inline-block; padding: 0.5rem 1rem; background: #7413dc; color: #ffffff; font-weight: 800; text-decoration: none; border: none;">
+            View Sent Announcements &amp; Read Tracking &rarr;
+        </a>
+    </p>
+
     <?php if ($error): ?>
         <div class="alert alert-danger" style="border-radius: 0; border-width: 2px;">
             <?= e($error) ?>
