@@ -357,6 +357,37 @@ function dashboard_finland_hour(): int
     return (int)dashboard_finland_now()->format('G');
 }
 
+function dashboard_relative_time(?string $datetime): string
+{
+    if (!$datetime) {
+        return '';
+    }
+
+    $timestamp = strtotime($datetime);
+    if (!$timestamp) {
+        return '';
+    }
+
+    $diff = time() - $timestamp;
+
+    if ($diff < 60) {
+        return 'Just now';
+    }
+
+    if ($diff < 3600) {
+        $mins = (int)floor($diff / 60);
+        return $mins . 'm ago';
+    }
+
+    if ($diff < 86400) {
+        $hours = (int)floor($diff / 3600);
+        return $hours . 'h ago';
+    }
+
+    $days = (int)floor($diff / 86400);
+    return $days . 'd ago';
+}
+
 function dashboard_date_in_finland(?string $datetime): ?string
 {
     if (!$datetime) {
@@ -2414,8 +2445,20 @@ include __DIR__ . '/header.php';
                                 $teamId = (int)$team['id'];
                                 $latestLocation = $latestLocationByTeam[$teamId] ?? null;
                                 $hasPendingToday = !empty($pendingCheckinTodayByTeam[$teamId]);
+                                $pendingSubmittedAt = $hasPendingToday ? ($pendingCheckinTodayByTeam[$teamId] ?? null) : null;
                                 $state = dashboard_checkin_state($team, $latestLocation, $hasPendingToday);
                                 $teamMembers = $teamMembersByTeam[$teamId] ?? [];
+
+                                // Determine the most relevant "last active" time
+                                $lastActiveTime = null;
+                                if ($pendingSubmittedAt && is_string($pendingSubmittedAt)) {
+                                    $lastActiveTime = $pendingSubmittedAt;
+                                } elseif ($latestLocation) {
+                                    $lastActiveTime = $latestLocation['checked_in_at'] ?? null;
+                                } elseif (!empty($team['last_check_in_at'])) {
+                                    $lastActiveTime = $team['last_check_in_at'];
+                                }
+                                $relativeTime = dashboard_relative_time($lastActiveTime);
                                 ?>
 
                                 <a
@@ -2426,17 +2469,18 @@ include __DIR__ . '/header.php';
 
                                     <span class="checkin-state-label">
                                         <?= e($state['label']) ?>
+                                        <?php if ($relativeTime !== ''): ?>
+                                            <span class="checkin-relative-time">· <?= e($relativeTime) ?></span>
+                                        <?php endif; ?>
                                     </span>
 
                                     <p class="checkin-state-detail">
                                         <?= e($state['detail']) ?>
-
-                                        <?php if ($latestLocation): ?>
-                                            <br>
-                                            Last approved:
-                                            <?= e(format_datetime($latestLocation['checked_in_at'])) ?>
-                                        <?php endif; ?>
                                     </p>
+
+                                    <?php if ($hasPendingToday && $isLeader): ?>
+                                        <span class="checkin-review-link">Review now →</span>
+                                    <?php endif; ?>
 
                                     <?php if (!empty($teamMembers)): ?>
                                         <div class="checkin-team-faces" aria-label="Team members">

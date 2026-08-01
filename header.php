@@ -864,15 +864,34 @@ if ($user) {
         }
         /* On-duty global bar */
         .on-duty-global-bar {
+            display: block;
             background: #1d70b8;
             color: #ffffff;
-            font-size: 0.85rem;
-            padding: 0.4rem 0;
+            font-size: 0.82rem;
+            padding: 0.3rem 0;
             font-weight: 600;
+            text-align: center;
+            text-decoration: none;
+        }
+
+        .on-duty-global-bar:hover,
+        .on-duty-global-bar:focus {
+            background: #144e81;
+            color: #ffffff;
+            text-decoration: none;
+            outline: 2px solid #ffdd00;
+            outline-offset: -2px;
         }
 
         .on-duty-global-bar strong {
             font-weight: 900;
+        }
+
+        @media (max-width: 575.98px) {
+            .on-duty-global-bar {
+                font-size: 0.75rem;
+                padding: 0.22rem 0.5rem;
+            }
         }
 
         /* Global search in navbar */
