@@ -461,7 +461,7 @@ if ($user) {
                     <li class="nav-item dropdown<?= header_nav_active_group(['team_links.php', 'team_locations.php', 'people.php']) ?>">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Teams</a>
                         <div class="dropdown-menu">
-                            <a class="dropdown-item<?= header_nav_active('team_links.php') ?>" href="<?= e(url('team_links.php')) ?>">Team Links</a>
+                            <a class="dropdown-item<?= header_nav_active('team_links.php') ?>" href="<?= e(url('team_links.php')) ?>">Teams</a>
                             <a class="dropdown-item<?= header_nav_active('team_locations.php') ?>" href="<?= e(url('team_locations.php')) ?>">Locations</a>
                             <a class="dropdown-item<?= header_nav_active('people.php') ?>" href="<?= e(url('people.php')) ?>">People</a>
                         </div>
@@ -620,7 +620,7 @@ if ($user) {
                         Teams <span class="group-arrow">&#9654;</span>
                     </button>
                     <ul class="sidebar-sub" id="sidebarGroupTeams">
-                        <li><a class="sidebar-link<?= header_nav_active('team_links.php') ?>" href="<?= e(url('team_links.php')) ?>">Team Links</a></li>
+                        <li><a class="sidebar-link<?= header_nav_active('team_links.php') ?>" href="<?= e(url('team_links.php')) ?>">Teams</a></li>
                         <li><a class="sidebar-link<?= header_nav_active('team_locations.php') ?>" href="<?= e(url('team_locations.php')) ?>">Locations</a></li>
                         <li><a class="sidebar-link<?= header_nav_active('people.php') ?>" href="<?= e(url('people.php')) ?>">People</a></li>
                     </ul>

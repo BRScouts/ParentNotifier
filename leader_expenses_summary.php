@@ -103,6 +103,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $success = 'Expense deleted.';
             }
         }
+
+        if ($action === 'edit_expense') {
+            $expId = (int)($_POST['expense_id'] ?? 0);
+            $editAmount = trim($_POST['edit_amount'] ?? '');
+            $editCategory = trim($_POST['edit_category'] ?? '');
+            $editDescription = trim($_POST['edit_description'] ?? '');
+            $editDate = trim($_POST['edit_expense_date'] ?? '');
+            $editCardType = ($_POST['edit_card_type'] ?? '') === 'corporate' ? 1 : 0;
+
+            if ($expId <= 0) { throw new RuntimeException('Invalid expense.'); }
+            if ($editAmount === '' || !is_numeric($editAmount) || (float)$editAmount <= 0) {
+                throw new RuntimeException('Please enter a valid amount.');
+            }
+            if ($editCategory === '') { throw new RuntimeException('Please select a category.'); }
+            if ($editDate === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $editDate)) {
+                throw new RuntimeException('Please enter a valid date.');
+            }
+
+            // Handle new receipt upload
+            $newReceiptPath = null;
+            if (!empty($_FILES['edit_receipt']) && $_FILES['edit_receipt']['error'] !== UPLOAD_ERR_NO_FILE) {
+                $file = $_FILES['edit_receipt'];
+                if ($file['error'] !== UPLOAD_ERR_OK) { throw new RuntimeException('Receipt upload failed.'); }
+                if ((int)$file['size'] > 10 * 1024 * 1024) { throw new RuntimeException('Receipt must be under 10MB.'); }
+                $tmpName = $file['tmp_name'];
+                if (!is_uploaded_file($tmpName)) { throw new RuntimeException('Invalid upload.'); }
+                $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                $mimeType = finfo_file($finfo, $tmpName);
+                finfo_close($finfo);
+                $allowedTypes = ['image/jpeg'=>'jpg','image/png'=>'png','image/webp'=>'webp','image/gif'=>'gif','application/pdf'=>'pdf'];
+                if (!isset($allowedTypes[$mimeType])) { throw new RuntimeException('Receipt must be JPG, PNG, WEBP, GIF or PDF.'); }
+                $ext = $allowedTypes[$mimeType];
+
+                // Fetch leader name for filename
+                $leaderStmt = $pdo->prepare('SELECT l.name FROM leader_expenses le JOIN leaders l ON l.id = le.leader_id WHERE le.id = ?');
+                $leaderStmt->execute([$expId]);
+                $leaderRow = $leaderStmt->fetch();
+                $leaderSlug = preg_replace('/[^a-zA-Z0-9]/', '', $leaderRow['name'] ?? 'leader');
+                $filename = $expId . '-' . $leaderSlug . '_' . $editDate . '.' . $ext;
+
+                $uploadDir = '/home/brscouts/exbelt2026.irvalscouts.org.uk/assets/receipts/';
+                if (!is_dir($uploadDir)) { $uploadDir = __DIR__ . '/assets/receipts/'; }
+                if (!is_dir($uploadDir)) { mkdir($uploadDir, 0755, true); }
+                $destination = rtrim($uploadDir, '/') . '/' . $filename;
+                if (!move_uploaded_file($tmpName, $destination)) { throw new RuntimeException('Could not save receipt.'); }
+                $newReceiptPath = 'assets/receipts/' . $filename;
+            }
+
+            // Update the expense
+            if ($newReceiptPath) {
+                $stmt = $pdo->prepare(
+                    'UPDATE leader_expenses SET amount=?, category=?, description=?, expense_date=?, is_corporate_card=?, receipt_path=? WHERE id=?'
+                );
+                $stmt->execute([round((float)$editAmount,2), $editCategory, substr(strip_tags($editDescription),0,500)?:null, $editDate, $editCardType, $newReceiptPath, $expId]);
+            } else {
+                $stmt = $pdo->prepare(
+                    'UPDATE leader_expenses SET amount=?, category=?, description=?, expense_date=?, is_corporate_card=? WHERE id=?'
+                );
+                $stmt->execute([round((float)$editAmount,2), $editCategory, substr(strip_tags($editDescription),0,500)?:null, $editDate, $editCardType, $expId]);
+            }
+            $success = 'Expense updated.';
+        }
     } catch (Throwable $exception) {
         $error = $exception->getMessage();
     }
@@ -464,6 +526,8 @@ include __DIR__ . '/header.php';
                     </div>
 
                     <div class="expense-row-actions">
+                        <button type="button" class="btn btn-outline-primary btn-sm" onclick="toggleEditForm(<?= (int)$exp['id'] ?>)">Edit</button>
+
                         <?php if (!(int)$exp['is_corporate_card'] && !(int)$exp['is_reimbursed']): ?>
                             <form method="post" style="display:inline;">
                                 <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
@@ -487,11 +551,80 @@ include __DIR__ . '/header.php';
                             <button type="submit" class="btn btn-outline-danger btn-sm">Delete</button>
                         </form>
                     </div>
+
+                    <!-- Inline edit form -->
+                    <div class="edit-form-inline" id="editForm_<?= (int)$exp['id'] ?>" style="display:none; margin-top:0.75rem; padding:1rem; background:#f8f8f8; border:2px solid #e8e8e8;">
+                        <form method="post" enctype="multipart/form-data">
+                            <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+                            <input type="hidden" name="action" value="edit_expense">
+                            <input type="hidden" name="expense_id" value="<?= (int)$exp['id'] ?>">
+
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; margin-bottom:0.75rem;">
+                                <div>
+                                    <label style="font-weight:700; font-size:0.8rem;">Amount (&euro;)</label>
+                                    <input type="number" class="form-control form-control-sm" name="edit_amount" step="0.01" min="0.01" value="<?= e($exp['amount']) ?>" required>
+                                </div>
+                                <div>
+                                    <label style="font-weight:700; font-size:0.8rem;">Date</label>
+                                    <input type="date" class="form-control form-control-sm" name="edit_expense_date" value="<?= e($exp['expense_date']) ?>" required>
+                                </div>
+                                <div>
+                                    <label style="font-weight:700; font-size:0.8rem;">Category</label>
+                                    <select class="form-control form-control-sm" name="edit_category" required>
+                                        <option value="food" <?= $exp['category'] === 'food' ? 'selected' : '' ?>>Food & Drink</option>
+                                        <option value="travel" <?= $exp['category'] === 'travel' ? 'selected' : '' ?>>Travel</option>
+                                        <option value="accommodation" <?= $exp['category'] === 'accommodation' ? 'selected' : '' ?>>Accommodation</option>
+                                        <option value="supplies" <?= $exp['category'] === 'supplies' ? 'selected' : '' ?>>Supplies</option>
+                                        <option value="activities" <?= $exp['category'] === 'activities' ? 'selected' : '' ?>>Activities</option>
+                                        <option value="admin" <?= $exp['category'] === 'admin' ? 'selected' : '' ?>>Admin</option>
+                                        <option value="other" <?= $exp['category'] === 'other' ? 'selected' : '' ?>>Other</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style="font-weight:700; font-size:0.8rem;">Card type</label>
+                                    <select class="form-control form-control-sm" name="edit_card_type">
+                                        <option value="personal" <?= !(int)$exp['is_corporate_card'] ? 'selected' : '' ?>>Personal</option>
+                                        <option value="corporate" <?= (int)$exp['is_corporate_card'] ? 'selected' : '' ?>>Corporate</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div style="margin-bottom:0.75rem;">
+                                <label style="font-weight:700; font-size:0.8rem;">Description</label>
+                                <input type="text" class="form-control form-control-sm" name="edit_description" value="<?= e($exp['description'] ?? '') ?>" maxlength="500">
+                            </div>
+
+                            <div style="margin-bottom:0.75rem;">
+                                <label style="font-weight:700; font-size:0.8rem;">
+                                    Replace receipt
+                                    <?php if ($exp['receipt_path']): ?>
+                                        <span style="font-weight:400; color:#505a5f;">(current: <a href="<?= e(url($exp['receipt_path'])) ?>" target="_blank">view</a>)</span>
+                                    <?php endif; ?>
+                                </label>
+                                <input type="file" class="form-control-file" name="edit_receipt" accept="image/*,application/pdf">
+                                <small style="color:#505a5f;">Leave empty to keep existing receipt.</small>
+                            </div>
+
+                            <div style="display:flex; gap:0.5rem;">
+                                <button type="submit" class="btn btn-primary btn-sm">Save Changes</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleEditForm(<?= (int)$exp['id'] ?>)">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             <?php endforeach; ?>
         <?php endif; ?>
     </div>
 
 </div>
+
+<script>
+function toggleEditForm(id) {
+    var form = document.getElementById('editForm_' + id);
+    if (form) {
+        form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    }
+}
+</script>
 
 <?php include __DIR__ . '/footer.php'; ?>
