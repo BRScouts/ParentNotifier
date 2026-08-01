@@ -138,7 +138,14 @@ $routeLocations = $pdo
             tl.*, 
             t.name AS team_name, 
             t.status AS team_status,
-            l.name AS leader_name 
+            l.name AS leader_name,
+            (SELECT ec.accommodation_type
+             FROM explorer_checkins ec
+             WHERE ec.team_id = tl.team_id
+               AND ec.status = "reviewed"
+               AND ec.reviewed_at = tl.checked_in_at
+             LIMIT 1
+            ) AS accommodation_type
          FROM team_locations tl 
          JOIN teams t ON t.id = tl.team_id 
          LEFT JOIN leaders l ON l.id = tl.leader_id 
@@ -293,6 +300,7 @@ foreach ($teamData as $teamId => $data) {
             'leader_name' => $location['leader_name'] ?: 'Unknown',
             'public_note' => $location['public_note'] ?? '',
             'internal_note' => $location['internal_note'] ?? '',
+            'accommodation_type' => $location['accommodation_type'] ?? '',
         ];
     }
 
@@ -499,6 +507,40 @@ include __DIR__ . '/header.php';
         line-height: 1.35;
         display: block;
         margin-top: 0.2rem;
+    }
+
+    .compact-team-status-pill {
+        display: inline-block;
+        font-size: 0.75rem;
+        font-weight: 800;
+        padding: 0.15rem 0.4rem;
+        margin-top: 0.25rem;
+        border: 2px solid #1d1d1d;
+    }
+
+    .compact-team-status-pill.status-good {
+        background: #00703c;
+        color: #ffffff;
+    }
+
+    .compact-team-status-pill.status-neutral {
+        background: #f3f2f1;
+        color: #1d1d1d;
+    }
+
+    .compact-team-status-pill.status-warning {
+        background: #ffdd00;
+        color: #1d1d1d;
+    }
+
+    .compact-team-status-pill.status-danger {
+        background: #d4351c;
+        color: #ffffff;
+    }
+
+    .compact-team-status-pill.status-muted {
+        background: #f3f2f1;
+        color: #505a5f;
     }
 
     .compact-mileage {
@@ -842,7 +884,7 @@ include __DIR__ . '/header.php';
 
                             <span>
                                 <span class="compact-team-name"><?= e($teamName) ?></span>
-                                <span class="compact-team-meta">
+                                <span class="compact-team-status-pill <?= e(status_class($team['status'])) ?>">
                                     <?= e(status_label($team['status'])) ?>
                                 </span>
                             </span>
@@ -1180,6 +1222,10 @@ include __DIR__ . '/header.php';
                         escapeHtml(point.location_name) + '<br>' +
                         '<span>' + escapeHtml(point.checked_in_at) + '</span><br>' +
                         '<span>Leader: ' + escapeHtml(point.leader_name) + '</span>';
+
+                    if (point.accommodation_type) {
+                        popupHtml += '<br><span>Staying: ' + escapeHtml(point.accommodation_type) + '</span>';
+                    }
 
                     if (point.public_note) {
                         popupHtml += '<br><br>' + escapeHtml(point.public_note);

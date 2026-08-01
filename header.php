@@ -333,6 +333,21 @@ if ($user) {
         $headerOnDutyLeaders = [];
     }
 }
+
+// Pending check-in count for nav badge
+$headerPendingCount = 0;
+if ($user) {
+    try {
+        $stmt = $pdo->query(
+            'SELECT COUNT(*)
+             FROM explorer_checkins
+             WHERE status = "pending"'
+        );
+        $headerPendingCount = (int)$stmt->fetchColumn();
+    } catch (Throwable $e) {
+        $headerPendingCount = 0;
+    }
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -894,6 +909,23 @@ if ($user) {
             }
         }
 
+        .nav-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: #d4351c;
+            color: #ffffff;
+            font-size: 0.7rem;
+            font-weight: 900;
+            min-width: 18px;
+            height: 18px;
+            padding: 0 0.3rem;
+            margin-left: 0.3rem;
+            border-radius: 9px;
+            line-height: 1;
+            vertical-align: middle;
+        }
+
         /* Global search in navbar */
         .global-search-form {
             margin-left: 0.75rem;
@@ -1053,7 +1085,7 @@ if ($user) {
 
                         <li class="nav-item<?= header_nav_active('team_links.php') ?>">
                             <a class="nav-link" href="<?= e(url('team_links.php')) ?>">
-                                Teams
+                                Teams<?php if ($headerPendingCount > 0): ?><span class="nav-badge"><?= (int)$headerPendingCount ?></span><?php endif; ?>
                             </a>
                         </li>
 
