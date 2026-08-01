@@ -467,9 +467,14 @@ if ($user) {
                         </div>
                     </li>
 
-                    <!-- Expenses -->
-                    <li class="nav-item<?= header_nav_active('leader_expenses_summary.php') ?>">
-                        <a class="nav-link" href="<?= e(url('leader_expenses_summary.php')) ?>">Expenses</a>
+                    <!-- Finances dropdown -->
+                    <li class="nav-item dropdown<?= header_nav_active_group(['leader_expenses_summary.php', 'expenses_manage.php', 'expenses_accounting.php']) ?>">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Finances</a>
+                        <div class="dropdown-menu">
+                            <a class="dropdown-item<?= header_nav_active('leader_expenses_summary.php') ?>" href="<?= e(url('leader_expenses_summary.php')) ?>">Leader Expenses</a>
+                            <a class="dropdown-item<?= header_nav_active('expenses_manage.php') ?>" href="<?= e(url('expenses_manage.php')) ?>">Explorer Expenses</a>
+                            <a class="dropdown-item<?= header_nav_active('expenses_accounting.php') ?>" href="<?= e(url('expenses_accounting.php')) ?>">Accounting</a>
+                        </div>
                     </li>
 
                     <!-- Pending check-ins -->
@@ -623,7 +628,20 @@ if ($user) {
 
                 <li class="sidebar-divider"></li>
 
-                <li><a class="sidebar-link<?= header_nav_active('leader_expenses_summary.php') ?>" href="<?= e(url('leader_expenses_summary.php')) ?>">Expenses</a></li>
+                <!-- Finances group -->
+                <li>
+                    <button class="sidebar-group-label<?= header_nav_active_group(['leader_expenses_summary.php', 'expenses_manage.php', 'expenses_accounting.php']) ?>" aria-expanded="false" data-sidebar-group="finances">
+                        Finances <span class="group-arrow">&#9654;</span>
+                    </button>
+                    <ul class="sidebar-sub" id="sidebarGroupFinances">
+                        <li><a class="sidebar-link<?= header_nav_active('leader_expenses_summary.php') ?>" href="<?= e(url('leader_expenses_summary.php')) ?>">Leader Expenses</a></li>
+                        <li><a class="sidebar-link<?= header_nav_active('expenses_manage.php') ?>" href="<?= e(url('expenses_manage.php')) ?>">Explorer Expenses</a></li>
+                        <li><a class="sidebar-link<?= header_nav_active('expenses_accounting.php') ?>" href="<?= e(url('expenses_accounting.php')) ?>">Accounting</a></li>
+                    </ul>
+                </li>
+
+                <li class="sidebar-divider"></li>
+
                 <li><a class="sidebar-link<?= header_nav_active('analytics.php') ?>" href="<?= e(url('analytics.php')) ?>">Analytics</a></li>
                 <li><a class="sidebar-link" href="<?= e(url('parent_engagement_analytics.php')) ?>">Parent Engagement</a></li>
                 <li><a class="sidebar-link" href="<?= e(url('help.php')) ?>">Help Guide</a></li>

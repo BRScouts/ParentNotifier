@@ -933,6 +933,7 @@ $allowedTabs = [
     'locations',
     'notes',
     'posts',
+    'expenses',
     'edit',
 ];
 
@@ -2004,6 +2005,7 @@ include __DIR__ . '/header.php';
                 'notes' => 'Notes',
                 'links' => 'Links',
                 'posts' => 'Posts',
+                'expenses' => 'Expenses',
                 'edit' => 'Edit team',
             ];
             ?>
