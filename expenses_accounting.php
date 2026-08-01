@@ -93,6 +93,43 @@ try {
 
 $grandBalance = $grandTotalCredits - $grandTotalDebits;
 
+// --- Leader expense totals ---
+$leaderExpCorporate = 0;
+$leaderExpPersonal = 0;
+$leaderExpReimbursed = 0;
+$leaderExpOutstanding = 0;
+$leaderExpTotal = 0;
+$leaderExpCount = 0;
+
+try {
+    $leCheck = $pdo->prepare(
+        'SELECT COUNT(*) FROM information_schema.tables
+         WHERE table_schema = DATABASE() AND table_name = "leader_expenses"'
+    );
+    $leCheck->execute();
+    if ((int)$leCheck->fetchColumn() > 0) {
+        $leTotals = $pdo->query(
+            'SELECT
+                COUNT(*) AS total_count,
+                SUM(amount) AS total_amount,
+                SUM(CASE WHEN is_corporate_card = 1 THEN amount ELSE 0 END) AS corporate,
+                SUM(CASE WHEN is_corporate_card = 0 THEN amount ELSE 0 END) AS personal,
+                SUM(CASE WHEN is_corporate_card = 0 AND is_reimbursed = 1 THEN amount ELSE 0 END) AS reimbursed,
+                SUM(CASE WHEN is_corporate_card = 0 AND is_reimbursed = 0 THEN amount ELSE 0 END) AS outstanding
+             FROM leader_expenses'
+        )->fetch();
+
+        $leaderExpCorporate = (float)($leTotals['corporate'] ?? 0);
+        $leaderExpPersonal = (float)($leTotals['personal'] ?? 0);
+        $leaderExpReimbursed = (float)($leTotals['reimbursed'] ?? 0);
+        $leaderExpOutstanding = (float)($leTotals['outstanding'] ?? 0);
+        $leaderExpTotal = (float)($leTotals['total_amount'] ?? 0);
+        $leaderExpCount = (int)($leTotals['total_count'] ?? 0);
+    }
+} catch (Throwable $e) {
+    // Defaults remain 0
+}
+
 // --- CSV Export: all teams combined ---
 if (($_GET['export'] ?? '') === 'csv_all') {
     $stmt = $pdo->query(
@@ -181,6 +218,20 @@ include __DIR__ . '/header.php';
     .sc-value-green { color: #00703c; }
     .sc-value-red { color: #d4351c; }
     .sc-value-purple { color: #7413dc; }
+    .sc-value-blue { color: #1d70b8; }
+    .sc-value-orange { color: #f47738; }
+
+    .section-divider {
+        border-top: 2px solid #d8d8d8;
+        margin: 1.5rem 0;
+        padding-top: 1rem;
+    }
+
+    .section-divider h2 {
+        font-weight: 900;
+        font-size: 1.2rem;
+        margin: 0 0 1rem;
+    }
 
     .accounting-card {
         border: 2px solid #d8d8d8;
@@ -264,23 +315,43 @@ include __DIR__ . '/header.php';
         <p>Overview of all team spending &mdash; for treasurer reporting</p>
     </div>
 
-    <!-- Grand totals -->
+    <!-- Grand totals: Explorer team cards -->
     <div class="summary-cards">
         <div class="summary-card">
-            <div class="sc-label">Total Loaded</div>
+            <div class="sc-label">Explorer Cards Loaded</div>
             <div class="sc-value sc-value-green">&euro;<?= number_format($grandTotalCredits, 2) ?></div>
         </div>
         <div class="summary-card">
-            <div class="sc-label">Total Spent</div>
+            <div class="sc-label">Explorer Cards Spent</div>
             <div class="sc-value sc-value-red">&euro;<?= number_format($grandTotalDebits, 2) ?></div>
         </div>
         <div class="summary-card">
-            <div class="sc-label">Combined Balance</div>
+            <div class="sc-label">Explorer Cards Balance</div>
             <div class="sc-value sc-value-purple">&euro;<?= number_format($grandBalance, 2) ?></div>
         </div>
         <div class="summary-card">
-            <div class="sc-label">Total Transactions</div>
+            <div class="sc-label">Explorer Transactions</div>
             <div class="sc-value"><?= array_sum(array_column($teamSummaries, 'tx_count')) ?></div>
+        </div>
+    </div>
+
+    <!-- Leader expenses summary -->
+    <div class="summary-cards">
+        <div class="summary-card">
+            <div class="sc-label">Leader Spend (Total)</div>
+            <div class="sc-value sc-value-purple">&pound;<?= number_format($leaderExpTotal, 2) ?></div>
+        </div>
+        <div class="summary-card">
+            <div class="sc-label">Corporate Card</div>
+            <div class="sc-value sc-value-blue">&pound;<?= number_format($leaderExpCorporate, 2) ?></div>
+        </div>
+        <div class="summary-card">
+            <div class="sc-label">Personal (Reimbursed)</div>
+            <div class="sc-value sc-value-green">&pound;<?= number_format($leaderExpReimbursed, 2) ?></div>
+        </div>
+        <div class="summary-card">
+            <div class="sc-label">Personal (Outstanding)</div>
+            <div class="sc-value sc-value-red">&pound;<?= number_format($leaderExpOutstanding, 2) ?></div>
         </div>
     </div>
 
@@ -291,6 +362,12 @@ include __DIR__ . '/header.php';
         </a>
         <a href="<?= e(url('expenses_manage.php')) ?>" class="btn btn-outline-secondary btn-sm ml-2">
             Manage Team Expenses
+        </a>
+        <a href="<?= e(url('leader_expenses_summary.php')) ?>" class="btn btn-outline-secondary btn-sm ml-2">
+            Leader Expenses
+        </a>
+        <a href="<?= e(url('leader_expenses_submit.php')) ?>" class="btn btn-outline-secondary btn-sm ml-2">
+            Submit Leader Expense
         </a>
     </div>
 

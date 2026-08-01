@@ -1105,7 +1105,7 @@ if ($user) {
                                 People
                             </a>
                         </li>
-                        <li class="nav-item<?= header_nav_active('expenses_accounting.php') . header_nav_active('expenses_manage.php') ?>">
+                        <li class="nav-item<?= header_nav_active('expenses_accounting.php') . header_nav_active('expenses_manage.php') . header_nav_active('leader_expenses_submit.php') . header_nav_active('leader_expenses_summary.php') ?>">
                             <a class="nav-link" href="<?= e(url('expenses_accounting.php')) ?>">
                                 Expenses
                             </a>
