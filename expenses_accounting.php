@@ -365,6 +365,10 @@ include __DIR__ . '/header.php';
         </div>
     </div>
 
+    <div style="font-size:0.8rem; color:#505a5f; background:#fff7bf; padding:0.5rem 0.75rem; border-left:4px solid #ffdd00; margin-bottom:1.25rem;">
+        Balances are estimates only and may not reflect all purchases if expenses haven't been logged by explorers or leaders yet.
+    </div>
+
     <!-- Export button -->
     <div class="mb-3">
         <a href="?export=csv_all" class="btn btn-primary btn-sm">

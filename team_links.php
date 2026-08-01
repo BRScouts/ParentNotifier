@@ -1993,6 +1993,34 @@ include __DIR__ . '/header.php';
             </div>
         </section>
 
+        <?php
+        // Fetch team card balance for header display
+        $headerExpCredits = 0;
+        $headerExpDebits = 0;
+        $headerExpCardInitial = 0;
+        try {
+            $hStmt = $pdo->prepare('SELECT type, SUM(amount) as total FROM team_transactions WHERE team_id = ? GROUP BY type');
+            $hStmt->execute([(int)$currentTeam['id']]);
+            $hTotals = $hStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+            $headerExpCredits = (float)($hTotals['credit'] ?? 0);
+            $headerExpDebits = (float)($hTotals['debit'] ?? 0);
+        } catch (Throwable $e) {}
+        try {
+            $hcStmt = $pdo->prepare('SELECT initial_balance FROM team_cards WHERE team_id = ? LIMIT 1');
+            $hcStmt->execute([(int)$currentTeam['id']]);
+            $hcRow = $hcStmt->fetch();
+            if ($hcRow) { $headerExpCardInitial = (float)$hcRow['initial_balance']; }
+        } catch (Throwable $e) {}
+        $headerExpBalance = $headerExpCardInitial + $headerExpCredits - $headerExpDebits;
+        ?>
+        <?php if ($headerExpCardInitial > 0 || $headerExpCredits > 0 || $headerExpDebits > 0): ?>
+        <div style="display:inline-flex; align-items:center; gap:0.75rem; background:#f5edfb; border:1px solid #d4b3f0; padding:0.5rem 1rem; margin-bottom:0.75rem; font-size:0.85rem;">
+            <span style="font-weight:700; color:#7413dc;">Card Balance:</span>
+            <span style="font-weight:900; color:#7413dc; font-size:1.05rem;">&euro;<?= number_format($headerExpBalance, 2) ?></span>
+            <span style="color:#505a5f;">Loaded: &euro;<?= number_format($headerExpCardInitial + $headerExpCredits, 2) ?> &middot; Spent: &euro;<?= number_format($headerExpDebits, 2) ?></span>
+        </div>
+        <?php endif; ?>
+
         <nav class="team-tabs" aria-label="Team management">
             <?php
             $tabs = [
@@ -3037,6 +3065,89 @@ include __DIR__ . '/header.php';
                                         </p>
                                     <?php endif; ?>
                                 </article>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </section>
+
+                <?php elseif ($currentTab === 'expenses'): ?>
+
+                    <?php
+                    // Fetch expense data for this team
+                    $teamExpenses = [];
+                    $teamExpCredits = 0;
+                    $teamExpDebits = 0;
+                    $teamExpCardInitial = 0;
+                    try {
+                        $stmt = $pdo->prepare('SELECT * FROM team_transactions WHERE team_id = ? ORDER BY transaction_date DESC, created_at DESC');
+                        $stmt->execute([(int)$currentTeam['id']]);
+                        $teamExpenses = $stmt->fetchAll();
+                        foreach ($teamExpenses as $tex) {
+                            if ($tex['type'] === 'credit') { $teamExpCredits += (float)$tex['amount']; }
+                            else { $teamExpDebits += (float)$tex['amount']; }
+                        }
+                    } catch (Throwable $e) { $teamExpenses = []; }
+                    try {
+                        $stmt = $pdo->prepare('SELECT initial_balance FROM team_cards WHERE team_id = ? LIMIT 1');
+                        $stmt->execute([(int)$currentTeam['id']]);
+                        $cRow = $stmt->fetch();
+                        if ($cRow) { $teamExpCardInitial = (float)$cRow['initial_balance']; }
+                    } catch (Throwable $e) {}
+                    $teamExpBalance = $teamExpCardInitial + $teamExpCredits - $teamExpDebits;
+                    $expCatIcons = ['food' => '🍕', 'camping' => '⛺', 'supplies' => '🎒', 'travel' => '🚌', 'top_up' => '💳', 'other' => '📦'];
+                    $expCatLabels = ['food' => 'Food & Drink', 'camping' => 'Camping', 'supplies' => 'Supplies', 'travel' => 'Travel', 'top_up' => 'Top Up', 'other' => 'Other'];
+                    ?>
+
+                    <section class="teams-panel">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem; margin-bottom:1rem;">
+                            <h2 style="margin:0;">Expenses</h2>
+                            <a href="<?= e(url('expenses_manage.php?team_id=' . (int)$currentTeam['id'])) ?>" class="btn btn-primary btn-sm">
+                                Manage Expenses
+                            </a>
+                        </div>
+
+                        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:0.75rem; margin-bottom:1.25rem;">
+                            <div style="background:#e9f8ef; padding:0.75rem; text-align:center; border:1px solid #b7ebc9;">
+                                <div style="font-size:0.7rem; font-weight:700; text-transform:uppercase; color:#00703c;">Loaded</div>
+                                <div style="font-size:1.3rem; font-weight:900; color:#00703c;">&euro;<?= number_format($teamExpCardInitial + $teamExpCredits, 2) ?></div>
+                            </div>
+                            <div style="background:#fdecea; padding:0.75rem; text-align:center; border:1px solid #f5c6c0;">
+                                <div style="font-size:0.7rem; font-weight:700; text-transform:uppercase; color:#d4351c;">Spent</div>
+                                <div style="font-size:1.3rem; font-weight:900; color:#d4351c;">&euro;<?= number_format($teamExpDebits, 2) ?></div>
+                            </div>
+                            <div style="background:#f5edfb; padding:0.75rem; text-align:center; border:1px solid #d4b3f0;">
+                                <div style="font-size:0.7rem; font-weight:700; text-transform:uppercase; color:#7413dc;">Balance</div>
+                                <div style="font-size:1.3rem; font-weight:900; color:#7413dc;">&euro;<?= number_format($teamExpBalance, 2) ?></div>
+                            </div>
+                        </div>
+
+                        <p style="font-size:0.8rem; color:#505a5f; background:#fff7bf; padding:0.5rem 0.75rem; border-left:4px solid #ffdd00; margin-bottom:1rem;">
+                            Balances are estimates only and may not reflect all purchases if expenses haven't been logged yet.
+                        </p>
+
+                        <?php if (empty($teamExpenses)): ?>
+                            <p style="color:#505a5f;">No transactions recorded for this team yet.</p>
+                        <?php else: ?>
+                            <?php foreach ($teamExpenses as $tex): ?>
+                            <div style="display:flex; gap:0.6rem; padding:0.6rem 0; border-bottom:1px solid #f0f0f0; align-items:center;">
+                                <div style="width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:0.9rem; flex-shrink:0; background:<?= $tex['type'] === 'credit' ? '#e9f8ef' : '#fdecea' ?>;">
+                                    <?= $tex['type'] === 'credit' ? '💳' : ($expCatIcons[$tex['category'] ?? 'other'] ?? '📦') ?>
+                                </div>
+                                <div style="flex:1; min-width:0;">
+                                    <div style="font-weight:700; font-size:0.88rem;">
+                                        <?= $tex['type'] === 'credit' ? 'Funds loaded' : e($tex['description'] ?: ($expCatLabels[$tex['category'] ?? 'other'] ?? 'Expense')) ?>
+                                    </div>
+                                    <div style="font-size:0.75rem; color:#505a5f;">
+                                        <?= e(date('j M Y', strtotime($tex['transaction_date']))) ?>
+                                        &middot; <?= e($tex['submitted_by']) ?>
+                                        <?php if ($tex['receipt_path']): ?>
+                                            &middot; <a href="<?= e(url($tex['receipt_path'])) ?>" target="_blank" style="color:#1d70b8;">receipt</a>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                                <div style="font-weight:900; font-size:0.9rem; color:<?= $tex['type'] === 'credit' ? '#00703c' : '#d4351c' ?>;">
+                                    <?= $tex['type'] === 'credit' ? '+' : '-' ?>&euro;<?= number_format((float)$tex['amount'], 2) ?>
+                                </div>
+                            </div>
                             <?php endforeach; ?>
                         <?php endif; ?>
                     </section>
