@@ -291,7 +291,7 @@ function checkin_status_class(string $status): string
         return 'status-danger';
     }
 
-    return 'status-warning';
+    return 'status-pending';
 }
 
 function checkin_status_label(string $status): string
@@ -564,6 +564,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $description = trim($_POST['description'] ?? '');
         $status = $_POST['status'] ?? 'not_started';
         $isPublic = isset($_POST['is_public']) ? 1 : 0;
+        $startLocationName = trim($_POST['start_location_name'] ?? '');
+        $startLatitude = trim($_POST['start_latitude'] ?? '');
+        $startLongitude = trim($_POST['start_longitude'] ?? '');
 
         if (!in_array($status, $allowedStatuses, true)) {
             $status = 'not_started';
@@ -580,7 +583,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                      slug = ?,
                      description = ?,
                      status = ?,
-                     is_public = ?
+                     is_public = ?,
+                     start_location_name = ?,
+                     start_latitude = ?,
+                     start_longitude = ?
                  WHERE id = ?'
             );
 
@@ -590,6 +596,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $description,
                 $status,
                 $isPublic,
+                $startLocationName !== '' ? $startLocationName : null,
+                $startLatitude !== '' ? $startLatitude : null,
+                $startLongitude !== '' ? $startLongitude : null,
                 $teamId,
             ]);
 
@@ -848,9 +857,18 @@ foreach ($teams as $team) {
         $latestLocation = $location;
     }
 
+    $latestReviewedCheckin = null;
+    $pendingSubmitter = null;
+
     foreach ($teamExplorerCheckins as $checkin) {
         if ($checkin['status'] === 'pending' && date_in_finland($checkin['submitted_at']) === finland_today()) {
             $pendingToday = true;
+            if ($pendingSubmitter === null) {
+                $pendingSubmitter = $checkin['submitted_by'] ?? null;
+            }
+        }
+        if ($checkin['status'] === 'reviewed' && $latestReviewedCheckin === null) {
+            $latestReviewedCheckin = $checkin;
         }
     }
 
@@ -872,6 +890,11 @@ foreach ($teams as $team) {
 
     $allergyPeople = array_values(array_filter($teamPeople, 'person_has_allergies'));
 
+    // Derive accommodation type and injury flags from latest reviewed check-in
+    $latestAccommodation = $latestReviewedCheckin['accommodation_type'] ?? null;
+    $latestHasInjuries = (int)($latestReviewedCheckin['has_injuries'] ?? 0) === 1;
+    $latestHasMedication = (int)($latestReviewedCheckin['has_medication'] ?? 0) === 1;
+
     $teamSummaries[$teamId] = [
         'team' => $team,
         'people' => $teamPeople,
@@ -885,6 +908,10 @@ foreach ($teams as $team) {
         'rag_status' => $ragStatus,
         'rag_label' => $ragLabel,
         'allergy_people' => $allergyPeople,
+        'latest_accommodation' => $latestAccommodation,
+        'latest_has_injuries' => $latestHasInjuries,
+        'latest_has_medication' => $latestHasMedication,
+        'pending_submitter' => $pendingSubmitter,
     ];
 }
 
@@ -902,6 +929,8 @@ $allowedTabs = [
     'pending',
     'manual',
     'progress',
+    'checkin_history',
+    'locations',
     'notes',
     'posts',
     'edit',
@@ -1092,6 +1121,19 @@ include __DIR__ . '/header.php';
     }
 
     .rag-pending {
+        border: 4px solid transparent;
+        background:
+            linear-gradient(#ffffff, #ffffff) padding-box,
+            repeating-linear-gradient(
+                45deg,
+                #00703c 0,
+                #00703c 10px,
+                #ffdd00 10px,
+                #ffdd00 20px
+            ) border-box;
+    }
+
+    .rag-pending-checkin {
         border: 4px solid transparent;
         background:
             linear-gradient(#ffffff, #ffffff) padding-box,
@@ -1577,6 +1619,44 @@ include __DIR__ . '/header.php';
         color: #ffffff;
     }
 
+    .status-resting {
+        background: #1d70b8;
+        color: #ffffff;
+    }
+
+    .status-delayed {
+        background: #fff7bf;
+        color: #1d1d1d;
+        border-color: #d4351c;
+        border-style: solid;
+        border-image: repeating-linear-gradient(
+            45deg,
+            #ffdd00 0,
+            #ffdd00 6px,
+            #d4351c 6px,
+            #d4351c 12px
+        ) 2;
+    }
+
+    .status-muted {
+        background: #f3f2f1;
+        color: #505a5f;
+        border-color: #b1b4b6;
+    }
+
+    .status-pending {
+        background: #ffffff;
+        color: #1d1d1d;
+        border-style: solid;
+        border-image: repeating-linear-gradient(
+            45deg,
+            #00703c 0,
+            #00703c 6px,
+            #ffdd00 6px,
+            #ffdd00 12px
+        ) 2;
+    }
+
     .review-layout {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 340px;
@@ -1870,6 +1950,8 @@ include __DIR__ . '/header.php';
                 'pending' => 'Pending reviews' . (!empty($pendingCheckins) ? ' (' . count($pendingCheckins) . ')' : ''),
                 'manual' => 'Manual check-in',
                 'progress' => 'Progress',
+                'checkin_history' => 'Check-in history',
+                'locations' => 'Locations',
                 'notes' => 'Notes',
                 'links' => 'Links',
                 'posts' => 'Posts',
@@ -2029,7 +2111,7 @@ include __DIR__ . '/header.php';
                                             <h3><?= e($checkin['location_name'] ?: 'Explorer check-in') ?></h3>
 
                                             <p>
-                                                <span class="status-pill status-warning">Pending review</span>
+                                                <span class="status-pill status-pending">Pending review</span>
                                             </p>
 
                                             <p class="muted">
@@ -2382,7 +2464,7 @@ include __DIR__ . '/header.php';
 
                         <p>
                             <span class="distance-big">
-                                <?= e(number_format($currentTeamSummary['distance_miles'], 1)) ?> miles
+                                <?= e(number_format($currentTeamSummary['distance_miles'], 1)) ?> miles total
                             </span>
                             <span class="muted">
                                 Approximate distance between check-ins.
@@ -2410,7 +2492,65 @@ include __DIR__ . '/header.php';
                             <?php endforeach; ?>
                         </div>
 
-                        <h3>Approved check-ins</h3>
+                        <h3>Miles per day</h3>
+
+                        <?php
+                        // Calculate miles per day
+                        $milesPerDay = [];
+                        $sortedLocations = $teamLocations; // already sorted by checked_in_at ASC
+                        $previousLocation = null;
+
+                        foreach ($sortedLocations as $location) {
+                            $locDate = date_in_finland($location['checked_in_at']);
+                            $lat = safe_float($location['latitude']);
+                            $lng = safe_float($location['longitude']);
+
+                            if ($lat === null || $lng === null) {
+                                $previousLocation = $location;
+                                continue;
+                            }
+
+                            if ($previousLocation !== null) {
+                                $prevLat = safe_float($previousLocation['latitude']);
+                                $prevLng = safe_float($previousLocation['longitude']);
+
+                                if ($prevLat !== null && $prevLng !== null) {
+                                    $segmentKm = distance_km($prevLat, $prevLng, $lat, $lng);
+                                    $segmentMiles = miles_from_km($segmentKm);
+
+                                    if (!isset($milesPerDay[$locDate])) {
+                                        $milesPerDay[$locDate] = 0.0;
+                                    }
+                                    $milesPerDay[$locDate] += $segmentMiles;
+                                }
+                            }
+
+                            $previousLocation = $location;
+                        }
+                        ?>
+
+                        <?php if (empty($milesPerDay)): ?>
+                            <div class="empty-box">Not enough check-ins to calculate daily miles yet.</div>
+                        <?php else: ?>
+                            <table class="teams-table" style="max-width: 500px;">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Miles</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($milesPerDay as $date => $miles): ?>
+                                        <tr>
+                                            <td><?= e(date('j M', strtotime($date))) ?></td>
+                                            <td><strong><?= e(number_format($miles, 1)) ?></strong></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        <?php endif; ?>
+
+                        <h3 style="margin-top: 2rem;">Approved check-ins</h3>
 
                         <?php if (empty($teamLocations)): ?>
                             <div class="empty-box">No locations have been approved for this team yet.</div>
@@ -2439,15 +2579,292 @@ include __DIR__ . '/header.php';
                                         </div>
                                     <?php endif; ?>
 
-                                    <?php if (!empty($location['public_note'])): ?>
-                                        <p class="mt-3"><?= nl2br(e($location['public_note'])) ?></p>
-                                    <?php endif; ?>
-
                                     <?php if (!empty($location['internal_note'])): ?>
                                         <p class="muted">
                                             <strong>Internal:</strong>
                                             <?= nl2br(e($location['internal_note'])) ?>
                                         </p>
+                                    <?php endif; ?>
+                                </article>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </section>
+
+                <?php elseif ($currentTab === 'checkin_history'): ?>
+
+                    <section class="teams-panel">
+                        <h2>Check-in history</h2>
+
+                        <p class="muted">
+                            Full history of all Explorer check-in submissions for this team, including medical/first-aid details and who submitted.
+                        </p>
+
+                        <?php if (empty($teamExplorerCheckins)): ?>
+                            <div class="empty-box">No Explorer check-ins have been submitted for this team yet.</div>
+                        <?php else: ?>
+                            <?php foreach ($teamExplorerCheckins as $checkin): ?>
+                                <?php $reports = member_reports_summary($checkin['member_reports_json'] ?? null); ?>
+
+                                <article class="checkin-review-card">
+                                    <h3><?= e($checkin['location_name'] ?: 'Check-in') ?></h3>
+
+                                    <p>
+                                        <span class="status-pill <?= e(checkin_status_class($checkin['status'])) ?>">
+                                            <?= e(checkin_status_label($checkin['status'])) ?>
+                                        </span>
+                                    </p>
+
+                                    <p class="muted">
+                                        Submitted <?= e(format_datetime($checkin['submitted_at'])) ?>
+                                        <?php if (!empty($checkin['submitted_by'])): ?>
+                                            by <strong><?= e($checkin['submitted_by']) ?></strong>
+                                        <?php endif; ?>
+                                    </p>
+
+                                    <p>
+                                        <strong>Coordinates:</strong>
+                                        <?= e($checkin['latitude']) ?>, <?= e($checkin['longitude']) ?>
+                                    </p>
+
+                                    <p>
+                                        <strong>Accommodation:</strong>
+                                        <?= e($checkin['accommodation_type'] ?? 'Not specified') ?>
+                                    </p>
+
+                                    <?php if (!empty($checkin['accommodation_notes'])): ?>
+                                        <p>
+                                            <strong>Accommodation notes:</strong><br>
+                                            <?= nl2br(e($checkin['accommodation_notes'])) ?>
+                                        </p>
+                                    <?php endif; ?>
+
+                                    <?php if (!empty($checkin['welfare_notes'])): ?>
+                                        <div class="internal-warning">
+                                            <strong>Welfare notes:</strong><br>
+                                            <?= nl2br(e($checkin['welfare_notes'])) ?>
+                                        </div>
+                                    <?php endif; ?>
+
+                                    <?php if ((int)($checkin['has_injuries'] ?? 0) === 1 || (int)($checkin['has_medication'] ?? 0) === 1 || !empty($reports)): ?>
+                                        <div class="internal-warning">
+                                            <strong>Medical / First Aid</strong>
+
+                                            <?php if ((int)($checkin['has_injuries'] ?? 0) === 1): ?>
+                                                <p><span class="allergy-warning">INJURIES</span> Injuries/illness reported</p>
+                                            <?php endif; ?>
+
+                                            <?php if ((int)($checkin['has_medication'] ?? 0) === 1): ?>
+                                                <p><span class="allergy-warning">MEDICATION</span> Medication administered</p>
+                                            <?php endif; ?>
+
+                                            <?php if (!empty($reports)): ?>
+                                                <ul class="mb-0">
+                                                    <?php foreach ($reports as $report): ?>
+                                                        <li>
+                                                            <strong><?= e($report['name'] ?? 'Participant') ?></strong>
+
+                                                            <?php if (!empty($report['injury_description'])): ?>
+                                                                <br>Injury/concern: <?= nl2br(e($report['injury_description'])) ?>
+                                                            <?php endif; ?>
+
+                                                            <?php if (!empty($report['medication_detail'])): ?>
+                                                                <br>Medication: <?= nl2br(e($report['medication_detail'])) ?>
+                                                            <?php endif; ?>
+
+                                                            <?php if (!empty($report['first_aid_given'])): ?>
+                                                                <br>First aid given: <?= nl2br(e($report['first_aid_given'])) ?>
+                                                            <?php endif; ?>
+                                                        </li>
+                                                    <?php endforeach; ?>
+                                                </ul>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php endif; ?>
+
+                                    <?php if ($checkin['status'] === 'reviewed' && !empty($checkin['reviewed_by_name'])): ?>
+                                        <div class="approver-line">
+                                            <span class="leader-mini">
+                                                <?php if (!empty($checkin['reviewed_by_photo_url'])): ?>
+                                                    <img src="<?= e(media_url($checkin['reviewed_by_photo_url'])) ?>" alt="">
+                                                <?php else: ?>
+                                                    <?= e(leader_initials($checkin['reviewed_by_name'])) ?>
+                                                <?php endif; ?>
+                                            </span>
+
+                                            <span>
+                                                Reviewed by <strong><?= e($checkin['reviewed_by_name']) ?></strong>
+                                                <?php if (!empty($checkin['reviewed_at'])): ?>
+                                                    on <?= e(format_datetime($checkin['reviewed_at'])) ?>
+                                                <?php endif; ?>
+                                            </span>
+                                        </div>
+                                    <?php endif; ?>
+
+                                    <?php if (!empty($checkin['review_notes'])): ?>
+                                        <p class="muted mt-2">
+                                            <strong>Review notes:</strong>
+                                            <?= nl2br(e($checkin['review_notes'])) ?>
+                                        </p>
+                                    <?php endif; ?>
+                                </article>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </section>
+
+                <?php elseif ($currentTab === 'locations'): ?>
+
+                    <section class="teams-panel">
+                        <h2>Locations</h2>
+
+                        <p class="muted">
+                            Full location check-in history with medical/first-aid details. Parent-facing messages are not shown here.
+                        </p>
+
+                        <?php
+                        // Calculate miles per day for locations tab
+                        $locMilesPerDay = [];
+                        $locPrevious = null;
+
+                        foreach ($teamLocations as $location) {
+                            $locDate = date_in_finland($location['checked_in_at']);
+                            $lat = safe_float($location['latitude']);
+                            $lng = safe_float($location['longitude']);
+
+                            if ($lat === null || $lng === null) {
+                                $locPrevious = $location;
+                                continue;
+                            }
+
+                            if ($locPrevious !== null) {
+                                $prevLat = safe_float($locPrevious['latitude']);
+                                $prevLng = safe_float($locPrevious['longitude']);
+
+                                if ($prevLat !== null && $prevLng !== null) {
+                                    $segKm = distance_km($prevLat, $prevLng, $lat, $lng);
+                                    if (!isset($locMilesPerDay[$locDate])) {
+                                        $locMilesPerDay[$locDate] = 0.0;
+                                    }
+                                    $locMilesPerDay[$locDate] += miles_from_km($segKm);
+                                }
+                            }
+
+                            $locPrevious = $location;
+                        }
+                        ?>
+
+                        <p>
+                            <span class="distance-big">
+                                <?= e(number_format($currentTeamSummary['distance_miles'], 1)) ?> miles total
+                            </span>
+                        </p>
+
+                        <?php if (!empty($locMilesPerDay)): ?>
+                            <h3>Miles per day</h3>
+                            <table class="teams-table" style="max-width: 500px; margin-bottom: 1.5rem;">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Miles</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($locMilesPerDay as $date => $miles): ?>
+                                        <tr>
+                                            <td><?= e(date('j M', strtotime($date))) ?></td>
+                                            <td><strong><?= e(number_format($miles, 1)) ?></strong></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        <?php endif; ?>
+
+                        <h3>Location history</h3>
+
+                        <?php if (empty($teamLocations)): ?>
+                            <div class="empty-box">No locations have been approved for this team yet.</div>
+                        <?php else: ?>
+                            <?php foreach (array_reverse($teamLocations) as $location): ?>
+                                <article class="location-card">
+                                    <h3><?= e($location['location_name']) ?></h3>
+
+                                    <p class="muted">
+                                        <?= e(format_datetime($location['checked_in_at'])) ?>
+                                    </p>
+
+                                    <?php if (!empty($location['leader_name'])): ?>
+                                        <div class="approver-line">
+                                            <span class="leader-mini">
+                                                <?php if (!empty($location['leader_photo_url'])): ?>
+                                                    <img src="<?= e(media_url($location['leader_photo_url'])) ?>" alt="">
+                                                <?php else: ?>
+                                                    <?= e(leader_initials($location['leader_name'])) ?>
+                                                <?php endif; ?>
+                                            </span>
+
+                                            <span>
+                                                Approved by <strong><?= e($location['leader_name']) ?></strong>
+                                            </span>
+                                        </div>
+                                    <?php endif; ?>
+
+                                    <?php if (!empty($location['internal_note'])): ?>
+                                        <p class="muted mt-2">
+                                            <strong>Internal note:</strong>
+                                            <?= nl2br(e($location['internal_note'])) ?>
+                                        </p>
+                                    <?php endif; ?>
+
+                                    <?php
+                                    // Find the corresponding explorer checkin for this location to show medical info
+                                    $matchingCheckin = null;
+                                    foreach ($teamExplorerCheckins as $ec) {
+                                        if ($ec['status'] === 'reviewed'
+                                            && date_in_finland($ec['submitted_at']) === date_in_finland($location['checked_in_at'])
+                                            && ($ec['location_name'] ?? '') === ($location['location_name'] ?? '')
+                                        ) {
+                                            $matchingCheckin = $ec;
+                                            break;
+                                        }
+                                    }
+
+                                    if ($matchingCheckin):
+                                        $locReports = member_reports_summary($matchingCheckin['member_reports_json'] ?? null);
+                                    ?>
+                                        <?php if ((int)($matchingCheckin['has_injuries'] ?? 0) === 1 || (int)($matchingCheckin['has_medication'] ?? 0) === 1 || !empty($locReports)): ?>
+                                            <div class="internal-warning" style="margin-top: 0.75rem;">
+                                                <strong>Medical / First Aid</strong>
+
+                                                <?php if ((int)($matchingCheckin['has_injuries'] ?? 0) === 1): ?>
+                                                    <p><span class="allergy-warning">INJURIES</span> Injuries/illness reported</p>
+                                                <?php endif; ?>
+
+                                                <?php if ((int)($matchingCheckin['has_medication'] ?? 0) === 1): ?>
+                                                    <p><span class="allergy-warning">MEDICATION</span> Medication administered</p>
+                                                <?php endif; ?>
+
+                                                <?php if (!empty($locReports)): ?>
+                                                    <ul class="mb-0">
+                                                        <?php foreach ($locReports as $report): ?>
+                                                            <li>
+                                                                <strong><?= e($report['name'] ?? 'Participant') ?></strong>
+
+                                                                <?php if (!empty($report['injury_description'])): ?>
+                                                                    <br>Injury/concern: <?= nl2br(e($report['injury_description'])) ?>
+                                                                <?php endif; ?>
+
+                                                                <?php if (!empty($report['medication_detail'])): ?>
+                                                                    <br>Medication: <?= nl2br(e($report['medication_detail'])) ?>
+                                                                <?php endif; ?>
+
+                                                                <?php if (!empty($report['first_aid_given'])): ?>
+                                                                    <br>First aid given: <?= nl2br(e($report['first_aid_given'])) ?>
+                                                                <?php endif; ?>
+                                                            </li>
+                                                        <?php endforeach; ?>
+                                                    </ul>
+                                                <?php endif; ?>
+                                            </div>
+                                        <?php endif; ?>
                                     <?php endif; ?>
                                 </article>
                             <?php endforeach; ?>
@@ -2615,6 +3032,26 @@ include __DIR__ . '/header.php';
                                 </select>
                             </div>
 
+                            <h3 style="margin-top: 1.5rem;">Start location</h3>
+                            <p class="muted">Set the starting point for this team. This will appear on the progress map.</p>
+
+                            <div class="form-group">
+                                <label>Start location name</label>
+                                <input class="form-control" name="start_location_name" value="<?= e($currentTeam['start_location_name'] ?? '') ?>" placeholder="e.g. Helsinki ferry terminal">
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group col-md-6">
+                                    <label>Start latitude</label>
+                                    <input class="form-control" name="start_latitude" value="<?= e($currentTeam['start_latitude'] ?? '') ?>" placeholder="e.g. 60.1699">
+                                </div>
+
+                                <div class="form-group col-md-6">
+                                    <label>Start longitude</label>
+                                    <input class="form-control" name="start_longitude" value="<?= e($currentTeam['start_longitude'] ?? '') ?>" placeholder="e.g. 24.9384">
+                                </div>
+                            </div>
+
                             <div class="form-check mb-3">
                                 <input
                                     class="form-check-input"
@@ -2741,7 +3178,7 @@ include __DIR__ . '/header.php';
                     ?>
 
                     <div
-                        class="rag-card rag-status-card rag-status-<?= e($teamStatus) ?><?= ($summary['rag_status'] === 'overdue' && in_array($teamStatus, ['not_started', 'on_route'], true)) ? ' rag-overdue-time' : '' ?>"
+                        class="rag-card rag-status-card rag-status-<?= e($teamStatus) ?><?= ($summary['rag_status'] === 'overdue' && in_array($teamStatus, ['not_started', 'on_route'], true)) ? ' rag-overdue-time' : '' ?><?= $summary['pending_today'] ? ' rag-pending-checkin' : '' ?>"
                         data-team-id="<?= (int)$teamId ?>"
                         data-current-status="<?= e($teamStatus) ?>"
                     >
@@ -2751,6 +3188,9 @@ include __DIR__ . '/header.php';
                         >
                             <div class="rag-team-name">
                                 <?= e($team['name']) ?>
+                                <?php if ($summary['latest_has_injuries'] || $summary['latest_has_medication']): ?>
+                                    <span class="rag-injury-badge" title="First aid or medication reported on latest check-in">⚕</span>
+                                <?php endif; ?>
                             </div>
 
                             <div class="rag-label">
@@ -2759,12 +3199,14 @@ include __DIR__ . '/header.php';
 
                             <div class="rag-time">
                                 <?php if ($summary['latest_location']): ?>
-                                    Last approved:
-                                    <?= e(format_datetime($summary['latest_location']['checked_in_at'])) ?>
+                                    <?= e(date('j M', strtotime($summary['latest_location']['checked_in_at']))) ?>
+                                    <?php if (!empty($summary['latest_accommodation'])): ?>
+                                        · <?= e($summary['latest_accommodation']) ?>
+                                    <?php endif; ?>
                                 <?php elseif ($summary['pending_today']): ?>
-                                    Waiting for leader review
+                                    Awaiting review<?php if (!empty($summary['pending_submitter'])): ?> (<?= e(explode(' ', trim($summary['pending_submitter']))[0]) ?>)<?php endif; ?>
                                 <?php else: ?>
-                                    No approved check-in today
+                                    No check-in today
                                 <?php endif; ?>
                             </div>
                         </a>

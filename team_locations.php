@@ -306,6 +306,9 @@ foreach ($teamData as $teamId => $data) {
         'colour' => $data['colour'],
         'points' => $points,
         'total_miles' => round($data['total_miles'], 1),
+        'start_lat' => safe_float($data['team']['start_latitude'] ?? null),
+        'start_lng' => safe_float($data['team']['start_longitude'] ?? null),
+        'start_location_name' => $data['team']['start_location_name'] ?? '',
     ];
 }
 
@@ -1133,6 +1136,32 @@ include __DIR__ . '/header.php';
                 var latLngs = [];
                 var layerGroup = L.layerGroup().addTo(map);
 
+                // Add start location marker if set
+                if (team.start_lat && team.start_lng) {
+                    var startLatLng = [team.start_lat, team.start_lng];
+                    allBounds.push(startLatLng);
+                    latLngs.push(startLatLng);
+
+                    var startMarker = L.marker(startLatLng, {
+                        icon: L.divIcon({
+                            className: 'start-location-icon',
+                            html: '<span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;background:' + team.colour + ';border:3px solid #1d1d1d;border-radius:50%;color:#fff;font-weight:900;font-size:11px;">S</span>',
+                            iconSize: [24, 24],
+                            iconAnchor: [12, 12]
+                        })
+                    }).addTo(layerGroup);
+
+                    var startPopup = '<strong>' + escapeHtml(team.name) + '</strong><br><em>Start location</em>';
+                    if (team.start_location_name) {
+                        startPopup += '<br>' + escapeHtml(team.start_location_name);
+                    }
+                    startMarker.bindPopup(startPopup);
+
+                    startMarker.on('click', function () {
+                        selectTeam(team.id, false);
+                    });
+                }
+
                 team.points.forEach(function (point, index) {
                     var latLng = [point.lat, point.lng];
                     latLngs.push(latLng);
@@ -1185,6 +1214,7 @@ include __DIR__ . '/header.php';
             if (activeTeamId > 0) {
                 setTimeout(function () {
                     focusTeamOnMap(activeTeamId);
+                    greyOutOtherTeams(activeTeamId);
                 }, 250);
             }
         }
@@ -1203,12 +1233,48 @@ include __DIR__ . '/header.php';
             if (shouldFocusMap) {
                 focusTeamOnMap(activeTeamId);
             }
+
+            // Grey out non-focused teams on the map
+            greyOutOtherTeams(activeTeamId);
+        }
+
+        function greyOutOtherTeams(focusedTeamId) {
+            if (!map) return;
+
+            Object.keys(teamLayers).forEach(function (id) {
+                var tid = parseInt(id, 10);
+                var isFocused = tid === focusedTeamId;
+
+                teamLayers[tid].eachLayer(function (layer) {
+                    if (layer.setStyle) {
+                        if (isFocused) {
+                            layer.setStyle({ opacity: 1, fillOpacity: 1 });
+                        } else {
+                            layer.setStyle({ opacity: 0.2, fillOpacity: 0.2 });
+                        }
+                    }
+                });
+            });
+        }
+
+        function resetMapOpacity() {
+            if (!map) return;
+
+            Object.keys(teamLayers).forEach(function (id) {
+                teamLayers[parseInt(id, 10)].eachLayer(function (layer) {
+                    if (layer.setStyle) {
+                        layer.setStyle({ opacity: 1, fillOpacity: 1 });
+                    }
+                });
+            });
         }
 
         function focusTeamOnMap(teamId) {
             if (!map || !teamBounds[teamId] || teamBounds[teamId].length === 0) {
                 return;
             }
+
+            greyOutOtherTeams(teamId);
 
             if (teamBounds[teamId].length === 1) {
                 map.setView(teamBounds[teamId][0], 11);
