@@ -23,7 +23,7 @@ try {
                 id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 leader_id INT UNSIGNED NOT NULL,
                 amount DECIMAL(10,2) NOT NULL,
-                currency CHAR(3) NOT NULL DEFAULT "GBP",
+                currency CHAR(3) NOT NULL DEFAULT "EUR",
                 category VARCHAR(50) NOT NULL,
                 description VARCHAR(500) NULL,
                 receipt_path VARCHAR(500) NULL,
@@ -145,7 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'INSERT INTO leader_expenses
                 (leader_id, amount, currency, category, description, receipt_path, is_corporate_card, expense_date)
              VALUES
-                (?, ?, "GBP", ?, ?, ?, ?, ?)'
+                (?, ?, "EUR", ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             (int)$user['id'],
@@ -354,7 +354,7 @@ include __DIR__ . '/header.php';
 
                     <!-- Amount -->
                     <div class="form-group">
-                        <label for="amount">Amount (&pound;)</label>
+                        <label for="amount">Amount (&euro;)</label>
                         <input
                             type="number"
                             class="form-control"
@@ -464,7 +464,7 @@ include __DIR__ . '/header.php';
                                 </div>
                             </div>
                             <div class="tx-amount">
-                                &pound;<?= number_format((float)$exp['amount'], 2) ?>
+                                &euro;<?= number_format((float)$exp['amount'], 2) ?>
                             </div>
                         </div>
                     <?php endforeach; ?>

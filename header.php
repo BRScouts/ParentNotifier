@@ -397,6 +397,15 @@ if ($user) {
 </head>
 
 <body>
+<?php if ($user && !empty($headerOnDutyLeaders)): ?>
+<div class="on-duty-global-bar">
+    <div class="container" style="padding-top:0;padding-bottom:0;">
+        <strong>On duty:</strong>
+        <?php $onDutyNames = array_map(function ($l) { return e($l['name']); }, $headerOnDutyLeaders); echo implode(', ', $onDutyNames); ?>
+    </div>
+</div>
+<?php endif; ?>
+
 <header class="site-header compact-site-header">
     <div class="container">
         <nav class="navbar navbar-expand-lg navbar-dark px-0 compact-navbar">
@@ -456,6 +465,11 @@ if ($user) {
                             <a class="dropdown-item<?= header_nav_active('team_locations.php') ?>" href="<?= e(url('team_locations.php')) ?>">Locations</a>
                             <a class="dropdown-item<?= header_nav_active('people.php') ?>" href="<?= e(url('people.php')) ?>">People</a>
                         </div>
+                    </li>
+
+                    <!-- Expenses -->
+                    <li class="nav-item<?= header_nav_active('leader_expenses_summary.php') ?>">
+                        <a class="nav-link" href="<?= e(url('leader_expenses_summary.php')) ?>">Expenses</a>
                     </li>
 
                     <!-- Pending check-ins -->
@@ -537,14 +551,7 @@ if ($user) {
     <?php endif; ?>
 </header>
 
-<?php if ($user && !empty($headerOnDutyLeaders)): ?>
-    <div class="on-duty-global-bar">
-        <div class="container" style="padding-top:0;padding-bottom:0;">
-            <strong>On duty:</strong>
-            <?php $onDutyNames = array_map(function ($l) { return e($l['name']); }, $headerOnDutyLeaders); echo implode(', ', $onDutyNames); ?>
-        </div>
-    </div>
-<?php endif; ?>
+
 
 <!-- ===== MOBILE SIDEBAR ===== -->
 <?php if ($user || $parentTeam): ?>
@@ -616,6 +623,7 @@ if ($user) {
 
                 <li class="sidebar-divider"></li>
 
+                <li><a class="sidebar-link<?= header_nav_active('leader_expenses_summary.php') ?>" href="<?= e(url('leader_expenses_summary.php')) ?>">Expenses</a></li>
                 <li><a class="sidebar-link<?= header_nav_active('analytics.php') ?>" href="<?= e(url('analytics.php')) ?>">Analytics</a></li>
                 <li><a class="sidebar-link" href="<?= e(url('parent_engagement_analytics.php')) ?>">Parent Engagement</a></li>
                 <li><a class="sidebar-link" href="<?= e(url('help.php')) ?>">Help Guide</a></li>

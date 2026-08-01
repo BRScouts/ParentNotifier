@@ -205,7 +205,8 @@ if ($currentTeam) {
     } catch (Throwable $e) { $teamCard = null; }
 }
 
-$estimatedBalance = $totalCredits - $totalDebits;
+$initialBalance = (float)($teamCard['initial_balance'] ?? 0);
+$estimatedBalance = $initialBalance + $totalCredits - $totalDebits;
 $activeTab = $_GET['tab'] ?? 'transactions';
 
 $categoryLabels = ['food' => 'Food & Drink', 'camping' => 'Camping', 'supplies' => 'Supplies',
@@ -410,3 +411,87 @@ include __DIR__ . '/header.php';
         </ul>
         <?php endif; ?>
     </div>
+
+    <!-- Tab: Add Funds -->
+    <div class="em-panel <?= $activeTab === 'add_funds' ? 'active' : '' ?>">
+        <div class="fund-form">
+            <h3>Load Funds onto Team Card</h3>
+            <p style="color:#505a5f; font-size:0.9rem; margin-bottom:1rem;">
+                Record a top-up to the team's travel card. This will increase the estimated balance.
+            </p>
+            <form method="post">
+                <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+                <input type="hidden" name="action" value="add_funds">
+
+                <div class="form-group">
+                    <label for="fund_amount" style="font-weight:700;">Amount (&euro;)</label>
+                    <div class="fund-amount-wrap">
+                        <span class="cur">&euro;</span>
+                        <input type="number" class="form-control" id="fund_amount" name="fund_amount"
+                               step="0.01" min="0.01" placeholder="0.00" required inputmode="decimal">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="fund_description" style="font-weight:700;">Note (optional)</label>
+                    <input type="text" class="form-control" id="fund_description" name="fund_description"
+                           placeholder="e.g. Top-up at Post Office, ATM withdrawal" maxlength="500">
+                </div>
+
+                <button type="submit" class="btn btn-success">Add Funds</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Tab: Card Details -->
+    <div class="em-panel <?= $activeTab === 'card' ? 'active' : '' ?>">
+
+        <?php if ($teamCard): ?>
+        <div class="card-visual">
+            <div class="cv-provider"><?= e($teamCard['card_description']) ?></div>
+            <div class="cv-number">**** **** **** ****</div>
+            <div class="cv-holder"><?= e($teamCard['leader_name']) ?></div>
+            <div class="cv-pin">PIN: <?= e($teamCard['pin_number']) ?></div>
+        </div>
+        <?php endif; ?>
+
+        <form method="post">
+            <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+            <input type="hidden" name="action" value="save_card">
+
+            <div class="card-detail-grid">
+                <div class="form-group">
+                    <label for="card_leader_name" style="font-weight:700;">Card holder (leader name)</label>
+                    <input type="text" class="form-control" id="card_leader_name" name="card_leader_name"
+                           value="<?= e($teamCard['leader_name'] ?? '') ?>" required>
+                </div>
+                <div class="form-group">
+                    <label for="card_pin_number" style="font-weight:700;">PIN number</label>
+                    <input type="text" class="form-control" id="card_pin_number" name="card_pin_number"
+                           value="<?= e($teamCard['pin_number'] ?? '') ?>" required>
+                </div>
+                <div class="form-group">
+                    <label for="card_description" style="font-weight:700;">Card type / provider</label>
+                    <input type="text" class="form-control" id="card_description" name="card_description"
+                           placeholder="e.g. Post Office, Asda, Revolut"
+                           value="<?= e($teamCard['card_description'] ?? '') ?>" required>
+                </div>
+                <div class="form-group">
+                    <label for="card_initial_balance" style="font-weight:700;">Initial balance loaded (&euro;)</label>
+                    <input type="number" class="form-control" id="card_initial_balance" name="card_initial_balance"
+                           step="0.01" min="0" value="<?= e($teamCard['initial_balance'] ?? '0.00') ?>">
+                    <small class="form-text text-muted">This is factored into the balance calculation.</small>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Save Card Details</button>
+        </form>
+    </div>
+
+    <?php else: ?>
+        <div class="alert alert-warning">No teams found. Please create a team first.</div>
+    <?php endif; ?>
+
+</div>
+
+<?php include __DIR__ . '/footer.php'; ?>

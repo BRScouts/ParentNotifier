@@ -23,7 +23,7 @@ try {
                 id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 leader_id INT UNSIGNED NOT NULL,
                 amount DECIMAL(10,2) NOT NULL,
-                currency CHAR(3) NOT NULL DEFAULT "GBP",
+                currency CHAR(3) NOT NULL DEFAULT "EUR",
                 category VARCHAR(50) NOT NULL,
                 description VARCHAR(500) NULL,
                 receipt_path VARCHAR(500) NULL,
@@ -199,7 +199,7 @@ if (($_GET['export'] ?? '') === 'csv') {
     header('Content-Disposition: attachment; filename="leader_expenses_' . date('Y-m-d') . '.csv"');
 
     $out = fopen('php://output', 'w');
-    fputcsv($out, ['Date', 'Leader', 'Amount (GBP)', 'Category', 'Description', 'Card Type', 'Reimbursed', 'Reimbursed By', 'Reimbursed At']);
+    fputcsv($out, ['Date', 'Leader', 'Amount (EUR)', 'Category', 'Description', 'Card Type', 'Reimbursed', 'Reimbursed By', 'Reimbursed At']);
 
     foreach ($csvRows as $row) {
         fputcsv($out, [
@@ -353,15 +353,15 @@ include __DIR__ . '/header.php';
     <div class="summary-cards">
         <div class="summary-card">
             <div class="sc-label">Corporate Card</div>
-            <div class="sc-value sc-value-blue">&pound;<?= number_format($totalCorporate, 2) ?></div>
+            <div class="sc-value sc-value-blue">&euro;<?= number_format($totalCorporate, 2) ?></div>
         </div>
         <div class="summary-card">
             <div class="sc-label">Personal (Total)</div>
-            <div class="sc-value sc-value-orange">&pound;<?= number_format($totalPersonal, 2) ?></div>
+            <div class="sc-value sc-value-orange">&euro;<?= number_format($totalPersonal, 2) ?></div>
         </div>
         <div class="summary-card">
             <div class="sc-label">Reimbursed</div>
-            <div class="sc-value sc-value-green">&pound;<?= number_format($totalPaid, 2) ?></div>
+            <div class="sc-value sc-value-green">&euro;<?= number_format($totalPaid, 2) ?></div>
         </div>
         <div class="summary-card">
             <div class="sc-label">Outstanding</div>

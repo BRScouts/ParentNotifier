@@ -501,6 +501,11 @@ $tokenParam = urlencode($token);
             <strong>Emergencies</strong>
             <span>What to do if something goes wrong</span>
         </a>
+        <a href="<?= e(url('explorer_expenses.php?token=' . $tokenParam)) ?>">
+            <strong>Expenses</strong>
+            <span>Submit &amp; track team expenses</span>
+            <span class="portal-nav-badge">NEW</span>
+        </a>
     </nav>
 
     <!-- Check-in history -->
