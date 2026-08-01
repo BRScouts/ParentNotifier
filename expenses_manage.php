@@ -342,7 +342,7 @@ include __DIR__ . '/header.php';
     <div class="em-balance">
         <div class="em-bal-card">
             <div class="bal-label">Loaded</div>
-            <div class="bal-value bal-green">&euro;<?= number_format($totalCredits, 2) ?></div>
+            <div class="bal-value bal-green">&euro;<?= number_format($initialBalance + $totalCredits, 2) ?></div>
         </div>
         <div class="em-bal-card">
             <div class="bal-label">Spent</div>

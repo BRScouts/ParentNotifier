@@ -57,9 +57,19 @@ try {
 
         $credits = (float)($totals['credit'] ?? 0);
         $debits = (float)($totals['debit'] ?? 0);
-        $balance = $credits - $debits;
 
-        $grandTotalCredits += $credits;
+        // Include initial balance from team card
+        $cardInitial = 0;
+        try {
+            $cardStmt = $pdo->prepare('SELECT initial_balance FROM team_cards WHERE team_id = ? LIMIT 1');
+            $cardStmt->execute([(int)$t['id']]);
+            $cardRow = $cardStmt->fetch();
+            if ($cardRow) { $cardInitial = (float)$cardRow['initial_balance']; }
+        } catch (Throwable $e) {}
+
+        $balance = $cardInitial + $credits - $debits;
+
+        $grandTotalCredits += $cardInitial + $credits;
         $grandTotalDebits += $debits;
 
         // Transaction count
@@ -70,7 +80,7 @@ try {
         $teamSummaries[] = [
             'id' => (int)$t['id'],
             'name' => $t['name'],
-            'credits' => $credits,
+            'credits' => $cardInitial + $credits,
             'debits' => $debits,
             'balance' => $balance,
             'tx_count' => $txCount,
@@ -339,19 +349,19 @@ include __DIR__ . '/header.php';
     <div class="summary-cards">
         <div class="summary-card">
             <div class="sc-label">Leader Spend (Total)</div>
-            <div class="sc-value sc-value-purple">&pound;<?= number_format($leaderExpTotal, 2) ?></div>
+            <div class="sc-value sc-value-purple">&euro;<?= number_format($leaderExpTotal, 2) ?></div>
         </div>
         <div class="summary-card">
             <div class="sc-label">Corporate Card</div>
-            <div class="sc-value sc-value-blue">&pound;<?= number_format($leaderExpCorporate, 2) ?></div>
+            <div class="sc-value sc-value-blue">&euro;<?= number_format($leaderExpCorporate, 2) ?></div>
         </div>
         <div class="summary-card">
             <div class="sc-label">Personal (Reimbursed)</div>
-            <div class="sc-value sc-value-green">&pound;<?= number_format($leaderExpReimbursed, 2) ?></div>
+            <div class="sc-value sc-value-green">&euro;<?= number_format($leaderExpReimbursed, 2) ?></div>
         </div>
         <div class="summary-card">
             <div class="sc-label">Personal (Outstanding)</div>
-            <div class="sc-value sc-value-red">&pound;<?= number_format($leaderExpOutstanding, 2) ?></div>
+            <div class="sc-value sc-value-red">&euro;<?= number_format($leaderExpOutstanding, 2) ?></div>
         </div>
     </div>
 

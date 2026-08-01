@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS leader_expenses (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     leader_id INT UNSIGNED NOT NULL COMMENT 'Leader who incurred the expense',
     amount DECIMAL(10,2) NOT NULL,
-    currency CHAR(3) NOT NULL DEFAULT 'GBP',
+    currency CHAR(3) NOT NULL DEFAULT 'EUR',
     category VARCHAR(50) NOT NULL COMMENT 'food, travel, accommodation, supplies, activities, admin, other',
     description VARCHAR(500) NULL,
     receipt_path VARCHAR(500) NULL COMMENT 'Path to uploaded receipt image/pdf',

@@ -365,7 +365,7 @@ include __DIR__ . '/header.php';
         </div>
         <div class="summary-card">
             <div class="sc-label">Outstanding</div>
-            <div class="sc-value sc-value-red">&pound;<?= number_format($totalOutstanding, 2) ?></div>
+            <div class="sc-value sc-value-red">&euro;<?= number_format($totalOutstanding, 2) ?></div>
         </div>
     </div>
 
@@ -459,7 +459,7 @@ include __DIR__ . '/header.php';
                             </div>
                         </div>
                         <div class="tx-amount">
-                            &pound;<?= number_format((float)$exp['amount'], 2) ?>
+                            &euro;<?= number_format((float)$exp['amount'], 2) ?>
                         </div>
                     </div>
 

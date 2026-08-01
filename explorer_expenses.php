@@ -191,7 +191,16 @@ try {
     }
 } catch (Throwable $e) { $transactions = []; }
 
-$estimatedBalance = $totalCredits - $totalDebits;
+// Fetch initial balance from team card
+$cardInitialBalance = 0;
+try {
+    $cardStmt = $pdo->prepare('SELECT initial_balance FROM team_cards WHERE team_id = ? LIMIT 1');
+    $cardStmt->execute([(int)$team['id']]);
+    $cardRow = $cardStmt->fetch();
+    if ($cardRow) { $cardInitialBalance = (float)$cardRow['initial_balance']; }
+} catch (Throwable $e) {}
+
+$estimatedBalance = $cardInitialBalance + $totalCredits - $totalDebits;
 
 function expense_initials(string $name): string {
     $parts = preg_split('/\s+/', trim($name));
@@ -376,7 +385,7 @@ body { background: #f3f2f1; color: #1d1d1d; }
         <h1>Team Card Balance</h1>
         <div class="hero-amount">&euro;<?= number_format($estimatedBalance, 2) ?></div>
         <div class="hero-sub">
-            <span>&#9650; Loaded: &euro;<?= number_format($totalCredits, 2) ?></span>
+            <span>&#9650; Loaded: &euro;<?= number_format($cardInitialBalance + $totalCredits, 2) ?></span>
             <span>&#9660; Spent: &euro;<?= number_format($totalDebits, 2) ?></span>
         </div>
     </div>
