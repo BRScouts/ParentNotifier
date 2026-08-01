@@ -1217,21 +1217,12 @@ include __DIR__ . '/header.php';
                         fillOpacity: 1
                     }).addTo(layerGroup);
 
+                    var dayLabel = 'Day ' + (index + 1);
                     var popupHtml =
                         '<strong>' + escapeHtml(team.name) + '</strong><br>' +
-                        escapeHtml(point.location_name) + '<br>' +
-                        '<span>' + escapeHtml(point.checked_in_at) + '</span><br>' +
-                        '<span>Leader: ' + escapeHtml(point.leader_name) + '</span>';
+                        '<span>' + dayLabel + ' · ' + escapeHtml(point.location_name) + '</span>';
 
-                    if (point.accommodation_type) {
-                        popupHtml += '<br><span>Staying: ' + escapeHtml(point.accommodation_type) + '</span>';
-                    }
-
-                    if (point.public_note) {
-                        popupHtml += '<br><br>' + escapeHtml(point.public_note);
-                    }
-
-                    marker.bindPopup(popupHtml);
+                    marker.bindPopup(popupHtml, { maxWidth: 200 });
 
                     marker.on('click', function () {
                         selectTeam(team.id, false);
