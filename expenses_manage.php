@@ -154,6 +154,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $currentTeam) {
                 $success = 'Transaction deleted.';
             }
         }
+
+        if ($action === 'edit_transaction') {
+            $txId = (int)($_POST['transaction_id'] ?? 0);
+            $editAmount = trim($_POST['edit_amount'] ?? '');
+            $editCategory = trim($_POST['edit_category'] ?? '');
+            $editDescription = trim($_POST['edit_description'] ?? '');
+            $editDate = trim($_POST['edit_transaction_date'] ?? '');
+            $editSubmittedBy = trim($_POST['edit_submitted_by'] ?? '');
+
+            if ($txId <= 0) { throw new RuntimeException('Invalid transaction.'); }
+            if ($editAmount === '' || !is_numeric($editAmount) || (float)$editAmount <= 0) {
+                throw new RuntimeException('Please enter a valid amount.');
+            }
+            if ($editDate === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $editDate)) {
+                throw new RuntimeException('Please enter a valid date.');
+            }
+
+            // Handle new receipt
+            $newReceiptPath = null;
+            if (!empty($_FILES['edit_receipt']) && $_FILES['edit_receipt']['error'] !== UPLOAD_ERR_NO_FILE) {
+                $file = $_FILES['edit_receipt'];
+                if ($file['error'] !== UPLOAD_ERR_OK) { throw new RuntimeException('Receipt upload failed.'); }
+                if ((int)$file['size'] > 10 * 1024 * 1024) { throw new RuntimeException('Receipt must be under 10MB.'); }
+                $tmpName = $file['tmp_name'];
+                if (!is_uploaded_file($tmpName)) { throw new RuntimeException('Invalid upload.'); }
+                $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                $mimeType = finfo_file($finfo, $tmpName);
+                finfo_close($finfo);
+                $allowedTypes = ['image/jpeg'=>'jpg','image/png'=>'png','image/webp'=>'webp','image/gif'=>'gif','application/pdf'=>'pdf'];
+                if (!isset($allowedTypes[$mimeType])) { throw new RuntimeException('Receipt must be JPG, PNG, WEBP, GIF or PDF.'); }
+                $ext = $allowedTypes[$mimeType];
+                $teamSlug = preg_replace('/[^a-zA-Z0-9]/', '', $currentTeam['name'] ?? 'team');
+                $filename = $txId . '-' . $teamSlug . '_' . $editDate . '.' . $ext;
+                $uploadDir = '/home/brscouts/exbelt2026.irvalscouts.org.uk/assets/receipts/';
+                if (!is_dir($uploadDir)) { $uploadDir = __DIR__ . '/assets/receipts/'; }
+                if (!is_dir($uploadDir)) { mkdir($uploadDir, 0755, true); }
+                $destination = rtrim($uploadDir, '/') . '/' . $filename;
+                if (!move_uploaded_file($tmpName, $destination)) { throw new RuntimeException('Could not save receipt.'); }
+                $newReceiptPath = 'assets/receipts/' . $filename;
+            }
+
+            if ($newReceiptPath) {
+                $stmt = $pdo->prepare('UPDATE team_transactions SET amount=?, category=?, description=?, transaction_date=?, submitted_by=?, receipt_path=? WHERE id=? AND team_id=?');
+                $stmt->execute([round((float)$editAmount,2), $editCategory?:null, substr(strip_tags($editDescription),0,500), $editDate, substr(strip_tags($editSubmittedBy),0,150), $newReceiptPath, $txId, $teamId]);
+            } else {
+                $stmt = $pdo->prepare('UPDATE team_transactions SET amount=?, category=?, description=?, transaction_date=?, submitted_by=? WHERE id=? AND team_id=?');
+                $stmt->execute([round((float)$editAmount,2), $editCategory?:null, substr(strip_tags($editDescription),0,500), $editDate, substr(strip_tags($editSubmittedBy),0,150), $txId, $teamId]);
+            }
+            $success = 'Transaction updated.';
+        }
     } catch (Throwable $exception) {
         $error = $exception->getMessage();
     }
@@ -403,13 +453,66 @@ include __DIR__ . '/header.php';
                     <div class="tx-amount <?= $tx['type'] === 'credit' ? 'tx-amount-credit' : 'tx-amount-debit' ?>">
                         <?= $tx['type'] === 'credit' ? '+' : '-' ?>&euro;<?= number_format((float)$tx['amount'], 2) ?>
                     </div>
-                    <form method="post" style="display:inline;" onsubmit="return confirm('Delete this transaction?');">
-                        <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
-                        <input type="hidden" name="action" value="delete_transaction">
-                        <input type="hidden" name="transaction_id" value="<?= (int)$tx['id'] ?>">
-                        <button type="submit" class="tx-delete">delete</button>
-                    </form>
+                    <div style="display:flex; gap:0.3rem; justify-content:flex-end; margin-top:0.15rem;">
+                        <button type="button" class="tx-delete" style="color:#1d70b8;" onclick="toggleTxEdit(<?= (int)$tx['id'] ?>)">edit</button>
+                        <form method="post" style="display:inline;" onsubmit="return confirm('Delete this transaction?');">
+                            <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+                            <input type="hidden" name="action" value="delete_transaction">
+                            <input type="hidden" name="transaction_id" value="<?= (int)$tx['id'] ?>">
+                            <button type="submit" class="tx-delete">delete</button>
+                        </form>
+                    </div>
                 </div>
+            </li>
+            <!-- Inline edit form -->
+            <li class="tx-item" id="txEdit_<?= (int)$tx['id'] ?>" style="display:none; padding:0.75rem; background:#f8f8f8; border:1px solid #e8e8e8;">
+                <form method="post" enctype="multipart/form-data" style="width:100%;">
+                    <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+                    <input type="hidden" name="action" value="edit_transaction">
+                    <input type="hidden" name="transaction_id" value="<?= (int)$tx['id'] ?>">
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.5rem; margin-bottom:0.5rem;">
+                        <div>
+                            <label style="font-size:0.7rem; font-weight:700;">Amount (&euro;)</label>
+                            <input type="number" class="form-control form-control-sm" name="edit_amount" step="0.01" min="0.01" value="<?= e($tx['amount']) ?>" required>
+                        </div>
+                        <div>
+                            <label style="font-size:0.7rem; font-weight:700;">Date</label>
+                            <input type="date" class="form-control form-control-sm" name="edit_transaction_date" value="<?= e($tx['transaction_date']) ?>" required>
+                        </div>
+                        <div>
+                            <label style="font-size:0.7rem; font-weight:700;">Category</label>
+                            <select class="form-control form-control-sm" name="edit_category">
+                                <option value="food" <?= ($tx['category'] ?? '') === 'food' ? 'selected' : '' ?>>Food</option>
+                                <option value="camping" <?= ($tx['category'] ?? '') === 'camping' ? 'selected' : '' ?>>Camping</option>
+                                <option value="supplies" <?= ($tx['category'] ?? '') === 'supplies' ? 'selected' : '' ?>>Supplies</option>
+                                <option value="travel" <?= ($tx['category'] ?? '') === 'travel' ? 'selected' : '' ?>>Travel</option>
+                                <option value="top_up" <?= ($tx['category'] ?? '') === 'top_up' ? 'selected' : '' ?>>Top Up</option>
+                                <option value="other" <?= ($tx['category'] ?? '') === 'other' ? 'selected' : '' ?>>Other</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-bottom:0.5rem;">
+                        <div>
+                            <label style="font-size:0.7rem; font-weight:700;">Description</label>
+                            <input type="text" class="form-control form-control-sm" name="edit_description" value="<?= e($tx['description'] ?? '') ?>" maxlength="500">
+                        </div>
+                        <div>
+                            <label style="font-size:0.7rem; font-weight:700;">Submitted by</label>
+                            <input type="text" class="form-control form-control-sm" name="edit_submitted_by" value="<?= e($tx['submitted_by']) ?>">
+                        </div>
+                    </div>
+                    <div style="margin-bottom:0.5rem;">
+                        <label style="font-size:0.7rem; font-weight:700;">
+                            Replace receipt
+                            <?php if ($tx['receipt_path']): ?><span style="font-weight:400;">(<a href="<?= e(url($tx['receipt_path'])) ?>" target="_blank">current</a>)</span><?php endif; ?>
+                        </label>
+                        <input type="file" class="form-control-file" name="edit_receipt" accept="image/*,application/pdf" style="font-size:0.8rem;">
+                    </div>
+                    <div style="display:flex; gap:0.4rem;">
+                        <button type="submit" class="btn btn-primary btn-sm" style="font-size:0.8rem;">Save</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" style="font-size:0.8rem;" onclick="toggleTxEdit(<?= (int)$tx['id'] ?>)">Cancel</button>
+                    </div>
+                </form>
             </li>
             <?php endforeach; ?>
         </ul>
@@ -499,3 +602,9 @@ include __DIR__ . '/header.php';
 </div>
 
 <?php include __DIR__ . '/footer.php'; ?>
+<script>
+function toggleTxEdit(id) {
+    var form = document.getElementById('txEdit_' + id);
+    if (form) { form.style.display = form.style.display === 'none' ? '' : 'none'; }
+}
+</script>
