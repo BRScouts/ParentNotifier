@@ -361,10 +361,40 @@ footer a {
     color: var(--ink);
 }
 
-.status-danger,
-.status-delayed {
+.status-danger {
     background: var(--danger-red);
     color: var(--white);
+}
+
+.status-delayed {
+    background: #fff7bf;
+    color: var(--ink);
+    border-style: solid;
+    border-image: repeating-linear-gradient(
+        45deg,
+        var(--warning-yellow) 0,
+        var(--warning-yellow) 6px,
+        var(--danger-red) 6px,
+        var(--danger-red) 12px
+    ) 2;
+}
+
+.status-resting {
+    background: var(--action-blue);
+    color: var(--white);
+}
+
+.status-pending {
+    background: var(--white);
+    color: var(--ink);
+    border-style: solid;
+    border-image: repeating-linear-gradient(
+        45deg,
+        var(--success-green) 0,
+        var(--success-green) 6px,
+        var(--warning-yellow) 6px,
+        var(--warning-yellow) 12px
+    ) 2;
 }
 
 .status-muted {

@@ -1004,6 +1004,63 @@ if ($view === 'team' && $currentTeamId > 0) {
     } catch (Throwable $e) {
         $teamLogEntries = [];
     }
+
+    // Task 4: Count person logs (first aid / welfare) for today
+    $personLogsTodayCount = 0;
+    try {
+        $todayFinland = finland_today();
+        $stmt = $pdo->prepare(
+            'SELECT COUNT(*)
+             FROM person_logs pl
+             JOIN young_people yp ON yp.id = pl.person_id
+             WHERE yp.team_id = ?
+               AND DATE(pl.occurred_at) = ?'
+        );
+        $stmt->execute([$currentTeamId, $todayFinland]);
+        $personLogsTodayCount = (int)$stmt->fetchColumn();
+    } catch (Throwable $e) {
+        $personLogsTodayCount = 0;
+    }
+
+    // Task 6: Parent portal engagement for today
+    $parentViewsToday = 0;
+    try {
+        $todayFinland = finland_today();
+        $stmt = $pdo->prepare(
+            'SELECT COUNT(*)
+             FROM parent_portal_visits
+             WHERE team_id = ?
+               AND DATE(visited_at) = ?'
+        );
+        $stmt->execute([$currentTeamId, $todayFinland]);
+        $parentViewsToday = (int)$stmt->fetchColumn();
+    } catch (Throwable $e) {
+        $parentViewsToday = 0;
+    }
+}
+
+// Task 7: Fetch on-duty leaders for today
+$onDutyLeadersToday = [];
+try {
+    $tz = new DateTimeZone(defined('APP_TIMEZONE') ? APP_TIMEZONE : 'Europe/Helsinki');
+    $now = new DateTime('now', $tz);
+    $currentHour = (int)$now->format('G');
+    $activeDutyDate = ($currentHour < 9)
+        ? (clone $now)->modify('-1 day')->format('Y-m-d')
+        : $now->format('Y-m-d');
+
+    $stmt = $pdo->prepare(
+        'SELECT l.name, l.photo_url
+         FROM leader_duty_roster r
+         JOIN leaders l ON l.id = r.leader_id
+         WHERE r.duty_date = ?
+           AND r.status = "on_duty"
+         ORDER BY l.name ASC'
+    );
+    $stmt->execute([$activeDutyDate]);
+    $onDutyLeadersToday = $stmt->fetchAll();
+} catch (Throwable $e) {
+    $onDutyLeadersToday = [];
 }
 
 include __DIR__ . '/header.php';
@@ -1030,6 +1087,14 @@ include __DIR__ . '/header.php';
         flex-wrap: wrap;
         gap: 0.5rem;
         margin-bottom: 1.5rem;
+    }
+
+    .on-duty-bar {
+        background: #eef7ff;
+        border: 2px solid #1d70b8;
+        padding: 0.6rem 1rem;
+        margin-bottom: 1rem;
+        font-size: 0.92rem;
     }
 
     .teams-panel {
@@ -1271,6 +1336,22 @@ include __DIR__ . '/header.php';
         font-weight: 900;
         font-size: 1.05rem;
         margin-bottom: 0.35rem;
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .rag-injury-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: #d4351c;
+        color: #ffffff;
+        font-size: 0.7rem;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        flex-shrink: 0;
     }
 
     .rag-label {
@@ -1874,6 +1955,16 @@ include __DIR__ . '/header.php';
     <?php if ($error): ?>
         <div class="alert alert-danger">
             <?= e($error) ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if (!empty($onDutyLeadersToday)): ?>
+        <div class="on-duty-bar">
+            <strong>On duty today:</strong>
+            <?php
+            $dutyNames = array_map(function ($l) { return e($l['name']); }, $onDutyLeadersToday);
+            echo implode(', ', $dutyNames);
+            ?>
         </div>
     <?php endif; ?>
 
@@ -3154,6 +3245,29 @@ include __DIR__ . '/header.php';
                             </span>
                         <?php endforeach; ?>
                     </div>
+                    </section>
+
+                    <?php if ($personLogsTodayCount > 0): ?>
+                    <section class="teams-panel" style="border-left: 5px solid #d4351c;">
+                        <h2>First aid today</h2>
+                        <p style="margin: 0;">
+                            <strong style="font-size: 1.3rem;"><?= (int)$personLogsTodayCount ?></strong>
+                            <span class="muted"><?= $personLogsTodayCount === 1 ? 'entry' : 'entries' ?> logged today</span>
+                        </p>
+                        <p style="margin: 0.5rem 0 0;">
+                            <a href="<?= e(url('team_links.php?view=team&team_id=' . (int)$currentTeam['id'] . '&tab=notes')) ?>">
+                                View notes →
+                            </a>
+                        </p>
+                    </section>
+                    <?php endif; ?>
+
+                    <section class="teams-panel">
+                        <h2>Parent engagement</h2>
+                        <p style="margin: 0;">
+                            <strong style="font-size: 1.3rem;"><?= (int)$parentViewsToday ?></strong>
+                            <span class="muted">portal <?= $parentViewsToday === 1 ? 'visit' : 'visits' ?> today</span>
+                        </p>
                     </section>
                 </aside>
             <?php endif; ?>
