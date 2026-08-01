@@ -1076,7 +1076,7 @@ include __DIR__ . '/header.php';
     }
 
     .rag-card:hover,
-    .rag-card:focus {
+    .rag-card:focus-within {
         color: #1d1d1d;
         text-decoration: none;
         box-shadow: 0 0 0 3px #ffdd00;
@@ -1107,6 +1107,122 @@ include __DIR__ . '/header.php';
     .rag-normal {
         border-color: #b1b4b6;
         background: #f8f8f8;
+    }
+
+    /* === Team status card colours === */
+    .rag-status-card {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .rag-card-link {
+        text-decoration: none;
+        color: #1d1d1d;
+        display: block;
+        flex: 1;
+    }
+
+    .rag-card-link:hover,
+    .rag-card-link:focus {
+        text-decoration: none;
+        color: #1d1d1d;
+    }
+
+    .rag-status-not_started,
+    .rag-status-on_route {
+        border-color: #b1b4b6;
+        background: #f3f2f1;
+    }
+
+    .rag-status-checked_in {
+        border-color: #00703c;
+        background: #e9f8ef;
+    }
+
+    .rag-status-delayed {
+        border-color: #d4351c;
+        background: #fff7bf;
+        border-style: solid;
+        border-image: repeating-linear-gradient(
+            45deg,
+            #ffdd00 0,
+            #ffdd00 8px,
+            #d4351c 8px,
+            #d4351c 16px
+        ) 4;
+    }
+
+    .rag-status-needs_follow_up {
+        border-color: #d4351c;
+        background: #fff1f0;
+    }
+
+    .rag-status-resting {
+        border-color: #1d70b8;
+        background: #eef7ff;
+    }
+
+    .rag-status-completed {
+        border-color: #00703c;
+        background: #e9f8ef;
+    }
+
+    /* After 7pm with no check-in override */
+    .rag-status-not_started.rag-overdue-time,
+    .rag-status-on_route.rag-overdue-time {
+        border-color: #ffdd00;
+        background: #fff7bf;
+    }
+
+    .rag-status-control {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin-top: 0.65rem;
+        padding-top: 0.65rem;
+        border-top: 1px solid rgba(0, 0, 0, 0.1);
+    }
+
+    .rag-status-label {
+        font-weight: 800;
+        font-size: 0.85rem;
+        margin: 0;
+        white-space: nowrap;
+    }
+
+    .rag-status-select {
+        flex: 1;
+        font-size: 0.85rem;
+        font-weight: 700;
+        padding: 0.3rem 0.4rem;
+        border: 2px solid #1d1d1d;
+        background: #ffffff;
+        min-height: 34px;
+        cursor: pointer;
+    }
+
+    .rag-status-select:focus {
+        outline: 3px solid #ffdd00;
+        outline-offset: 0;
+    }
+
+    .rag-save-indicator {
+        font-size: 0.8rem;
+        font-weight: 800;
+        min-width: 18px;
+        text-align: center;
+    }
+
+    .rag-save-indicator.saving {
+        color: #505a5f;
+    }
+
+    .rag-save-indicator.saved {
+        color: #00703c;
+    }
+
+    .rag-save-indicator.error {
+        color: #d4351c;
     }
 
     .rag-team-name {
@@ -2621,31 +2737,57 @@ include __DIR__ . '/header.php';
                     <?php
                     $teamId = (int)$team['id'];
                     $summary = $teamSummaries[$teamId];
+                    $teamStatus = $team['status'] ?? 'not_started';
                     ?>
 
-                    <a
-                        class="rag-card rag-<?= e($summary['rag_status']) ?>"
-                        href="<?= e(url('team_links.php?view=team&team_id=' . $teamId . '&tab=pending')) ?>"
+                    <div
+                        class="rag-card rag-status-card rag-status-<?= e($teamStatus) ?><?= ($summary['rag_status'] === 'overdue' && in_array($teamStatus, ['not_started', 'on_route'], true)) ? ' rag-overdue-time' : '' ?>"
+                        data-team-id="<?= (int)$teamId ?>"
+                        data-current-status="<?= e($teamStatus) ?>"
                     >
-                        <div class="rag-team-name">
-                            <?= e($team['name']) ?>
-                        </div>
+                        <a
+                            class="rag-card-link"
+                            href="<?= e(url('team_links.php?view=team&team_id=' . $teamId . '&tab=pending')) ?>"
+                        >
+                            <div class="rag-team-name">
+                                <?= e($team['name']) ?>
+                            </div>
 
-                        <div class="rag-label">
-                            <?= e($summary['rag_label']) ?>
-                        </div>
+                            <div class="rag-label">
+                                <?= e($summary['rag_label']) ?>
+                            </div>
 
-                        <div class="rag-time">
-                            <?php if ($summary['latest_location']): ?>
-                                Last approved:
-                                <?= e(format_datetime($summary['latest_location']['checked_in_at'])) ?>
-                            <?php elseif ($summary['pending_today']): ?>
-                                Waiting for leader review
-                            <?php else: ?>
-                                No approved check-in today
-                            <?php endif; ?>
+                            <div class="rag-time">
+                                <?php if ($summary['latest_location']): ?>
+                                    Last approved:
+                                    <?= e(format_datetime($summary['latest_location']['checked_in_at'])) ?>
+                                <?php elseif ($summary['pending_today']): ?>
+                                    Waiting for leader review
+                                <?php else: ?>
+                                    No approved check-in today
+                                <?php endif; ?>
+                            </div>
+                        </a>
+
+                        <div class="rag-status-control">
+                            <label class="rag-status-label" for="status-team-<?= (int)$teamId ?>">Status:</label>
+                            <select
+                                class="rag-status-select js-team-status-select"
+                                id="status-team-<?= (int)$teamId ?>"
+                                data-team-id="<?= (int)$teamId ?>"
+                                <?php if (is_readonly()): ?> disabled<?php endif; ?>
+                            >
+                                <option value="not_started" <?= $teamStatus === 'not_started' ? 'selected' : '' ?>>Not Started</option>
+                                <option value="on_route" <?= $teamStatus === 'on_route' ? 'selected' : '' ?>>On Route</option>
+                                <option value="checked_in" <?= $teamStatus === 'checked_in' ? 'selected' : '' ?> disabled>Checked In</option>
+                                <option value="delayed" <?= $teamStatus === 'delayed' ? 'selected' : '' ?>>Delayed</option>
+                                <option value="needs_follow_up" <?= $teamStatus === 'needs_follow_up' ? 'selected' : '' ?>>Needs Follow Up</option>
+                                <option value="resting" <?= $teamStatus === 'resting' ? 'selected' : '' ?>>Resting</option>
+                                <option value="completed" <?= $teamStatus === 'completed' ? 'selected' : '' ?>>Completed</option>
+                            </select>
+                            <span class="rag-save-indicator" data-team-id="<?= (int)$teamId ?>"></span>
                         </div>
-                    </a>
+                    </div>
                 <?php endforeach; ?>
             </div>
         </section>
@@ -2995,6 +3137,76 @@ include __DIR__ . '/header.php';
             if (fields) {
                 fields.style.display = checkbox.checked ? 'block' : 'none';
             }
+        });
+    });
+})();
+</script>
+
+<script>
+(function () {
+    var statusClasses = [
+        'rag-status-not_started',
+        'rag-status-on_route',
+        'rag-status-checked_in',
+        'rag-status-delayed',
+        'rag-status-needs_follow_up',
+        'rag-status-resting',
+        'rag-status-completed'
+    ];
+
+    function updateCardColour(card, newStatus) {
+        statusClasses.forEach(function (cls) {
+            card.classList.remove(cls);
+        });
+        card.classList.add('rag-status-' + newStatus);
+        card.dataset.currentStatus = newStatus;
+    }
+
+    function showIndicator(teamId, state, text) {
+        var el = document.querySelector('.rag-save-indicator[data-team-id="' + teamId + '"]');
+        if (!el) return;
+        el.className = 'rag-save-indicator ' + state;
+        el.textContent = text;
+
+        if (state === 'saved') {
+            setTimeout(function () {
+                el.textContent = '';
+                el.className = 'rag-save-indicator';
+            }, 2000);
+        }
+    }
+
+    document.querySelectorAll('.js-team-status-select').forEach(function (select) {
+        select.addEventListener('change', function () {
+            var teamId = select.dataset.teamId;
+            var newStatus = select.value;
+            var card = select.closest('.rag-status-card');
+
+            updateCardColour(card, newStatus);
+            showIndicator(teamId, 'saving', '...');
+
+            fetch('<?= e(url("api_team_status.php")) ?>', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ team_id: parseInt(teamId, 10), status: newStatus })
+            })
+            .then(function (response) {
+                return response.json().then(function (data) {
+                    return { ok: response.ok, data: data };
+                });
+            })
+            .then(function (result) {
+                if (result.ok && result.data.success) {
+                    showIndicator(teamId, 'saved', '\u2713');
+                } else {
+                    showIndicator(teamId, 'error', '\u2717');
+                    console.error('Status update failed:', result.data.error || 'Unknown error');
+                }
+            })
+            .catch(function (err) {
+                showIndicator(teamId, 'error', '\u2717');
+                console.error('Status update request failed:', err);
+            });
         });
     });
 })();
