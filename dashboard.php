@@ -1350,6 +1350,21 @@ include __DIR__ . '/header.php';
         line-height: 1.35;
     }
 
+    .checkin-relative-time {
+        font-weight: 600;
+        opacity: 0.75;
+        font-size: 0.85em;
+    }
+
+    .checkin-review-link {
+        display: inline-block;
+        margin-top: 0.4rem;
+        font-weight: 800;
+        font-size: 0.85rem;
+        color: #1d70b8;
+        text-decoration: underline;
+    }
+
     .checkin-team-faces {
         display: flex;
         flex-wrap: wrap;

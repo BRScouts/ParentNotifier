@@ -527,7 +527,7 @@ include __DIR__ . '/header.php';
                             <th>Sender</th>
                             <th>Date</th>
                             <th>Acknowledgements</th>
-                            <th>Pin</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -568,7 +568,7 @@ include __DIR__ . '/header.php';
                                     </span>
                                 </td>
                                 <td>
-                                    <form method="post" action="<?= e(url('announcements_manage.php')) ?>" style="margin: 0;">
+                                    <form method="post" action="<?= e(url('announcements_manage.php')) ?>" style="margin: 0; display: inline-block;">
                                         <input type="hidden" name="action" value="toggle_pin">
                                         <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
                                         <input type="hidden" name="announcement_id" value="<?= (int)$a['id'] ?>">
@@ -577,6 +577,9 @@ include __DIR__ . '/header.php';
                                             <?= $isPinned ? 'Unpin' : 'Pin to Dashboard' ?>
                                         </button>
                                     </form>
+                                    <a href="<?= e(url('announcements_sent.php?id=' . (int)$a['id'])) ?>" class="btn btn-sm btn-outline-secondary" style="font-size: 0.8rem; padding: 0.2rem 0.5rem; margin-left: 0.25rem;">
+                                        View Reads
+                                    </a>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
