@@ -3256,7 +3256,7 @@ include __DIR__ . '/header.php';
                     >
                         <a
                             class="rag-card-link"
-                            href="<?= e(url('team_links.php?view=team&team_id=' . $teamId . '&tab=pending')) ?>"
+                            href="<?= e(url('team_links.php?view=team&team_id=' . $teamId . '&tab=' . ($summary['pending_today'] ? 'pending' : 'overview'))) ?>"
                         >
                             <div class="rag-team-name">
                                 <?= e($team['name']) ?>

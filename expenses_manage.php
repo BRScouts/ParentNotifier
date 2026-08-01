@@ -39,7 +39,6 @@ try {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ');
     }
-
     $cardCheck = $pdo->prepare(
         'SELECT COUNT(*) FROM information_schema.tables
          WHERE table_schema = DATABASE() AND table_name = "team_cards"'
@@ -60,23 +59,16 @@ try {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ');
     }
-} catch (Throwable $e) {
-    // Continue gracefully
-}
+} catch (Throwable $e) {}
 
 // --- Determine which team to view ---
 $teamId = (int)($_GET['team_id'] ?? 0);
-
-// Fetch all teams for selector
 $allTeams = [];
 try {
     $stmt = $pdo->query('SELECT id, name FROM teams ORDER BY name ASC');
     $allTeams = $stmt->fetchAll();
-} catch (Throwable $e) {
-    $allTeams = [];
-}
+} catch (Throwable $e) { $allTeams = []; }
 
-// Default to first team if none selected
 if ($teamId === 0 && !empty($allTeams)) {
     $teamId = (int)$allTeams[0]['id'];
 }
@@ -87,9 +79,7 @@ if ($teamId > 0) {
         $stmt = $pdo->prepare('SELECT * FROM teams WHERE id = ? LIMIT 1');
         $stmt->execute([$teamId]);
         $currentTeam = $stmt->fetch() ?: null;
-    } catch (Throwable $e) {
-        $currentTeam = null;
-    }
+    } catch (Throwable $e) { $currentTeam = null; }
 }
 
 // --- CSRF ---
@@ -98,8 +88,7 @@ if (empty($_SESSION['expenses_manage_csrf'])) {
 }
 $csrfToken = $_SESSION['expenses_manage_csrf'];
 
-function em_csrf_valid(): bool
-{
+function em_csrf_valid(): bool {
     return isset($_POST['csrf_token'], $_SESSION['expenses_manage_csrf'])
         && hash_equals((string)$_SESSION['expenses_manage_csrf'], (string)$_POST['csrf_token']);
 }
@@ -113,79 +102,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $currentTeam) {
         if (!em_csrf_valid()) {
             throw new RuntimeException('Security check failed. Please refresh and try again.');
         }
-
         $action = $_POST['action'] ?? '';
 
-        // Add funds (credit)
         if ($action === 'add_funds') {
             $amount = trim($_POST['fund_amount'] ?? '');
             $description = trim($_POST['fund_description'] ?? '');
-
             if ($amount === '' || !is_numeric($amount) || (float)$amount <= 0) {
                 throw new RuntimeException('Please enter a valid amount.');
             }
-
             $stmt = $pdo->prepare(
                 'INSERT INTO team_transactions
                     (team_id, type, amount, currency, category, description, submitted_by, transaction_date, created_by_leader_id)
-                 VALUES
-                    (?, "credit", ?, "EUR", "top_up", ?, ?, CURDATE(), ?)'
+                 VALUES (?, "credit", ?, "EUR", "top_up", ?, ?, CURDATE(), ?)'
             );
             $stmt->execute([
-                $teamId,
-                round((float)$amount, 2),
+                $teamId, round((float)$amount, 2),
                 substr(strip_tags($description ?: 'Funds added'), 0, 500),
-                $user['name'],
-                (int)$user['id'],
+                $user['name'], (int)$user['id'],
             ]);
-
             $success = 'Funds added successfully.';
         }
 
-        // Save/update card details
         if ($action === 'save_card') {
             $leaderName = trim($_POST['card_leader_name'] ?? '');
             $pinNumber = trim($_POST['card_pin_number'] ?? '');
             $cardDescription = trim($_POST['card_description'] ?? '');
             $initialBalance = trim($_POST['card_initial_balance'] ?? '0');
-
             if ($leaderName === '' || $pinNumber === '' || $cardDescription === '') {
                 throw new RuntimeException('Please fill in all card fields.');
             }
-
-            // Check if card already exists for this team
             $existingCard = $pdo->prepare('SELECT id FROM team_cards WHERE team_id = ? LIMIT 1');
             $existingCard->execute([$teamId]);
             $cardRow = $existingCard->fetch();
-
             if ($cardRow) {
-                $stmt = $pdo->prepare(
-                    'UPDATE team_cards SET leader_name = ?, pin_number = ?, card_description = ?, initial_balance = ? WHERE id = ?'
-                );
-                $stmt->execute([
-                    substr(strip_tags($leaderName), 0, 150),
-                    substr(strip_tags($pinNumber), 0, 20),
-                    substr(strip_tags($cardDescription), 0, 255),
-                    round((float)$initialBalance, 2),
-                    (int)$cardRow['id'],
-                ]);
+                $stmt = $pdo->prepare('UPDATE team_cards SET leader_name=?, pin_number=?, card_description=?, initial_balance=? WHERE id=?');
+                $stmt->execute([substr(strip_tags($leaderName),0,150), substr(strip_tags($pinNumber),0,20),
+                    substr(strip_tags($cardDescription),0,255), round((float)$initialBalance,2), (int)$cardRow['id']]);
             } else {
-                $stmt = $pdo->prepare(
-                    'INSERT INTO team_cards (team_id, leader_name, pin_number, card_description, initial_balance) VALUES (?, ?, ?, ?, ?)'
-                );
-                $stmt->execute([
-                    $teamId,
-                    substr(strip_tags($leaderName), 0, 150),
-                    substr(strip_tags($pinNumber), 0, 20),
-                    substr(strip_tags($cardDescription), 0, 255),
-                    round((float)$initialBalance, 2),
-                ]);
+                $stmt = $pdo->prepare('INSERT INTO team_cards (team_id, leader_name, pin_number, card_description, initial_balance) VALUES (?,?,?,?,?)');
+                $stmt->execute([$teamId, substr(strip_tags($leaderName),0,150), substr(strip_tags($pinNumber),0,20),
+                    substr(strip_tags($cardDescription),0,255), round((float)$initialBalance,2)]);
             }
-
             $success = 'Card details saved.';
         }
 
-        // Delete transaction
         if ($action === 'delete_transaction') {
             $txId = (int)($_POST['transaction_id'] ?? 0);
             if ($txId > 0) {
@@ -207,31 +167,21 @@ if (($_GET['export'] ?? '') === 'csv' && $currentTeam) {
     );
     $stmt->execute([$teamId]);
     $rows = $stmt->fetchAll();
-
     $teamName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $currentTeam['name'] ?? 'team');
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="expenses_' . $teamName . '_' . date('Y-m-d') . '.csv"');
-
     $out = fopen('php://output', 'w');
     fputcsv($out, ['Date', 'Type', 'Amount (EUR)', 'Category', 'Description', 'Submitted By', 'Recorded At']);
-
     foreach ($rows as $row) {
-        fputcsv($out, [
-            $row['transaction_date'],
-            $row['type'] === 'credit' ? 'Credit' : 'Debit',
-            number_format((float)$row['amount'], 2, '.', ''),
-            $row['category'] ?? '',
-            $row['description'] ?? '',
-            $row['submitted_by'],
-            $row['created_at'],
-        ]);
+        fputcsv($out, [$row['transaction_date'], $row['type'] === 'credit' ? 'Credit' : 'Debit',
+            number_format((float)$row['amount'], 2, '.', ''), $row['category'] ?? '',
+            $row['description'] ?? '', $row['submitted_by'], $row['created_at']]);
     }
-
     fclose($out);
     exit;
 }
 
-// --- Fetch data for display ---
+// --- Fetch data ---
 $transactions = [];
 $totalCredits = 0;
 $totalDebits = 0;
@@ -239,290 +189,224 @@ $teamCard = null;
 
 if ($currentTeam) {
     try {
-        $stmt = $pdo->prepare(
-            'SELECT * FROM team_transactions WHERE team_id = ? ORDER BY transaction_date DESC, created_at DESC'
-        );
+        $stmt = $pdo->prepare('SELECT * FROM team_transactions WHERE team_id = ? ORDER BY transaction_date DESC, created_at DESC');
         $stmt->execute([$teamId]);
         $transactions = $stmt->fetchAll();
-
         foreach ($transactions as $t) {
-            if ($t['type'] === 'credit') {
-                $totalCredits += (float)$t['amount'];
-            } else {
-                $totalDebits += (float)$t['amount'];
-            }
+            if ($t['type'] === 'credit') { $totalCredits += (float)$t['amount']; }
+            else { $totalDebits += (float)$t['amount']; }
         }
-    } catch (Throwable $e) {
-        $transactions = [];
-    }
+    } catch (Throwable $e) { $transactions = []; }
 
     try {
         $stmt = $pdo->prepare('SELECT * FROM team_cards WHERE team_id = ? LIMIT 1');
         $stmt->execute([$teamId]);
         $teamCard = $stmt->fetch() ?: null;
-    } catch (Throwable $e) {
-        $teamCard = null;
-    }
+    } catch (Throwable $e) { $teamCard = null; }
 }
 
 $estimatedBalance = $totalCredits - $totalDebits;
+$activeTab = $_GET['tab'] ?? 'transactions';
+
+$categoryLabels = ['food' => 'Food & Drink', 'camping' => 'Camping', 'supplies' => 'Supplies',
+    'travel' => 'Travel', 'top_up' => 'Top Up', 'other' => 'Other'];
+$categoryIcons = ['food' => '🍕', 'camping' => '⛺', 'supplies' => '🎒',
+    'travel' => '🚌', 'top_up' => '💳', 'other' => '📦'];
 
 include __DIR__ . '/header.php';
 ?>
 
 <style>
-    .expenses-header {
-        background: #7413dc;
-        color: #fff;
-        padding: 1.25rem 1.5rem;
-        margin-bottom: 1.5rem;
-    }
+.em-page { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1rem; }
 
-    .expenses-header h1 {
-        font-weight: 900;
-        font-size: 1.5rem;
-        margin: 0;
-        color: #fff;
-    }
+/* Header strip */
+.em-header {
+    background: linear-gradient(135deg, #7413dc 0%, #5a0fb0 100%);
+    color: #fff; padding: 1.5rem; margin-bottom: 1.5rem; display: flex;
+    justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;
+}
+.em-header h1 { font-weight: 900; font-size: 1.4rem; margin: 0; color: #fff; }
+.em-header .em-team-select select {
+    background: rgba(255,255,255,0.15); color: #fff; border: 2px solid rgba(255,255,255,0.4);
+    font-weight: 700; padding: 0.4rem 0.75rem; font-size: 0.95rem;
+}
+.em-header .em-team-select select option { color: #1d1d1d; }
 
-    .expense-card {
-        border: 2px solid #d8d8d8;
-        background: #ffffff;
-        padding: 1.25rem 1.5rem;
-        margin-bottom: 1.5rem;
-    }
+/* Balance strip */
+.em-balance {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1rem; margin-bottom: 1.5rem;
+}
+.em-bal-card {
+    background: #fff; border: 2px solid #e8e8e8; padding: 1rem 1.25rem; text-align: center;
+}
+.em-bal-card .bal-label { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: #505a5f; letter-spacing: 0.03em; }
+.em-bal-card .bal-value { font-size: 1.6rem; font-weight: 900; margin-top: 0.15rem; }
+.bal-green { color: #00703c; }
+.bal-red { color: #d4351c; }
+.bal-purple { color: #7413dc; }
 
-    .expense-card h3 {
-        font-weight: 900;
-        margin-top: 0;
-    }
+/* Tabs */
+.em-tabs {
+    display: flex; gap: 0; border-bottom: 3px solid #e8e8e8; margin-bottom: 1.5rem;
+}
+.em-tab {
+    padding: 0.7rem 1.25rem; font-weight: 800; font-size: 0.95rem; cursor: pointer;
+    border-bottom: 3px solid transparent; margin-bottom: -3px; color: #505a5f;
+    transition: color 0.15s, border-color 0.15s; text-decoration: none;
+}
+.em-tab:hover { color: #7413dc; text-decoration: none; }
+.em-tab.active { color: #7413dc; border-bottom-color: #7413dc; }
 
-    .balance-banner {
-        background: #7413dc;
-        color: #ffffff;
-        padding: 1.25rem 1.5rem;
-        margin-bottom: 1.5rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 1rem;
-    }
+/* Panels */
+.em-panel { display: none; }
+.em-panel.active { display: block; }
 
-    .balance-banner h3 {
-        color: #ffffff;
-        font-weight: 900;
-        margin: 0;
-    }
+/* Transaction list */
+.tx-list { list-style: none; padding: 0; margin: 0; }
+.tx-item {
+    display: flex; gap: 0.75rem; padding: 0.85rem 0; border-bottom: 1px solid #f0f0f0; align-items: center;
+}
+.tx-item:last-child { border-bottom: none; }
+.tx-icon {
+    width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center;
+    justify-content: center; font-size: 1rem; flex-shrink: 0;
+}
+.tx-icon-debit { background: #fdecea; }
+.tx-icon-credit { background: #e9f8ef; }
+.tx-body { flex: 1; min-width: 0; }
+.tx-title { font-weight: 700; font-size: 0.9rem; }
+.tx-meta { font-size: 0.78rem; color: #505a5f; }
+.tx-right { text-align: right; }
+.tx-amount { font-weight: 900; font-size: 0.95rem; }
+.tx-amount-debit { color: #d4351c; }
+.tx-amount-credit { color: #00703c; }
+.tx-delete { font-size: 0.75rem; color: #d4351c; cursor: pointer; border: none; background: none; padding: 0; margin-top: 0.15rem; }
+.tx-delete:hover { text-decoration: underline; }
 
-    .balance-banner .balance-amount {
-        font-size: 2rem;
-        font-weight: 900;
-    }
+/* Card details */
+.card-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 576px) { .card-detail-grid { grid-template-columns: 1fr; } }
+.card-visual {
+    background: linear-gradient(135deg, #1d1d1d 0%, #3d3d3d 100%);
+    color: #fff; padding: 1.5rem; border-radius: 12px; margin-bottom: 1.25rem;
+    position: relative; overflow: hidden;
+}
+.card-visual::after {
+    content: ''; position: absolute; top: -30px; right: -30px;
+    width: 100px; height: 100px; border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+}
+.card-visual .cv-provider { font-size: 0.85rem; opacity: 0.7; margin-bottom: 0.75rem; }
+.card-visual .cv-number { font-size: 1.3rem; font-weight: 900; letter-spacing: 0.05em; }
+.card-visual .cv-holder { margin-top: 0.75rem; font-size: 0.9rem; font-weight: 700; }
+.card-visual .cv-pin { font-size: 0.8rem; opacity: 0.7; margin-top: 0.25rem; }
 
-    .balance-banner .balance-detail {
-        font-size: 0.9rem;
-        opacity: 0.85;
-    }
+/* Add funds */
+.fund-form { background: #fff; border: 2px solid #e8e8e8; padding: 1.25rem; }
+.fund-form h3 { font-weight: 900; font-size: 1.1rem; margin: 0 0 1rem; }
+.fund-amount-wrap { position: relative; max-width: 180px; }
+.fund-amount-wrap .cur { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-weight: 900; color: #505a5f; }
+.fund-amount-wrap input { padding-left: 2rem; font-size: 1.1rem; font-weight: 800; }
 
-    .transaction-row {
-        border-bottom: 1px solid #d8d8d8;
-        padding: 0.75rem 0;
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        gap: 0.75rem;
-    }
+/* Actions bar */
+.em-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.em-actions .btn { font-weight: 700; font-size: 0.85rem; }
 
-    .transaction-row:last-child {
-        border-bottom: none;
-    }
-
-    .tx-amount-debit { color: #d4351c; font-weight: 800; }
-    .tx-amount-credit { color: #00703c; font-weight: 800; }
-    .tx-meta { color: #505a5f; font-size: 0.85rem; }
-
-    .category-badge {
-        display: inline-block;
-        font-size: 0.75rem;
-        font-weight: 700;
-        padding: 0.15em 0.5em;
-        background: #f3f2f1;
-        border: 1px solid #d8d8d8;
-        margin-right: 0.25rem;
-    }
-
-    .team-selector {
-        margin-bottom: 1rem;
-    }
+/* Empty state */
+.empty-state { text-align: center; padding: 2rem; color: #505a5f; }
+.empty-state .es-icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
 </style>
 
-<div class="container-fluid px-4 py-3">
+<div class="em-page">
 
-    <div class="expenses-header">
-        <h1>Team Expenses &amp; Card Management</h1>
-    </div>
-
-    <?php if ($error): ?>
-        <div class="alert alert-danger"><?= e($error) ?></div>
-    <?php endif; ?>
-    <?php if ($success): ?>
-        <div class="alert alert-success"><?= e($success) ?></div>
-    <?php endif; ?>
-
-    <!-- Team selector -->
-    <div class="team-selector">
-        <form method="get" class="form-inline">
-            <label class="mr-2" for="team_id"><strong>Team:</strong></label>
-            <select class="form-control mr-2" name="team_id" id="team_id" onchange="this.form.submit()">
+    <!-- Header with team selector -->
+    <div class="em-header">
+        <h1>Team Expenses</h1>
+        <form method="get" class="em-team-select">
+            <select name="team_id" onchange="this.form.submit()">
                 <?php foreach ($allTeams as $t): ?>
-                    <option value="<?= (int)$t['id'] ?>" <?= (int)$t['id'] === $teamId ? 'selected' : '' ?>>
-                        <?= e($t['name']) ?>
-                    </option>
+                <option value="<?= (int)$t['id'] ?>" <?= (int)$t['id'] === $teamId ? 'selected' : '' ?>><?= e($t['name']) ?></option>
                 <?php endforeach; ?>
             </select>
-            <noscript><button type="submit" class="btn btn-secondary btn-sm">Go</button></noscript>
         </form>
     </div>
 
+    <?php if ($error): ?><div class="alert alert-danger" style="font-weight:700;"><?= e($error) ?></div><?php endif; ?>
+    <?php if ($success): ?><div class="alert alert-success" style="font-weight:700;"><?= e($success) ?></div><?php endif; ?>
+
     <?php if ($currentTeam): ?>
 
-    <!-- Balance banner -->
-    <div class="balance-banner">
-        <div>
-            <h3>Estimated Balance</h3>
-            <div class="balance-amount">&euro;<?= number_format($estimatedBalance, 2) ?></div>
-            <div class="balance-detail">
-                Loaded: &euro;<?= number_format($totalCredits, 2) ?> &middot;
-                Spent: &euro;<?= number_format($totalDebits, 2) ?> &middot;
-                Transactions: <?= count($transactions) ?>
-            </div>
+    <!-- Balance cards -->
+    <div class="em-balance">
+        <div class="em-bal-card">
+            <div class="bal-label">Loaded</div>
+            <div class="bal-value bal-green">&euro;<?= number_format($totalCredits, 2) ?></div>
         </div>
-        <div>
-            <a href="?team_id=<?= $teamId ?>&export=csv" class="btn btn-light btn-sm">
-                Export CSV
-            </a>
+        <div class="em-bal-card">
+            <div class="bal-label">Spent</div>
+            <div class="bal-value bal-red">&euro;<?= number_format($totalDebits, 2) ?></div>
         </div>
-    </div>
-
-    <div class="row">
-        <!-- Left column: Card details + Add funds -->
-        <div class="col-lg-4 mb-3">
-
-            <!-- Card details -->
-            <div class="expense-card">
-                <h3>Travel Card</h3>
-                <form method="post">
-                    <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
-                    <input type="hidden" name="action" value="save_card">
-
-                    <div class="form-group">
-                        <label for="card_leader_name">Leader name (card holder)</label>
-                        <input type="text" class="form-control" id="card_leader_name" name="card_leader_name"
-                               value="<?= e($teamCard['leader_name'] ?? '') ?>" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="card_pin_number">PIN number</label>
-                        <input type="text" class="form-control" id="card_pin_number" name="card_pin_number"
-                               value="<?= e($teamCard['pin_number'] ?? '') ?>" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="card_description">Card type / provider</label>
-                        <input type="text" class="form-control" id="card_description" name="card_description"
-                               placeholder="e.g. Post Office, Asda, Revolut"
-                               value="<?= e($teamCard['card_description'] ?? '') ?>" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="card_initial_balance">Initial balance loaded (&euro;)</label>
-                        <input type="number" class="form-control" id="card_initial_balance" name="card_initial_balance"
-                               step="0.01" min="0"
-                               value="<?= e($teamCard['initial_balance'] ?? '0.00') ?>">
-                    </div>
-
-                    <button type="submit" class="btn btn-primary btn-block">Save Card Details</button>
-                </form>
-            </div>
-
-            <!-- Add funds -->
-            <div class="expense-card">
-                <h3>Add Funds</h3>
-                <p class="text-muted" style="font-size:0.9rem;">Record a top-up to the team card.</p>
-                <form method="post">
-                    <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
-                    <input type="hidden" name="action" value="add_funds">
-
-                    <div class="form-group">
-                        <label for="fund_amount">Amount (&euro;)</label>
-                        <input type="number" class="form-control" id="fund_amount" name="fund_amount"
-                               step="0.01" min="0.01" placeholder="e.g. 160.00" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="fund_description">Note (optional)</label>
-                        <input type="text" class="form-control" id="fund_description" name="fund_description"
-                               placeholder="e.g. Top-up at Post Office" maxlength="500">
-                    </div>
-
-                    <button type="submit" class="btn btn-success btn-block">Add Funds</button>
-                </form>
-            </div>
+        <div class="em-bal-card">
+            <div class="bal-label">Balance</div>
+            <div class="bal-value bal-purple">&euro;<?= number_format($estimatedBalance, 2) ?></div>
         </div>
-
-        <!-- Right column: Transaction history -->
-        <div class="col-lg-8 mb-3">
-            <div class="expense-card">
-                <h3>Transaction History</h3>
-
-                <?php if (empty($transactions)): ?>
-                    <p class="text-muted">No transactions recorded yet.</p>
-                <?php else: ?>
-                    <?php foreach ($transactions as $tx): ?>
-                        <div class="transaction-row">
-                            <div style="flex:1;">
-                                <?php if ($tx['type'] === 'credit'): ?>
-                                    <strong style="color:#00703c;">Funds added</strong>
-                                <?php else: ?>
-                                    <span class="category-badge"><?= e(ucfirst($tx['category'] ?? 'other')) ?></span>
-                                    <strong><?= e($tx['description'] ?: 'Expense') ?></strong>
-                                <?php endif; ?>
-                                <div class="tx-meta">
-                                    <?= e(date('j M Y', strtotime($tx['transaction_date']))) ?>
-                                    &middot; by <?= e($tx['submitted_by']) ?>
-                                    <?php if ($tx['receipt_path']): ?>
-                                        &middot; <a href="<?= e(url($tx['receipt_path'])) ?>" target="_blank">View receipt</a>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-                            <div style="text-align:right;">
-                                <?php if ($tx['type'] === 'credit'): ?>
-                                    <span class="tx-amount-credit">+&euro;<?= number_format((float)$tx['amount'], 2) ?></span>
-                                <?php else: ?>
-                                    <span class="tx-amount-debit">-&euro;<?= number_format((float)$tx['amount'], 2) ?></span>
-                                <?php endif; ?>
-
-                                <form method="post" style="display:inline; margin-left:0.5rem;" onsubmit="return confirm('Delete this transaction?');">
-                                    <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
-                                    <input type="hidden" name="action" value="delete_transaction">
-                                    <input type="hidden" name="transaction_id" value="<?= (int)$tx['id'] ?>">
-                                    <button type="submit" class="btn btn-link btn-sm text-danger p-0" title="Delete">
-                                        &times;
-                                    </button>
-                                </form>
-                            </div>
-                        </div>
-                    <?php endforeach; ?>
-                <?php endif; ?>
-            </div>
+        <div class="em-bal-card">
+            <div class="bal-label">Transactions</div>
+            <div class="bal-value"><?= count($transactions) ?></div>
         </div>
     </div>
 
-    <?php else: ?>
-        <div class="alert alert-warning">No teams found. Please create a team first.</div>
-    <?php endif; ?>
+    <!-- Tabs -->
+    <div class="em-tabs">
+        <a class="em-tab <?= $activeTab === 'transactions' ? 'active' : '' ?>" href="?team_id=<?= $teamId ?>&tab=transactions">Transactions</a>
+        <a class="em-tab <?= $activeTab === 'add_funds' ? 'active' : '' ?>" href="?team_id=<?= $teamId ?>&tab=add_funds">Add Funds</a>
+        <a class="em-tab <?= $activeTab === 'card' ? 'active' : '' ?>" href="?team_id=<?= $teamId ?>&tab=card">Card Details</a>
+    </div>
 
-</div>
+    <!-- Tab: Transactions -->
+    <div class="em-panel <?= $activeTab === 'transactions' ? 'active' : '' ?>">
+        <div class="em-actions">
+            <a href="?team_id=<?= $teamId ?>&export=csv" class="btn btn-outline-secondary btn-sm">Export CSV</a>
+        </div>
 
-<?php include __DIR__ . '/footer.php'; ?>
+        <?php if (empty($transactions)): ?>
+        <div class="empty-state">
+            <div class="es-icon">📋</div>
+            <p>No transactions yet for this team.</p>
+        </div>
+        <?php else: ?>
+        <ul class="tx-list">
+            <?php foreach ($transactions as $tx): ?>
+            <li class="tx-item">
+                <div class="tx-icon <?= $tx['type'] === 'credit' ? 'tx-icon-credit' : 'tx-icon-debit' ?>">
+                    <?= $tx['type'] === 'credit' ? '💳' : ($categoryIcons[$tx['category'] ?? 'other'] ?? '📦') ?>
+                </div>
+                <div class="tx-body">
+                    <div class="tx-title">
+                        <?php if ($tx['type'] === 'credit'): ?>Funds loaded<?php else: ?><?= e($tx['description'] ?: ($categoryLabels[$tx['category'] ?? 'other'] ?? 'Expense')) ?><?php endif; ?>
+                    </div>
+                    <div class="tx-meta">
+                        <?= e(date('j M Y', strtotime($tx['transaction_date']))) ?>
+                        &middot; <?= e($tx['submitted_by']) ?>
+                        <?php if ($tx['receipt_path']): ?>
+                            &middot; <a href="<?= e(url($tx['receipt_path'])) ?>" target="_blank" style="color:#1d70b8;">receipt</a>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <div class="tx-right">
+                    <div class="tx-amount <?= $tx['type'] === 'credit' ? 'tx-amount-credit' : 'tx-amount-debit' ?>">
+                        <?= $tx['type'] === 'credit' ? '+' : '-' ?>&euro;<?= number_format((float)$tx['amount'], 2) ?>
+                    </div>
+                    <form method="post" style="display:inline;" onsubmit="return confirm('Delete this transaction?');">
+                        <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+                        <input type="hidden" name="action" value="delete_transaction">
+                        <input type="hidden" name="transaction_id" value="<?= (int)$tx['id'] ?>">
+                        <button type="submit" class="tx-delete">delete</button>
+                    </form>
+                </div>
+            </li>
+            <?php endforeach; ?>
+        </ul>
+        <?php endif; ?>
+    </div>
