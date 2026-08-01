@@ -1105,6 +1105,11 @@ if ($user) {
                                 People
                             </a>
                         </li>
+                        <li class="nav-item<?= header_nav_active('expenses_accounting.php') . header_nav_active('expenses_manage.php') ?>">
+                            <a class="nav-link" href="<?= e(url('expenses_accounting.php')) ?>">
+                                Expenses
+                            </a>
+                        </li>
                     <?php endif; ?>
 
                     <?php if ($user || $parentTeam): ?>
