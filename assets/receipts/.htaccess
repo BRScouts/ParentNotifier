@@ -1,0 +1,15 @@
+# Disable PHP execution in this directory
+php_flag engine off
+
+# Only allow serving safe file types
+<FilesMatch "\.(?:jpe?g|png|gif|webp|pdf)$">
+    Require all granted
+</FilesMatch>
+
+<FilesMatch "\.(?:php[0-9]?|phtml|pht|phps|cgi|pl|py|sh|bash)$">
+    Require all denied
+</FilesMatch>
+
+# Prevent script execution via handler override
+RemoveHandler .php .phtml .php3 .php4 .php5 .phps
+AddType application/octet-stream .php .phtml .php3 .php4 .php5 .phps
