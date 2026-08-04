@@ -981,7 +981,7 @@ if ($isLeader) {
     if (dashboard_table_exists($pdo, 'explorer_checkins')) {
         try {
             $stmt = $pdo->query(
-                'SELECT ec.*, t.name AS team_name, l.name AS reviewer_name
+                'SELECT ec.*, t.name AS team_name, l.name AS reviewer_name, l.photo_url AS reviewer_photo
                  FROM explorer_checkins ec
                  LEFT JOIN teams t ON t.id = ec.team_id
                  LEFT JOIN leaders l ON l.id = ec.reviewed_by
@@ -994,7 +994,7 @@ if ($isLeader) {
             // reviewed_at or reviewed_by columns may not exist — try fallback
             try {
                 $stmt = $pdo->query(
-                    'SELECT ec.*, t.name AS team_name, NULL AS reviewer_name
+                    'SELECT ec.*, t.name AS team_name, NULL AS reviewer_name, NULL AS reviewer_photo
                      FROM explorer_checkins ec
                      LEFT JOIN teams t ON t.id = ec.team_id
                      WHERE ec.status IN ("approved", "rejected")
@@ -1012,7 +1012,7 @@ if ($isLeader) {
     try {
         $stmt = $pdo->query(
             'SELECT p.id, p.title, p.published_at, p.visibility, p.post_type,
-                    t.name AS team_name, l.name AS leader_name
+                    t.name AS team_name, l.name AS leader_name, l.photo_url AS leader_photo
              FROM posts p
              LEFT JOIN teams t ON t.id = p.team_id
              LEFT JOIN leaders l ON l.id = p.leader_id
@@ -1029,7 +1029,7 @@ if ($isLeader) {
     if (dashboard_table_exists($pdo, 'team_logs')) {
         try {
             $stmt = $pdo->query(
-                'SELECT tl.*, t.name AS team_name, l.name AS leader_name
+                'SELECT tl.*, t.name AS team_name, l.name AS leader_name, l.photo_url AS leader_photo
                  FROM team_logs tl
                  LEFT JOIN teams t ON t.id = tl.team_id
                  LEFT JOIN leaders l ON l.id = tl.leader_id
@@ -1046,7 +1046,7 @@ if ($isLeader) {
     if (dashboard_table_exists($pdo, 'announcements')) {
         try {
             $stmt = $pdo->query(
-                'SELECT a.id, a.title, a.team_id, a.created_at, l.name AS sender_name,
+                'SELECT a.id, a.title, a.team_id, a.created_at, l.name AS sender_name, l.photo_url AS sender_photo,
                         CASE WHEN a.team_id IS NULL THEN "All Teams" ELSE t.name END AS target_name
                  FROM announcements a
                  LEFT JOIN leaders l ON l.id = a.sender_leader_id
@@ -2321,20 +2321,31 @@ include __DIR__ . '/header.php';
                     <?php else: ?>
                         <?php foreach ($tacticalItems as $item): ?>
                             <?php if ($item['type'] === 'checkin'): ?>
-                                <?php $ci = $item['data']; ?>
+                                <?php
+                                $ci = $item['data'];
+                                $ciName = $ci['reviewer_name'] ?? 'Leader';
+                                $ciPhoto = !empty($ci['reviewer_photo']) ? media_url($ci['reviewer_photo']) : '';
+                                ?>
                                 <article class="feed-card">
                                     <div class="feed-card-header">
-                                        <div class="feed-heading-row" style="grid-template-columns: minmax(0,1fr);">
+                                        <div class="feed-heading-row">
+                                            <div>
+                                                <?php if ($ciPhoto !== ''): ?>
+                                                    <img class="leader-avatar" src="<?= e($ciPhoto) ?>" alt="<?= e($ciName) ?>">
+                                                <?php else: ?>
+                                                    <div class="leader-avatar leader-avatar-placeholder" aria-hidden="true">
+                                                        <?= e(initials_from_name($ciName)) ?>
+                                                    </div>
+                                                <?php endif; ?>
+                                            </div>
                                             <div class="feed-title-block">
                                                 <h2>Check-in reviewed</h2>
                                                 <p class="feed-meta">
                                                     <span><?= e($ci['team_name'] ?? 'Unknown team') ?></span>
                                                     <span class="meta-separator">|</span>
                                                     <span><?= e(dashboard_relative_time($item['time'])) ?></span>
-                                                    <?php if (!empty($ci['reviewer_name'])): ?>
-                                                        <span class="meta-separator">|</span>
-                                                        <span><?= e($ci['reviewer_name']) ?></span>
-                                                    <?php endif; ?>
+                                                    <span class="meta-separator">|</span>
+                                                    <span><?= e($ciName) ?></span>
                                                 </p>
                                             </div>
                                         </div>
@@ -2359,20 +2370,31 @@ include __DIR__ . '/header.php';
                                 </article>
 
                             <?php elseif ($item['type'] === 'post'): ?>
-                                <?php $tp = $item['data']; ?>
+                                <?php
+                                $tp = $item['data'];
+                                $tpName = $tp['leader_name'] ?? 'Leader';
+                                $tpPhoto = !empty($tp['leader_photo']) ? media_url($tp['leader_photo']) : '';
+                                ?>
                                 <article class="feed-card">
                                     <div class="feed-card-header">
-                                        <div class="feed-heading-row" style="grid-template-columns: minmax(0,1fr);">
+                                        <div class="feed-heading-row">
+                                            <div>
+                                                <?php if ($tpPhoto !== ''): ?>
+                                                    <img class="leader-avatar" src="<?= e($tpPhoto) ?>" alt="<?= e($tpName) ?>">
+                                                <?php else: ?>
+                                                    <div class="leader-avatar leader-avatar-placeholder" aria-hidden="true">
+                                                        <?= e(initials_from_name($tpName)) ?>
+                                                    </div>
+                                                <?php endif; ?>
+                                            </div>
                                             <div class="feed-title-block">
                                                 <h2><?= e($tp['title']) ?></h2>
                                                 <p class="feed-meta">
                                                     <span><?= e($tp['team_name'] ?: 'All teams') ?></span>
                                                     <span class="meta-separator">|</span>
                                                     <span><?= e(dashboard_relative_time($item['time'])) ?></span>
-                                                    <?php if (!empty($tp['leader_name'])): ?>
-                                                        <span class="meta-separator">|</span>
-                                                        <span><?= e($tp['leader_name']) ?></span>
-                                                    <?php endif; ?>
+                                                    <span class="meta-separator">|</span>
+                                                    <span><?= e($tpName) ?></span>
                                                 </p>
                                             </div>
                                         </div>
@@ -2387,20 +2409,31 @@ include __DIR__ . '/header.php';
                                 </article>
 
                             <?php elseif ($item['type'] === 'log'): ?>
-                                <?php $tl = $item['data']; ?>
+                                <?php
+                                $tl = $item['data'];
+                                $tlName = $tl['leader_name'] ?? 'Leader';
+                                $tlPhoto = !empty($tl['leader_photo']) ? media_url($tl['leader_photo']) : '';
+                                ?>
                                 <article class="feed-card">
                                     <div class="feed-card-header">
-                                        <div class="feed-heading-row" style="grid-template-columns: minmax(0,1fr);">
+                                        <div class="feed-heading-row">
+                                            <div>
+                                                <?php if ($tlPhoto !== ''): ?>
+                                                    <img class="leader-avatar" src="<?= e($tlPhoto) ?>" alt="<?= e($tlName) ?>">
+                                                <?php else: ?>
+                                                    <div class="leader-avatar leader-avatar-placeholder" aria-hidden="true">
+                                                        <?= e(initials_from_name($tlName)) ?>
+                                                    </div>
+                                                <?php endif; ?>
+                                            </div>
                                             <div class="feed-title-block">
                                                 <h2><?= e($tl['title']) ?></h2>
                                                 <p class="feed-meta">
                                                     <span><?= e($tl['team_name'] ?? 'Unknown team') ?></span>
                                                     <span class="meta-separator">|</span>
                                                     <span><?= e(dashboard_relative_time($item['time'])) ?></span>
-                                                    <?php if (!empty($tl['leader_name'])): ?>
-                                                        <span class="meta-separator">|</span>
-                                                        <span><?= e($tl['leader_name']) ?></span>
-                                                    <?php endif; ?>
+                                                    <span class="meta-separator">|</span>
+                                                    <span><?= e($tlName) ?></span>
                                                 </p>
                                             </div>
                                         </div>
@@ -2424,20 +2457,29 @@ include __DIR__ . '/header.php';
                                 $readCount = $tacticalAnnouncementReadCounts[$annId] ?? 0;
                                 $ackCount = $tacticalAnnouncementAckCounts[$annId] ?? 0;
                                 $targetCount = $tacticalAnnouncementTargetCounts[$annId] ?? 0;
+                                $taName = $ta['sender_name'] ?? 'Leader';
+                                $taPhoto = !empty($ta['sender_photo']) ? media_url($ta['sender_photo']) : '';
                                 ?>
                                 <article class="feed-card">
                                     <div class="feed-card-header">
-                                        <div class="feed-heading-row" style="grid-template-columns: minmax(0,1fr);">
+                                        <div class="feed-heading-row">
+                                            <div>
+                                                <?php if ($taPhoto !== ''): ?>
+                                                    <img class="leader-avatar" src="<?= e($taPhoto) ?>" alt="<?= e($taName) ?>">
+                                                <?php else: ?>
+                                                    <div class="leader-avatar leader-avatar-placeholder" aria-hidden="true">
+                                                        <?= e(initials_from_name($taName)) ?>
+                                                    </div>
+                                                <?php endif; ?>
+                                            </div>
                                             <div class="feed-title-block">
                                                 <h2><?= e($ta['title']) ?></h2>
                                                 <p class="feed-meta">
                                                     <span><?= e($ta['target_name'] ?? 'All Teams') ?></span>
                                                     <span class="meta-separator">|</span>
                                                     <span><?= e(dashboard_relative_time($item['time'])) ?></span>
-                                                    <?php if (!empty($ta['sender_name'])): ?>
-                                                        <span class="meta-separator">|</span>
-                                                        <span><?= e($ta['sender_name']) ?></span>
-                                                    <?php endif; ?>
+                                                    <span class="meta-separator">|</span>
+                                                    <span><?= e($taName) ?></span>
                                                 </p>
                                             </div>
                                         </div>
