@@ -1168,7 +1168,7 @@ include __DIR__ . '/header.php';
     }
 
     .rag-pending-checkin {
-        border: 4px solid transparent;
+        border: 4px solid transparent !important;
         background:
             linear-gradient(#ffffff, #ffffff) padding-box,
             repeating-linear-gradient(
@@ -1177,7 +1177,7 @@ include __DIR__ . '/header.php';
                 #00703c 10px,
                 #ffdd00 10px,
                 #ffdd00 20px
-            ) border-box;
+            ) border-box !important;
     }
 
     .rag-normal {
@@ -3362,8 +3362,16 @@ include __DIR__ . '/header.php';
                     $teamStatus = $team['status'] ?? 'not_started';
                     ?>
 
+                    <?php
+                    // Only show green checked_in styling if they actually checked in today;
+                    // otherwise fall back to normal grey styling
+                    $cardStatus = $teamStatus;
+                    if ($teamStatus === 'checked_in' && !$summary['checked_in_today']) {
+                        $cardStatus = 'not_started';
+                    }
+                    ?>
                     <div
-                        class="rag-card rag-status-card rag-status-<?= e($teamStatus) ?><?= ($summary['rag_status'] === 'overdue' && in_array($teamStatus, ['not_started', 'on_route'], true)) ? ' rag-overdue-time' : '' ?><?= $summary['pending_today'] ? ' rag-pending-checkin' : '' ?>"
+                        class="rag-card rag-status-card rag-status-<?= e($cardStatus) ?><?= ($summary['rag_status'] === 'overdue' && in_array($cardStatus, ['not_started', 'on_route'], true)) ? ' rag-overdue-time' : '' ?><?= $summary['pending_today'] ? ' rag-pending-checkin' : '' ?>"
                         data-team-id="<?= (int)$teamId ?>"
                         data-current-status="<?= e($teamStatus) ?>"
                     >

@@ -34,6 +34,7 @@ try {
                 category VARCHAR(50) NULL,
                 description VARCHAR(500) NULL,
                 receipt_path VARCHAR(500) NULL,
+                no_receipt_reason VARCHAR(500) NULL,
                 submitted_by VARCHAR(150) NOT NULL,
                 transaction_date DATE NOT NULL,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -44,6 +45,16 @@ try {
                 INDEX idx_tt_team_date (team_id, transaction_date)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ');
+    } else {
+        // Ensure no_receipt_reason column exists
+        $colCheck = $pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.columns
+             WHERE table_schema = DATABASE() AND table_name = "team_transactions" AND column_name = "no_receipt_reason"'
+        );
+        $colCheck->execute();
+        if ((int)$colCheck->fetchColumn() === 0) {
+            $pdo->exec('ALTER TABLE team_transactions ADD COLUMN no_receipt_reason VARCHAR(500) NULL AFTER receipt_path');
+        }
     }
 } catch (Throwable $e) {
     // Continue gracefully
@@ -79,11 +90,21 @@ try {
 $error = '';
 $success = '';
 
-// --- Handle form submission ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $team) {
+// --- Handle EDIT form submission ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $team && isset($_POST['edit_expense_id'])) {
     try {
         if (!expenses_csrf_valid()) {
             throw new RuntimeException('Security check failed. Please refresh and try again.');
+        }
+
+        $editId = (int)$_POST['edit_expense_id'];
+
+        // Verify this transaction belongs to this team
+        $checkStmt = $pdo->prepare('SELECT * FROM team_transactions WHERE id = ? AND team_id = ? AND type = "debit"');
+        $checkStmt->execute([$editId, (int)$team['id']]);
+        $existingTx = $checkStmt->fetch();
+        if (!$existingTx) {
+            throw new RuntimeException('Expense not found or you do not have permission to edit it.');
         }
 
         $amount = trim($_POST['amount'] ?? '');
@@ -91,6 +112,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $team) {
         $description = trim($_POST['description'] ?? '');
         $submittedBy = trim($_POST['submitted_by'] ?? '');
         $transactionDate = trim($_POST['transaction_date'] ?? '');
+        $noReceiptReason = trim($_POST['no_receipt_reason'] ?? '');
+        $noReceiptChecked = !empty($_POST['no_receipt']);
 
         if ($amount === '' || !is_numeric($amount) || (float)$amount <= 0) {
             throw new RuntimeException('Please enter a valid amount greater than zero.');
@@ -105,10 +128,131 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $team) {
             throw new RuntimeException('Please enter a valid date.');
         }
 
+        // Receipt validation: must upload a receipt OR provide justification
+        $hasExistingReceipt = !empty($existingTx['receipt_path']);
+        $hasNewUpload = !empty($_FILES['receipt']) && $_FILES['receipt']['error'] !== UPLOAD_ERR_NO_FILE;
+
+        if (!$hasExistingReceipt && !$hasNewUpload && !$noReceiptChecked) {
+            throw new RuntimeException('Please upload a receipt or explain why you don\'t have one.');
+        }
+        if ($noReceiptChecked && $noReceiptReason === '') {
+            throw new RuntimeException('Please explain why you don\'t have a receipt.');
+        }
+
+        // Handle new receipt upload
+        $receiptTmpName = null;
+        $receiptExt = null;
+        if ($hasNewUpload) {
+            $file = $_FILES['receipt'];
+            if ($file['error'] !== UPLOAD_ERR_OK) {
+                throw new RuntimeException('Receipt upload failed. Please try again.');
+            }
+            if ((int)$file['size'] > 10 * 1024 * 1024) {
+                throw new RuntimeException('Receipt file must be smaller than 10MB.');
+            }
+            $receiptTmpName = $file['tmp_name'];
+            if (!is_uploaded_file($receiptTmpName)) {
+                throw new RuntimeException('Invalid receipt upload.');
+            }
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            $mimeType = finfo_file($finfo, $receiptTmpName);
+            finfo_close($finfo);
+            $allowedTypes = [
+                'image/jpeg' => 'jpg', 'image/png' => 'png',
+                'image/webp' => 'webp', 'image/gif' => 'gif',
+                'application/pdf' => 'pdf',
+            ];
+            if (!isset($allowedTypes[$mimeType])) {
+                throw new RuntimeException('Receipt must be a JPG, PNG, WEBP, GIF or PDF file.');
+            }
+            $receiptExt = $allowedTypes[$mimeType];
+        }
+
+        // Update transaction
+        $receiptPath = $existingTx['receipt_path']; // keep existing by default
+        $stmt = $pdo->prepare(
+            'UPDATE team_transactions
+             SET amount = ?, category = ?, description = ?, submitted_by = ?, transaction_date = ?, no_receipt_reason = ?
+             WHERE id = ? AND team_id = ?'
+        );
+        $stmt->execute([
+            round((float)$amount, 2),
+            $category,
+            substr(strip_tags($description), 0, 500),
+            substr(strip_tags($submittedBy), 0, 150),
+            $transactionDate,
+            $noReceiptChecked ? substr(strip_tags($noReceiptReason), 0, 500) : null,
+            $editId,
+            (int)$team['id'],
+        ]);
+
+        // Move new receipt if uploaded
+        if ($receiptTmpName && $receiptExt) {
+            $teamSlug = preg_replace('/[^a-zA-Z0-9]/', '', $team['name'] ?? 'team');
+            $filename = $editId . '-' . $teamSlug . '_' . $transactionDate . '.' . $receiptExt;
+            $uploadDir = '/home/brscouts/exbelt2026.irvalscouts.org.uk/assets/receipts/';
+            if (!is_dir($uploadDir)) { $uploadDir = __DIR__ . '/assets/receipts/'; }
+            if (!is_dir($uploadDir)) { mkdir($uploadDir, 0755, true); }
+            $destination = rtrim($uploadDir, '/') . '/' . $filename;
+            if (move_uploaded_file($receiptTmpName, $destination)) {
+                $receiptPath = 'assets/receipts/' . $filename;
+                $upd = $pdo->prepare('UPDATE team_transactions SET receipt_path = ?, no_receipt_reason = NULL WHERE id = ?');
+                $upd->execute([$receiptPath, $editId]);
+            }
+        }
+
+        $_SESSION['explorer_expense_success'] = [
+            'amount' => round((float)$amount, 2),
+            'category' => $category,
+            'submitted_by' => $submittedBy,
+        ];
+        redirect('explorer_expenses.php?token=' . urlencode($token) . '&submitted=1');
+    } catch (Throwable $exception) {
+        $error = $exception->getMessage();
+    }
+}
+
+// --- Handle NEW expense form submission ---
+elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && $team && !isset($_POST['edit_expense_id'])) {
+    try {
+        if (!expenses_csrf_valid()) {
+            throw new RuntimeException('Security check failed. Please refresh and try again.');
+        }
+
+        $amount = trim($_POST['amount'] ?? '');
+        $category = trim($_POST['category'] ?? '');
+        $description = trim($_POST['description'] ?? '');
+        $submittedBy = trim($_POST['submitted_by'] ?? '');
+        $transactionDate = trim($_POST['transaction_date'] ?? '');
+        $noReceiptReason = trim($_POST['no_receipt_reason'] ?? '');
+        $noReceiptChecked = !empty($_POST['no_receipt']);
+
+        if ($amount === '' || !is_numeric($amount) || (float)$amount <= 0) {
+            throw new RuntimeException('Please enter a valid amount greater than zero.');
+        }
+        if ($category === '') {
+            throw new RuntimeException('Please select a purchase category.');
+        }
+        if ($submittedBy === '') {
+            throw new RuntimeException('Please select who is submitting this expense.');
+        }
+        if ($transactionDate === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $transactionDate)) {
+            throw new RuntimeException('Please enter a valid date.');
+        }
+
+        // Receipt validation: must upload a receipt OR provide justification
+        $hasUpload = !empty($_FILES['receipt']) && $_FILES['receipt']['error'] !== UPLOAD_ERR_NO_FILE;
+        if (!$hasUpload && !$noReceiptChecked) {
+            throw new RuntimeException('Please upload a receipt or check "I don\'t have a receipt" and provide a reason.');
+        }
+        if ($noReceiptChecked && $noReceiptReason === '') {
+            throw new RuntimeException('Please explain why you don\'t have a receipt.');
+        }
+
         // Handle receipt upload - validate first, move after insert to get transaction ID
         $receiptTmpName = null;
         $receiptExt = null;
-        if (!empty($_FILES['receipt']) && $_FILES['receipt']['error'] !== UPLOAD_ERR_NO_FILE) {
+        if ($hasUpload) {
             $file = $_FILES['receipt'];
             if ($file['error'] !== UPLOAD_ERR_OK) {
                 throw new RuntimeException('Receipt upload failed. Please try again.');
@@ -137,14 +281,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $team) {
         // Insert transaction
         $stmt = $pdo->prepare(
             'INSERT INTO team_transactions
-                (team_id, type, amount, currency, category, description, receipt_path, submitted_by, transaction_date)
-             VALUES (?, "debit", ?, "EUR", ?, ?, NULL, ?, ?)'
+                (team_id, type, amount, currency, category, description, receipt_path, no_receipt_reason, submitted_by, transaction_date)
+             VALUES (?, "debit", ?, "EUR", ?, ?, NULL, ?, ?, ?)'
         );
         $stmt->execute([
             (int)$team['id'],
             round((float)$amount, 2),
             $category,
             substr(strip_tags($description), 0, 500),
+            $noReceiptChecked ? substr(strip_tags($noReceiptReason), 0, 500) : null,
             substr(strip_tags($submittedBy), 0, 150),
             $transactionDate,
         ]);
@@ -384,6 +529,44 @@ body { background: #f3f2f1; color: #1d1d1d; }
     .member-select-btn { width: 76px; padding: 0.5rem; }
     .member-select-photo, .member-select-placeholder { width: 40px; height: 40px; }
 }
+
+/* No receipt indicator */
+.tx-no-receipt { color: #d4351c; font-weight: 700; font-size: 0.8rem; cursor: help; }
+
+/* Edit modal overlay */
+.edit-modal-overlay {
+    display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5); z-index: 9999;
+    align-items: center; justify-content: center; padding: 1rem;
+}
+.edit-modal-overlay.active { display: flex; }
+.edit-modal {
+    background: #fff; width: 100%; max-width: 500px; max-height: 90vh;
+    overflow-y: auto; padding: 1.5rem; position: relative;
+    border: 3px solid #7413dc;
+}
+.edit-modal h3 { font-weight: 900; font-size: 1.15rem; margin: 0 0 1rem; color: #7413dc; }
+.edit-modal .form-step { margin-bottom: 1rem; }
+.edit-modal label { font-weight: 700; font-size: 0.9rem; display: block; margin-bottom: 0.3rem; }
+.edit-modal .btn-close-modal {
+    position: absolute; top: 0.75rem; right: 0.75rem; background: none; border: none;
+    font-size: 1.5rem; cursor: pointer; color: #505a5f; line-height: 1;
+}
+.edit-modal .btn-save-edit {
+    background: #7413dc; border: none; color: #fff; font-weight: 800;
+    font-size: 1rem; padding: 0.75rem 2rem; width: 100%; margin-top: 0.5rem;
+}
+.edit-modal .btn-save-edit:hover { background: #5a0fb0; color: #fff; }
+.edit-modal .existing-receipt-note {
+    background: #e9f8ef; border: 1px solid #00703c; padding: 0.5rem 0.75rem;
+    font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem;
+}
+
+/* No receipt section styling */
+.no-receipt-section { }
+.no-receipt-toggle input[type="checkbox"] {
+    width: 18px; height: 18px; accent-color: #7413dc; cursor: pointer;
+}
 </style>
 
 <div class="container mb-5">
@@ -485,9 +668,9 @@ body { background: #f3f2f1; color: #1d1d1d; }
                            placeholder="e.g. Lunch at K-Market, bus tickets..." maxlength="500">
                 </div>
 
-                <!-- Step 5: Receipt -->
+                <!-- Step 5: Receipt (mandatory) -->
                 <div class="form-step">
-                    <div class="form-step-label">Step 5 &mdash; Snap the receipt (optional)</div>
+                    <div class="form-step-label">Step 5 &mdash; Upload the receipt <span style="color:#d4351c;">*</span></div>
                     <div class="receipt-drop" id="receiptDrop">
                         <div class="rd-icon">📸</div>
                         <div class="rd-text">Tap to take a photo or choose file</div>
@@ -495,6 +678,24 @@ body { background: #f3f2f1; color: #1d1d1d; }
                     </div>
                     <input type="file" id="receipt" name="receipt" accept="image/*,application/pdf"
                            capture="environment" style="display:none;">
+
+                    <div class="no-receipt-section" style="margin-top:0.75rem;">
+                        <label class="no-receipt-toggle" style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; font-weight:600; font-size:0.9rem;">
+                            <input type="checkbox" name="no_receipt" id="noReceiptCheckbox" value="1">
+                            I don't have a receipt
+                        </label>
+                        <div class="no-receipt-reason-wrap" id="noReceiptReasonWrap" style="display:none; margin-top:0.6rem;">
+                            <label for="no_receipt_reason" style="font-weight:700; font-size:0.85rem; color:#d4351c; display:block; margin-bottom:0.3rem;">
+                                Why don't you have a receipt? <span style="color:#d4351c;">*</span>
+                            </label>
+                            <textarea class="form-control" id="no_receipt_reason" name="no_receipt_reason"
+                                      rows="2" maxlength="500"
+                                      placeholder="e.g. Receipt was not provided by vendor, lost receipt, digital purchase with no receipt issued..."></textarea>
+                            <div style="font-size:0.75rem; color:#505a5f; margin-top:0.25rem;">
+                                You must provide a valid reason for not uploading a receipt.
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <button type="submit" class="btn btn-submit-expense" id="submitExpenseBtn">
@@ -535,6 +736,21 @@ body { background: #f3f2f1; color: #1d1d1d; }
                             &middot; <?= e($tx['submitted_by']) ?>
                             <?php if ($tx['receipt_path']): ?>
                                 &middot; <a href="<?= e(url($tx['receipt_path'])) ?>" target="_blank" style="color:#1d70b8;">receipt</a>
+                            <?php elseif (!empty($tx['no_receipt_reason'])): ?>
+                                &middot; <span class="tx-no-receipt" title="<?= e($tx['no_receipt_reason']) ?>">⚠ no receipt</span>
+                            <?php elseif ($tx['type'] === 'debit'): ?>
+                                &middot; <span class="tx-no-receipt">⚠ no receipt</span>
+                            <?php endif; ?>
+                            <?php if ($tx['type'] === 'debit'): ?>
+                                &middot; <a href="#" class="tx-edit-btn" data-id="<?= (int)$tx['id'] ?>"
+                                   data-amount="<?= e($tx['amount']) ?>"
+                                   data-category="<?= e($tx['category'] ?? '') ?>"
+                                   data-description="<?= e($tx['description'] ?? '') ?>"
+                                   data-submitted-by="<?= e($tx['submitted_by']) ?>"
+                                   data-date="<?= e($tx['transaction_date']) ?>"
+                                   data-receipt="<?= e($tx['receipt_path'] ?? '') ?>"
+                                   data-no-receipt-reason="<?= e($tx['no_receipt_reason'] ?? '') ?>"
+                                   style="color:#7413dc; font-weight:700;">edit</a>
                             <?php endif; ?>
                         </div>
                     </div>
@@ -549,9 +765,101 @@ body { background: #f3f2f1; color: #1d1d1d; }
 
 </div>
 
+<!-- Edit Expense Modal -->
+<div class="edit-modal-overlay" id="editModal">
+    <div class="edit-modal">
+        <button type="button" class="btn-close-modal" id="closeEditModal">&times;</button>
+        <h3>Edit Expense</h3>
+        <form method="post" enctype="multipart/form-data" id="editExpenseForm">
+            <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+            <input type="hidden" name="edit_expense_id" id="edit_expense_id" value="">
+            <input type="hidden" name="submitted_by" id="edit_submitted_by" value="">
+            <input type="hidden" name="category" id="edit_category_input" value="">
+
+            <div class="form-step">
+                <label>Who submitted this?</label>
+                <div class="member-selector" id="editMemberSelector">
+                    <?php foreach ($teamMembers as $member): ?>
+                    <?php $photoUrl = expense_media_url($member['photo_url'] ?? ''); $initials = expense_initials($member['name']); ?>
+                    <div class="member-select-btn" data-name="<?= e($member['name']) ?>">
+                        <?php if ($photoUrl): ?>
+                            <img class="member-select-photo" src="<?= e($photoUrl) ?>" alt="<?= e($member['name']) ?>">
+                        <?php else: ?>
+                            <span class="member-select-placeholder"><?= e($initials) ?></span>
+                        <?php endif; ?>
+                        <span class="member-select-name"><?= e($member['name']) ?></span>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+
+            <div class="form-step">
+                <label>Category</label>
+                <div class="category-pills" id="editCategoryPills">
+                    <div class="cat-pill" data-value="food">🍕 Food & Drink</div>
+                    <div class="cat-pill" data-value="camping">⛺ Camping</div>
+                    <div class="cat-pill" data-value="supplies">🎒 Supplies</div>
+                    <div class="cat-pill" data-value="travel">🚌 Travel</div>
+                    <div class="cat-pill" data-value="other">📦 Other</div>
+                </div>
+            </div>
+
+            <div class="form-step">
+                <label>Amount &amp; Date</label>
+                <div class="d-flex align-items-center" style="gap:0.75rem; flex-wrap:wrap;">
+                    <div class="amount-input-wrap">
+                        <span class="currency-symbol">&euro;</span>
+                        <input type="number" class="form-control" id="edit_amount" name="amount"
+                               step="0.01" min="0.01" placeholder="0.00" required inputmode="decimal">
+                    </div>
+                    <input type="date" class="form-control" id="edit_transaction_date" name="transaction_date"
+                           required style="max-width:180px;">
+                </div>
+            </div>
+
+            <div class="form-step">
+                <label>Description</label>
+                <input type="text" class="form-control" id="edit_description" name="description"
+                       placeholder="e.g. Lunch at K-Market, bus tickets..." maxlength="500">
+            </div>
+
+            <div class="form-step">
+                <label>Receipt</label>
+                <div id="editExistingReceipt" class="existing-receipt-note" style="display:none;">
+                    ✓ Receipt already uploaded — <a href="#" id="editReceiptLink" target="_blank">view</a>
+                </div>
+                <div class="receipt-drop" id="editReceiptDrop">
+                    <div class="rd-icon">📸</div>
+                    <div class="rd-text">Upload a new receipt (replaces existing)</div>
+                    <div class="rd-hint">JPG, PNG, PDF up to 10MB</div>
+                </div>
+                <input type="file" id="edit_receipt" name="receipt" accept="image/*,application/pdf"
+                       capture="environment" style="display:none;">
+
+                <div class="no-receipt-section" style="margin-top:0.75rem;">
+                    <label class="no-receipt-toggle" style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; font-weight:600; font-size:0.9rem;">
+                        <input type="checkbox" name="no_receipt" id="editNoReceiptCheckbox" value="1">
+                        I don't have a receipt
+                    </label>
+                    <div id="editNoReceiptReasonWrap" style="display:none; margin-top:0.6rem;">
+                        <label for="edit_no_receipt_reason" style="font-weight:700; font-size:0.85rem; color:#d4351c; display:block; margin-bottom:0.3rem;">
+                            Why don't you have a receipt? <span style="color:#d4351c;">*</span>
+                        </label>
+                        <textarea class="form-control" id="edit_no_receipt_reason" name="no_receipt_reason"
+                                  rows="2" maxlength="500"
+                                  placeholder="e.g. Receipt was not provided by vendor, lost receipt..."></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-save-edit">Save Changes</button>
+        </form>
+    </div>
+</div>
+
 <script>
 (function() {
-    // Member selector
+    // Member selector (new expense form)
     var selector = document.getElementById('memberSelector');
     var hiddenInput = document.getElementById('submitted_by');
     if (selector) {
@@ -564,17 +872,17 @@ body { background: #f3f2f1; color: #1d1d1d; }
         });
     }
 
-    // Category pills
+    // Category pills (new expense form)
     var catInput = document.getElementById('category_input');
-    document.querySelectorAll('.cat-pill').forEach(function(pill) {
+    document.querySelectorAll('#expenseForm .cat-pill').forEach(function(pill) {
         pill.addEventListener('click', function() {
-            document.querySelectorAll('.cat-pill').forEach(function(p) { p.classList.remove('selected'); });
+            document.querySelectorAll('#expenseForm .cat-pill').forEach(function(p) { p.classList.remove('selected'); });
             pill.classList.add('selected');
             catInput.value = pill.getAttribute('data-value');
         });
     });
 
-    // Receipt drop zone
+    // Receipt drop zone (new expense form)
     var dropZone = document.getElementById('receiptDrop');
     var fileInput = document.getElementById('receipt');
     if (dropZone && fileInput) {
@@ -592,6 +900,15 @@ body { background: #f3f2f1; color: #1d1d1d; }
         });
     }
 
+    // No receipt checkbox (new expense form)
+    var noReceiptCb = document.getElementById('noReceiptCheckbox');
+    var noReceiptWrap = document.getElementById('noReceiptReasonWrap');
+    if (noReceiptCb && noReceiptWrap) {
+        noReceiptCb.addEventListener('change', function() {
+            noReceiptWrap.style.display = noReceiptCb.checked ? 'block' : 'none';
+        });
+    }
+
     // Form toggle
     var panel = document.getElementById('expenseFormPanel');
     var toggle = document.getElementById('formToggle');
@@ -601,12 +918,174 @@ body { background: #f3f2f1; color: #1d1d1d; }
         });
     }
 
-    // Form validation
+    // Form validation (new expense)
     var form = document.getElementById('expenseForm');
     if (form) {
         form.addEventListener('submit', function(e) {
             if (!hiddenInput.value) { e.preventDefault(); alert('Please select who is submitting this expense.'); return; }
             if (!catInput.value) { e.preventDefault(); alert('Please select a purchase category.'); return; }
+            // Validate receipt or justification
+            var hasFile = fileInput && fileInput.files.length > 0;
+            var noReceiptChecked = noReceiptCb && noReceiptCb.checked;
+            if (!hasFile && !noReceiptChecked) {
+                e.preventDefault();
+                alert('Please upload a receipt or check "I don\'t have a receipt" and provide a reason.');
+                return;
+            }
+            if (noReceiptChecked) {
+                var reasonField = document.getElementById('no_receipt_reason');
+                if (!reasonField || reasonField.value.trim() === '') {
+                    e.preventDefault();
+                    alert('Please explain why you don\'t have a receipt.');
+                    return;
+                }
+            }
+        });
+    }
+
+    // ===================== EDIT MODAL =====================
+    var editModal = document.getElementById('editModal');
+    var closeEditBtn = document.getElementById('closeEditModal');
+    var editForm = document.getElementById('editExpenseForm');
+    var editMemberSelector = document.getElementById('editMemberSelector');
+    var editSubmittedBy = document.getElementById('edit_submitted_by');
+    var editCatInput = document.getElementById('edit_category_input');
+    var editReceiptDrop = document.getElementById('editReceiptDrop');
+    var editFileInput = document.getElementById('edit_receipt');
+    var editNoReceiptCb = document.getElementById('editNoReceiptCheckbox');
+    var editNoReceiptWrap = document.getElementById('editNoReceiptReasonWrap');
+
+    // Edit member selector
+    if (editMemberSelector) {
+        editMemberSelector.querySelectorAll('.member-select-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                editMemberSelector.querySelectorAll('.member-select-btn').forEach(function(b) { b.classList.remove('selected'); });
+                btn.classList.add('selected');
+                editSubmittedBy.value = btn.getAttribute('data-name');
+            });
+        });
+    }
+
+    // Edit category pills
+    if (editCatInput) {
+        document.querySelectorAll('#editCategoryPills .cat-pill').forEach(function(pill) {
+            pill.addEventListener('click', function() {
+                document.querySelectorAll('#editCategoryPills .cat-pill').forEach(function(p) { p.classList.remove('selected'); });
+                pill.classList.add('selected');
+                editCatInput.value = pill.getAttribute('data-value');
+            });
+        });
+    }
+
+    // Edit receipt drop zone
+    if (editReceiptDrop && editFileInput) {
+        editReceiptDrop.addEventListener('click', function() { editFileInput.click(); });
+        editFileInput.addEventListener('change', function() {
+            if (editFileInput.files.length > 0) {
+                editReceiptDrop.classList.add('has-file');
+                editReceiptDrop.querySelector('.rd-text').textContent = editFileInput.files[0].name;
+                editReceiptDrop.querySelector('.rd-icon').textContent = '✓';
+            } else {
+                editReceiptDrop.classList.remove('has-file');
+                editReceiptDrop.querySelector('.rd-text').textContent = 'Upload a new receipt (replaces existing)';
+                editReceiptDrop.querySelector('.rd-icon').textContent = '📸';
+            }
+        });
+    }
+
+    // Edit no receipt checkbox
+    if (editNoReceiptCb && editNoReceiptWrap) {
+        editNoReceiptCb.addEventListener('change', function() {
+            editNoReceiptWrap.style.display = editNoReceiptCb.checked ? 'block' : 'none';
+        });
+    }
+
+    // Open edit modal
+    document.querySelectorAll('.tx-edit-btn').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            var data = btn.dataset;
+
+            document.getElementById('edit_expense_id').value = data.id;
+            document.getElementById('edit_amount').value = data.amount;
+            document.getElementById('edit_transaction_date').value = data.date;
+            document.getElementById('edit_description').value = data.description;
+
+            // Select the member
+            editSubmittedBy.value = data.submittedBy;
+            editMemberSelector.querySelectorAll('.member-select-btn').forEach(function(b) {
+                b.classList.toggle('selected', b.getAttribute('data-name') === data.submittedBy);
+            });
+
+            // Select category
+            editCatInput.value = data.category;
+            document.querySelectorAll('#editCategoryPills .cat-pill').forEach(function(p) {
+                p.classList.toggle('selected', p.getAttribute('data-value') === data.category);
+            });
+
+            // Handle existing receipt display
+            var existingReceiptNote = document.getElementById('editExistingReceipt');
+            var receiptLink = document.getElementById('editReceiptLink');
+            if (data.receipt) {
+                existingReceiptNote.style.display = 'block';
+                receiptLink.href = data.receipt;
+            } else {
+                existingReceiptNote.style.display = 'none';
+            }
+
+            // Handle no receipt reason
+            if (data.noReceiptReason) {
+                editNoReceiptCb.checked = true;
+                editNoReceiptWrap.style.display = 'block';
+                document.getElementById('edit_no_receipt_reason').value = data.noReceiptReason;
+            } else {
+                editNoReceiptCb.checked = false;
+                editNoReceiptWrap.style.display = 'none';
+                document.getElementById('edit_no_receipt_reason').value = '';
+            }
+
+            // Reset file input
+            editFileInput.value = '';
+            editReceiptDrop.classList.remove('has-file');
+            editReceiptDrop.querySelector('.rd-text').textContent = 'Upload a new receipt (replaces existing)';
+            editReceiptDrop.querySelector('.rd-icon').textContent = '📸';
+
+            editModal.classList.add('active');
+        });
+    });
+
+    // Close edit modal
+    if (closeEditBtn) {
+        closeEditBtn.addEventListener('click', function() { editModal.classList.remove('active'); });
+    }
+    if (editModal) {
+        editModal.addEventListener('click', function(e) {
+            if (e.target === editModal) { editModal.classList.remove('active'); }
+        });
+    }
+
+    // Edit form validation
+    if (editForm) {
+        editForm.addEventListener('submit', function(e) {
+            if (!editSubmittedBy.value) { e.preventDefault(); alert('Please select who submitted this expense.'); return; }
+            if (!editCatInput.value) { e.preventDefault(); alert('Please select a category.'); return; }
+            // Receipt: must have existing receipt, new upload, or justification
+            var hasExisting = document.getElementById('editExistingReceipt').style.display !== 'none';
+            var hasNewFile = editFileInput && editFileInput.files.length > 0;
+            var noReceiptChecked = editNoReceiptCb && editNoReceiptCb.checked;
+            if (!hasExisting && !hasNewFile && !noReceiptChecked) {
+                e.preventDefault();
+                alert('Please upload a receipt or check "I don\'t have a receipt" and provide a reason.');
+                return;
+            }
+            if (noReceiptChecked) {
+                var reasonField = document.getElementById('edit_no_receipt_reason');
+                if (!reasonField || reasonField.value.trim() === '') {
+                    e.preventDefault();
+                    alert('Please explain why you don\'t have a receipt.');
+                    return;
+                }
+            }
         });
     }
 })();
