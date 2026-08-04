@@ -2052,166 +2052,12 @@ include __DIR__ . '/header.php';
         margin-bottom: 0.25rem;
     }
 
-    .tactical-timeline {
-        display: flex;
-        flex-direction: column;
-        gap: 0;
-    }
-
-    .tactical-item {
-        display: grid;
-        grid-template-columns: 42px minmax(0, 1fr);
-        gap: 0.75rem;
-        padding: 1rem 0;
-        border-bottom: 1px solid #d8d8d8;
-        align-items: start;
-    }
-
-    .tactical-item:first-child {
-        padding-top: 0;
-    }
-
-    .tactical-item:last-child {
-        border-bottom: none;
-    }
-
-    .tactical-item-icon {
-        width: 42px;
-        height: 42px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.2rem;
-        border-radius: 50%;
-        flex-shrink: 0;
-    }
-
-    .tactical-icon-checkin {
-        background: #e6f4ea;
-        color: #00703c;
-        border: 2px solid #00703c;
-    }
-
-    .tactical-icon-post {
-        background: #eef7ff;
-        color: #1d70b8;
-        border: 2px solid #1d70b8;
-    }
-
-    .tactical-icon-log {
-        background: #fef3e0;
-        color: #b45309;
-        border: 2px solid #b45309;
-    }
-
-    .tactical-icon-announcement {
-        background: #f3e8ff;
-        color: #7413dc;
-        border: 2px solid #7413dc;
-    }
-
-    .tactical-item-content {
-        min-width: 0;
-    }
-
-    .tactical-item-title {
-        font-weight: 900;
-        margin: 0 0 0.25rem;
-        font-size: 0.95rem;
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 0.4rem;
-    }
-
-    .tactical-item-detail {
-        margin: 0 0 0.25rem;
-        font-size: 0.9rem;
-        color: #1d1d1d;
-        line-height: 1.4;
-    }
-
-    .tactical-item-actor {
-        color: #505a5f;
-        font-weight: 600;
-    }
-
-    .tactical-item-time {
-        margin: 0;
-        font-size: 0.82rem;
-        color: #505a5f;
-        font-weight: 600;
-    }
-
-    .tactical-badge {
-        display: inline-block;
-        padding: 0.1rem 0.4rem;
-        font-size: 0.75rem;
-        font-weight: 800;
-        border: 1px solid;
-        border-radius: 2px;
-    }
-
-    .tactical-badge-approved {
-        background: #e6f4ea;
-        color: #00703c;
-        border-color: #00703c;
-    }
-
-    .tactical-badge-rejected {
-        background: #fde8e8;
-        color: #d4351c;
-        border-color: #d4351c;
-    }
-
-    .tactical-badge-post {
-        background: #eef7ff;
-        color: #1d70b8;
-        border-color: #1d70b8;
-    }
-
-    .tactical-announcement-stats {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.75rem;
-        align-items: center;
-        margin: 0.35rem 0 0.25rem;
-    }
-
-    .tactical-stat {
-        font-size: 0.82rem;
-        font-weight: 800;
-        color: #505a5f;
-        background: #f3f2f1;
-        padding: 0.15rem 0.4rem;
-        border: 1px solid #d8d8d8;
-    }
-
-    .tactical-link {
-        font-size: 0.82rem;
-        font-weight: 800;
-        color: #1d70b8;
-        text-decoration: underline;
-    }
-
     /* Tactical Sidebar */
 
     .tactical-sidebar {
         display: flex;
         flex-direction: column;
         gap: 1rem;
-    }
-
-    .tactical-stat-card {
-        border: 2px solid #d8d8d8;
-        background: #ffffff;
-        padding: 1.25rem;
-    }
-
-    .tactical-stat-card h3 {
-        margin: 0 0 0.75rem;
-        font-size: 1.05rem;
-        font-weight: 900;
     }
 
     .tactical-stat-grid {
@@ -2351,36 +2197,12 @@ include __DIR__ . '/header.php';
             font-size: 0.88rem;
         }
 
-        .tactical-item {
-            grid-template-columns: 36px minmax(0, 1fr);
-            gap: 0.5rem;
-            padding: 0.75rem 0;
-        }
-
-        .tactical-item-icon {
-            width: 36px;
-            height: 36px;
-            font-size: 1rem;
-        }
-
-        .tactical-item-title {
-            font-size: 0.88rem;
-        }
-
-        .tactical-item-detail {
-            font-size: 0.84rem;
-        }
-
         .tactical-stat-grid {
             gap: 0.35rem;
         }
 
         .tactical-stat-number {
             font-size: 1.4rem;
-        }
-
-        .tactical-stat-card {
-            padding: 1rem;
         }
     }
 </style>
@@ -2448,7 +2270,7 @@ include __DIR__ . '/header.php';
                 <!-- Activity Feed -->
                 <div class="tactical-feed">
                     <h2>Activity feed</h2>
-                    <p class="muted">Recent activity across all teams.</p>
+                    <p class="muted">Recent activity across all teams and leaders.</p>
 
                     <?php
                     // Merge all tactical items into a single timeline
@@ -2497,114 +2319,149 @@ include __DIR__ . '/header.php';
                     <?php if (empty($tacticalItems)): ?>
                         <div class="empty-feed">No recent activity to show.</div>
                     <?php else: ?>
-                        <div class="tactical-timeline">
-                            <?php foreach ($tacticalItems as $item): ?>
-                                <?php if ($item['type'] === 'checkin'): ?>
-                                    <?php $ci = $item['data']; ?>
-                                    <div class="tactical-item tactical-item-checkin">
-                                        <div class="tactical-item-icon tactical-icon-checkin" aria-hidden="true">&#10003;</div>
-                                        <div class="tactical-item-content">
-                                            <p class="tactical-item-title">
-                                                Check-in reviewed
-                                                <span class="tactical-badge tactical-badge-<?= e($ci['status'] ?? 'approved') ?>">
-                                                    <?= e(ucfirst($ci['status'] ?? 'approved')) ?>
-                                                </span>
-                                            </p>
-                                            <p class="tactical-item-detail">
-                                                <strong><?= e($ci['team_name'] ?? 'Unknown team') ?></strong>
-                                                <?php if (!empty($ci['location_name'])): ?>
-                                                    &mdash; <?= e($ci['location_name']) ?>
-                                                <?php endif; ?>
-                                                <?php if (!empty($ci['reviewer_name'])): ?>
-                                                    <span class="tactical-item-actor">by <?= e($ci['reviewer_name']) ?></span>
-                                                <?php endif; ?>
-                                            </p>
-                                            <p class="tactical-item-time"><?= e(dashboard_relative_time($item['time'])) ?></p>
-                                        </div>
-                                    </div>
-
-                                <?php elseif ($item['type'] === 'post'): ?>
-                                    <?php $tp = $item['data']; ?>
-                                    <div class="tactical-item tactical-item-post">
-                                        <div class="tactical-item-icon tactical-icon-post" aria-hidden="true">&#9998;</div>
-                                        <div class="tactical-item-content">
-                                            <p class="tactical-item-title">
-                                                Post sent
-                                                <span class="tactical-badge tactical-badge-post"><?= e(ucfirst(str_replace('_', ' ', $tp['post_type'] ?? 'general'))) ?></span>
-                                            </p>
-                                            <p class="tactical-item-detail">
-                                                <strong><?= e($tp['title']) ?></strong>
-                                                &mdash; <?= e($tp['team_name'] ?: 'All teams') ?>
-                                                <?php if (!empty($tp['leader_name'])): ?>
-                                                    <span class="tactical-item-actor">by <?= e($tp['leader_name']) ?></span>
-                                                <?php endif; ?>
-                                            </p>
-                                            <p class="tactical-item-time"><?= e(dashboard_relative_time($item['time'])) ?></p>
-                                        </div>
-                                    </div>
-
-                                <?php elseif ($item['type'] === 'log'): ?>
-                                    <?php $tl = $item['data']; ?>
-                                    <div class="tactical-item tactical-item-log">
-                                        <div class="tactical-item-icon tactical-icon-log" aria-hidden="true">&#128221;</div>
-                                        <div class="tactical-item-content">
-                                            <p class="tactical-item-title">
-                                                Personal record log
-                                            </p>
-                                            <p class="tactical-item-detail">
-                                                <strong><?= e($tl['title']) ?></strong>
-                                                &mdash; <?= e($tl['team_name'] ?? 'Unknown team') ?>
-                                                <?php if (!empty($tl['leader_name'])): ?>
-                                                    <span class="tactical-item-actor">by <?= e($tl['leader_name']) ?></span>
-                                                <?php endif; ?>
-                                            </p>
-                                            <p class="tactical-item-time"><?= e(dashboard_relative_time($item['time'])) ?></p>
-                                        </div>
-                                    </div>
-
-                                <?php elseif ($item['type'] === 'announcement'): ?>
-                                    <?php
-                                    $ta = $item['data'];
-                                    $annId = (int)$ta['id'];
-                                    $readCount = $tacticalAnnouncementReadCounts[$annId] ?? 0;
-                                    $ackCount = $tacticalAnnouncementAckCounts[$annId] ?? 0;
-                                    $targetCount = $tacticalAnnouncementTargetCounts[$annId] ?? 0;
-                                    ?>
-                                    <div class="tactical-item tactical-item-announcement">
-                                        <div class="tactical-item-icon tactical-icon-announcement" aria-hidden="true">&#128227;</div>
-                                        <div class="tactical-item-content">
-                                            <p class="tactical-item-title">
-                                                Announcement sent
-                                            </p>
-                                            <p class="tactical-item-detail">
-                                                <strong><?= e($ta['title']) ?></strong>
-                                                &mdash; <?= e($ta['target_name'] ?? 'All Teams') ?>
-                                                <?php if (!empty($ta['sender_name'])): ?>
-                                                    <span class="tactical-item-actor">by <?= e($ta['sender_name']) ?></span>
-                                                <?php endif; ?>
-                                            </p>
-                                            <div class="tactical-announcement-stats">
-                                                <span class="tactical-stat">
-                                                    <?= (int)$readCount ?> read<?= $readCount !== 1 ? 's' : '' ?>
-                                                </span>
-                                                <span class="tactical-stat">
-                                                    <?= (int)$ackCount ?> of <?= (int)$targetCount ?> acknowledged
-                                                </span>
-                                                <a href="<?= e(url('announcements_sent.php?id=' . $annId)) ?>" class="tactical-link">View details &rarr;</a>
+                        <?php foreach ($tacticalItems as $item): ?>
+                            <?php if ($item['type'] === 'checkin'): ?>
+                                <?php $ci = $item['data']; ?>
+                                <article class="feed-card">
+                                    <div class="feed-card-header">
+                                        <div class="feed-heading-row" style="grid-template-columns: minmax(0,1fr);">
+                                            <div class="feed-title-block">
+                                                <h2>Check-in reviewed</h2>
+                                                <p class="feed-meta">
+                                                    <span><?= e($ci['team_name'] ?? 'Unknown team') ?></span>
+                                                    <span class="meta-separator">|</span>
+                                                    <span><?= e(dashboard_relative_time($item['time'])) ?></span>
+                                                    <?php if (!empty($ci['reviewer_name'])): ?>
+                                                        <span class="meta-separator">|</span>
+                                                        <span><?= e($ci['reviewer_name']) ?></span>
+                                                    <?php endif; ?>
+                                                </p>
                                             </div>
-                                            <p class="tactical-item-time"><?= e(dashboard_relative_time($item['time'])) ?></p>
+                                        </div>
+                                        <div class="feed-badge-row">
+                                            <span class="feed-badge" style="background:#00703c;color:#fff;border-color:#00703c;">Check-in</span>
+                                            <span class="feed-badge"><?= e(ucfirst($ci['status'] ?? 'approved')) ?></span>
                                         </div>
                                     </div>
-                                <?php endif; ?>
-                            <?php endforeach; ?>
-                        </div>
+                                    <div class="feed-card-body">
+                                        <div class="feed-content">
+                                            <?php if (!empty($ci['location_name'])): ?>
+                                                <p><strong>Location:</strong> <?= e($ci['location_name']) ?></p>
+                                            <?php endif; ?>
+                                            <?php if (!empty($ci['miles_covered'])): ?>
+                                                <p><strong>Miles today:</strong> <?= e(number_format((float)$ci['miles_covered'], 1)) ?></p>
+                                            <?php endif; ?>
+                                            <?php if (!empty($ci['welfare_notes'])): ?>
+                                                <p><strong>Welfare:</strong> <?= e($ci['welfare_notes']) ?></p>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </article>
+
+                            <?php elseif ($item['type'] === 'post'): ?>
+                                <?php $tp = $item['data']; ?>
+                                <article class="feed-card">
+                                    <div class="feed-card-header">
+                                        <div class="feed-heading-row" style="grid-template-columns: minmax(0,1fr);">
+                                            <div class="feed-title-block">
+                                                <h2><?= e($tp['title']) ?></h2>
+                                                <p class="feed-meta">
+                                                    <span><?= e($tp['team_name'] ?: 'All teams') ?></span>
+                                                    <span class="meta-separator">|</span>
+                                                    <span><?= e(dashboard_relative_time($item['time'])) ?></span>
+                                                    <?php if (!empty($tp['leader_name'])): ?>
+                                                        <span class="meta-separator">|</span>
+                                                        <span><?= e($tp['leader_name']) ?></span>
+                                                    <?php endif; ?>
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div class="feed-badge-row">
+                                            <span class="feed-badge" style="background:#1d70b8;color:#fff;border-color:#1d70b8;">Post</span>
+                                            <span class="feed-badge"><?= e(ucfirst(str_replace('_', ' ', $tp['post_type'] ?? 'general'))) ?></span>
+                                            <?php if ($tp['visibility'] === 'team'): ?>
+                                                <span class="feed-badge">Team only</span>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </article>
+
+                            <?php elseif ($item['type'] === 'log'): ?>
+                                <?php $tl = $item['data']; ?>
+                                <article class="feed-card">
+                                    <div class="feed-card-header">
+                                        <div class="feed-heading-row" style="grid-template-columns: minmax(0,1fr);">
+                                            <div class="feed-title-block">
+                                                <h2><?= e($tl['title']) ?></h2>
+                                                <p class="feed-meta">
+                                                    <span><?= e($tl['team_name'] ?? 'Unknown team') ?></span>
+                                                    <span class="meta-separator">|</span>
+                                                    <span><?= e(dashboard_relative_time($item['time'])) ?></span>
+                                                    <?php if (!empty($tl['leader_name'])): ?>
+                                                        <span class="meta-separator">|</span>
+                                                        <span><?= e($tl['leader_name']) ?></span>
+                                                    <?php endif; ?>
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div class="feed-badge-row">
+                                            <span class="feed-badge" style="background:#b45309;color:#fff;border-color:#b45309;">Personal record</span>
+                                        </div>
+                                    </div>
+                                    <?php if (!empty($tl['body'])): ?>
+                                        <div class="feed-card-body">
+                                            <div class="feed-content">
+                                                <p><?= nl2br(e($tl['body'])) ?></p>
+                                            </div>
+                                        </div>
+                                    <?php endif; ?>
+                                </article>
+
+                            <?php elseif ($item['type'] === 'announcement'): ?>
+                                <?php
+                                $ta = $item['data'];
+                                $annId = (int)$ta['id'];
+                                $readCount = $tacticalAnnouncementReadCounts[$annId] ?? 0;
+                                $ackCount = $tacticalAnnouncementAckCounts[$annId] ?? 0;
+                                $targetCount = $tacticalAnnouncementTargetCounts[$annId] ?? 0;
+                                ?>
+                                <article class="feed-card">
+                                    <div class="feed-card-header">
+                                        <div class="feed-heading-row" style="grid-template-columns: minmax(0,1fr);">
+                                            <div class="feed-title-block">
+                                                <h2><?= e($ta['title']) ?></h2>
+                                                <p class="feed-meta">
+                                                    <span><?= e($ta['target_name'] ?? 'All Teams') ?></span>
+                                                    <span class="meta-separator">|</span>
+                                                    <span><?= e(dashboard_relative_time($item['time'])) ?></span>
+                                                    <?php if (!empty($ta['sender_name'])): ?>
+                                                        <span class="meta-separator">|</span>
+                                                        <span><?= e($ta['sender_name']) ?></span>
+                                                    <?php endif; ?>
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div class="feed-badge-row">
+                                            <span class="feed-badge" style="background:#7413dc;color:#fff;border-color:#7413dc;">Announcement</span>
+                                            <span class="feed-badge"><?= (int)$readCount ?> read<?= $readCount !== 1 ? 's' : '' ?></span>
+                                            <span class="feed-badge"><?= (int)$ackCount ?>/<?= (int)$targetCount ?> acknowledged</span>
+                                        </div>
+                                    </div>
+                                    <div class="feed-card-body">
+                                        <a href="<?= e(url('announcements_sent.php?id=' . $annId)) ?>" class="btn btn-outline-primary btn-sm">
+                                            View announcement details
+                                        </a>
+                                    </div>
+                                </article>
+                            <?php endif; ?>
+                        <?php endforeach; ?>
                     <?php endif; ?>
                 </div>
 
                 <!-- Tactical Sidebar: Quick Stats -->
                 <aside class="tactical-sidebar">
-                    <div class="tactical-stat-card">
-                        <h3>Today's check-ins</h3>
+                    <div class="sidebar-panel">
+                        <h2>Today's check-ins</h2>
                         <?php
                         $approvedToday = 0;
                         $pendingToday = count($pendingCheckinTodayByTeam);
@@ -2637,8 +2494,8 @@ include __DIR__ . '/header.php';
                         </p>
                     </div>
 
-                    <div class="tactical-stat-card">
-                        <h3>Quick links</h3>
+                    <div class="sidebar-panel">
+                        <h2>Quick links</h2>
                         <ul class="tactical-quick-links">
                             <li><a href="<?= e(url('team_links.php')) ?>">Team check-ins</a></li>
                             <li><a href="<?= e(url('announcements_manage.php')) ?>">Announcements</a></li>
@@ -2648,8 +2505,8 @@ include __DIR__ . '/header.php';
                         </ul>
                     </div>
 
-                    <div class="tactical-stat-card">
-                        <h3>Recent announcements</h3>
+                    <div class="sidebar-panel">
+                        <h2>Recent announcements</h2>
                         <?php if (empty($tacticalAnnouncements)): ?>
                             <p class="muted">No announcements yet.</p>
                         <?php else: ?>
@@ -2680,19 +2537,6 @@ include __DIR__ . '/header.php';
 
     <!-- Parent/Posts View (visible to parents always, togglable for leaders) -->
     <div id="parent-view" class="<?= $isLeader ? 'parent-view-hidden' : '' ?>">
-
-    <?php if ($isLeader): ?>
-        <div class="dashboard-actions">
-            <?php if (!is_readonly()): ?>
-            <a class="btn btn-primary" href="<?= e(url('add_update.php')) ?>">Add update</a>
-            <?php endif; ?>
-            <a class="btn btn-outline-primary" href="<?= e(url('team_links.php')) ?>">Manage teams</a>
-            <a class="btn btn-outline-primary" href="<?= e(url('leaders.php')) ?>">Manage leaders</a>
-            <?php if (!is_readonly()): ?>
-            <a class="btn btn-primary" href="<?= e(url('email_all.php')) ?>">Email to all</a>
-            <?php endif; ?>
-        </div>
-    <?php endif; ?>
 
     <div class="dashboard-layout">
 
