@@ -2992,6 +2992,7 @@ include __DIR__ . '/header.php';
                             <span class="distance-big">
                                 <?= e(number_format($currentTeamSummary['distance_miles'], 1)) ?> miles total
                             </span>
+                            <span class="muted">GPS distance between check-ins.</span>
                         </p>
 
                         <?php if ($currentTeamSummary['self_reported_miles'] > 0): ?>
@@ -3006,7 +3007,8 @@ include __DIR__ . '/header.php';
                         <?php endif; ?>
 
                         <?php if (!empty($locMilesPerDay)): ?>
-                            <h3>Miles per day</h3>
+                            <h3>GPS miles per day</h3>
+                            <p class="muted">Calculated from distance between check-in coordinates.</p>
                             <table class="teams-table" style="max-width: 500px; margin-bottom: 1.5rem;">
                                 <thead>
                                     <tr>
@@ -3016,6 +3018,43 @@ include __DIR__ . '/header.php';
                                 </thead>
                                 <tbody>
                                     <?php foreach ($locMilesPerDay as $date => $miles): ?>
+                                        <tr>
+                                            <td><?= e(date('j M', strtotime($date))) ?></td>
+                                            <td><strong><?= e(number_format($miles, 1)) ?></strong></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        <?php endif; ?>
+
+                        <?php
+                        // Self-reported on foot miles per day from explorer check-ins
+                        $selfReportMilesPerDay = [];
+                        $teamCheckins = $explorerCheckinsByTeam[$currentTeamId] ?? [];
+                        foreach ($teamCheckins as $ec) {
+                            if (!empty($ec['miles_covered'])) {
+                                $ecDate = date('Y-m-d', strtotime($ec['submitted_at']));
+                                if (!isset($selfReportMilesPerDay[$ecDate])) {
+                                    $selfReportMilesPerDay[$ecDate] = 0.0;
+                                }
+                                $selfReportMilesPerDay[$ecDate] += (float)$ec['miles_covered'];
+                            }
+                        }
+                        ksort($selfReportMilesPerDay);
+                        ?>
+
+                        <?php if (!empty($selfReportMilesPerDay)): ?>
+                            <h3>Self-reported on foot miles per day</h3>
+                            <p class="muted">As reported by explorers during check-in.</p>
+                            <table class="teams-table" style="max-width: 500px; margin-bottom: 1.5rem;">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>On foot miles</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($selfReportMilesPerDay as $date => $miles): ?>
                                         <tr>
                                             <td><?= e(date('j M', strtotime($date))) ?></td>
                                             <td><strong><?= e(number_format($miles, 1)) ?></strong></td>
