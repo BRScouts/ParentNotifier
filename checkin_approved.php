@@ -102,6 +102,14 @@ include __DIR__ . '/header.php';
         </p>
     </div>
 
+    <?php if (!empty($checkin['miles_covered'])): ?>
+        <div style="background: #f3f2f1; border: 1px solid #d8d8d8; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; text-align: center;">
+            <p style="margin: 0; font-size: 1.1rem;">
+                <strong>On foot miles today:</strong> <?= e(number_format((float)$checkin['miles_covered'], 1)) ?>
+            </p>
+        </div>
+    <?php endif; ?>
+
     <?php if ($whatsappUrl !== ''): ?>
         <div style="background: #dcf8c6; border: 2px solid #25d366; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem;">
             <h2 style="font-weight: 700; font-size: 1.1rem; margin-top: 0; margin-bottom: 0.75rem; color: #075e54;">

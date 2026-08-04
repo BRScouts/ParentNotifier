@@ -732,6 +732,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect('team_links.php?view=team&team_id=' . $teamId . '&tab=notes');
         }
     }
+
+    if ($action === 'add_miles_adjustment') {
+        $teamId = (int)($_POST['team_id'] ?? 0);
+        $miles = isset($_POST['miles']) && $_POST['miles'] !== '' ? round((float)$_POST['miles'], 1) : null;
+        $note = trim($_POST['note'] ?? '');
+
+        if ($teamId <= 0) {
+            $error = 'Team is required.';
+        } elseif ($miles === null || $miles <= 0 || $miles > 999) {
+            $error = 'Please enter a valid number of miles (0.1–999).';
+        } else {
+            try {
+                $pdo->exec(
+                    'CREATE TABLE IF NOT EXISTS team_miles_adjustments (
+                        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                        team_id INT UNSIGNED NOT NULL,
+                        miles DECIMAL(6,1) NOT NULL,
+                        note VARCHAR(255) NULL DEFAULT NULL,
+                        added_by INT UNSIGNED NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        INDEX idx_tma_team (team_id),
+                        INDEX idx_tma_created (created_at)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+                );
+            } catch (Throwable $e) {
+                // Table likely already exists
+            }
+
+            $stmt = $pdo->prepare(
+                'INSERT INTO team_miles_adjustments (team_id, miles, note, added_by) VALUES (?, ?, ?, ?)'
+            );
+            $stmt->execute([$teamId, $miles, $note !== '' ? $note : null, $user['id'] ?? null]);
+
+            redirect('team_links.php?view=team&team_id=' . $teamId . '&tab=progress');
+        }
+    }
     } // end else (not readonly)
 }
 
@@ -790,6 +826,18 @@ try {
         ->fetchAll();
 } catch (Throwable $exception) {
     $explorerCheckins = [];
+}
+
+$milesAdjustmentsByTeam = [];
+try {
+    $adjRows = $pdo->query('SELECT team_id, miles FROM team_miles_adjustments')->fetchAll();
+    foreach ($adjRows as $adjRow) {
+        $adjTeamId = (int)$adjRow['team_id'];
+        $milesAdjustmentsByTeam[$adjTeamId] = ($milesAdjustmentsByTeam[$adjTeamId] ?? 0.0) + (float)$adjRow['miles'];
+    }
+} catch (Throwable $e) {
+    // Table may not exist yet
+    $milesAdjustmentsByTeam = [];
 }
 
 $locationsByTeam = [];
@@ -895,6 +943,17 @@ foreach ($teams as $team) {
     $latestHasInjuries = (int)($latestReviewedCheckin['has_injuries'] ?? 0) === 1;
     $latestHasMedication = (int)($latestReviewedCheckin['has_medication'] ?? 0) === 1;
 
+    // Sum self-reported miles from all check-ins for this team
+    $totalSelfReportedMiles = 0.0;
+    foreach ($teamExplorerCheckins as $ec) {
+        if (isset($ec['miles_covered']) && $ec['miles_covered'] !== null) {
+            $totalSelfReportedMiles += (float)$ec['miles_covered'];
+        }
+    }
+
+    // Add manual miles adjustments (leader-entered backfill)
+    $totalSelfReportedMiles += ($milesAdjustmentsByTeam[$teamId] ?? 0.0);
+
     $teamSummaries[$teamId] = [
         'team' => $team,
         'people' => $teamPeople,
@@ -903,6 +962,7 @@ foreach ($teams as $team) {
         'latest_location' => $latestLocation,
         'checked_dates' => $checkedDates,
         'distance_miles' => miles_from_km($totalKm),
+        'self_reported_miles' => $totalSelfReportedMiles,
         'checked_in_today' => $approvedToday,
         'pending_today' => $pendingToday,
         'rag_status' => $ragStatus,
@@ -2080,6 +2140,17 @@ include __DIR__ . '/header.php';
                             </span>
                         </p>
 
+                        <?php if ($currentTeamSummary['self_reported_miles'] > 0): ?>
+                        <p>
+                            <span class="distance-big">
+                                <?= e(number_format($currentTeamSummary['self_reported_miles'], 1)) ?> on foot miles
+                            </span>
+                            <span class="muted">
+                                Self-reported by team (total across all check-ins).
+                            </span>
+                        </p>
+                        <?php endif; ?>
+
                         <h3>10 day check-in status</h3>
 
                         <div class="checkin-strip">
@@ -2325,6 +2396,13 @@ include __DIR__ . '/header.php';
                                                     <?= e($checkin['accommodation_type']) ?>
                                                 </p>
 
+                                                <?php if (!empty($checkin['miles_covered'])): ?>
+                                                    <p>
+                                                        <strong>On foot miles today:</strong><br>
+                                                        <?= e(number_format((float)$checkin['miles_covered'], 1)) ?>
+                                                    </p>
+                                                <?php endif; ?>
+
                                                 <?php if (!empty($checkin['accommodation_notes'])): ?>
                                                     <p>
                                                         <strong>Accommodation notes:</strong><br>
@@ -2550,6 +2628,17 @@ include __DIR__ . '/header.php';
                             </span>
                         </p>
 
+                        <?php if ($currentTeamSummary['self_reported_miles'] > 0): ?>
+                        <p>
+                            <span class="distance-big">
+                                <?= e(number_format($currentTeamSummary['self_reported_miles'], 1)) ?> on foot miles total
+                            </span>
+                            <span class="muted">
+                                Self-reported by team.
+                            </span>
+                        </p>
+                        <?php endif; ?>
+
                         <div class="checkin-strip mb-4">
                             <?php foreach ($checkinDates as $dateInfo): ?>
                                 <?php
@@ -2667,6 +2756,74 @@ include __DIR__ . '/header.php';
                                 </article>
                             <?php endforeach; ?>
                         <?php endif; ?>
+
+                        <h3 style="margin-top: 2rem;">Add on foot miles manually</h3>
+
+                        <p class="muted">
+                            Use this to backfill miles from days before the system was live, or to correct totals.
+                        </p>
+
+                        <?php
+                        // Fetch existing manual adjustments for this team
+                        $milesAdjustments = [];
+                        try {
+                            $adjStmt = $pdo->prepare(
+                                'SELECT tma.*, l.name AS leader_name
+                                 FROM team_miles_adjustments tma
+                                 LEFT JOIN leaders l ON l.id = tma.added_by
+                                 WHERE tma.team_id = ?
+                                 ORDER BY tma.created_at DESC'
+                            );
+                            $adjStmt->execute([$currentTeamId]);
+                            $milesAdjustments = $adjStmt->fetchAll();
+                        } catch (Throwable $e) {
+                            $milesAdjustments = [];
+                        }
+                        ?>
+
+                        <?php if (!empty($milesAdjustments)): ?>
+                            <table class="teams-table" style="max-width: 600px; margin-bottom: 1.5rem;">
+                                <thead>
+                                    <tr>
+                                        <th>Miles</th>
+                                        <th>Note</th>
+                                        <th>Added by</th>
+                                        <th>Date</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($milesAdjustments as $adj): ?>
+                                        <tr>
+                                            <td><strong><?= e(number_format((float)$adj['miles'], 1)) ?></strong></td>
+                                            <td><?= e($adj['note'] ?? '-') ?></td>
+                                            <td><?= e($adj['leader_name'] ?? 'Unknown') ?></td>
+                                            <td><?= e(format_datetime($adj['created_at'])) ?></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        <?php endif; ?>
+
+                        <form method="post" style="max-width: 500px; margin-top: 1rem;">
+                            <input type="hidden" name="action" value="add_miles_adjustment">
+                            <input type="hidden" name="team_id" value="<?= (int)$currentTeam['id'] ?>">
+
+                            <div class="form-row">
+                                <div class="form-group col-md-4">
+                                    <label>Miles on foot</label>
+                                    <input class="form-control" type="number" name="miles" min="0.1" max="999" step="0.1" placeholder="e.g. 15.0" required>
+                                </div>
+
+                                <div class="form-group col-md-8">
+                                    <label>Note (optional)</label>
+                                    <input class="form-control" type="text" name="note" maxlength="255" placeholder="e.g. Days 1-6 before system live">
+                                </div>
+                            </div>
+
+                            <button class="btn btn-primary"<?php if (is_readonly()): ?> disabled<?php endif; ?>>
+                                Add miles
+                            </button>
+                        </form>
                     </section>
 
                 <?php elseif ($currentTab === 'checkin_history'): ?>
@@ -2836,6 +2993,17 @@ include __DIR__ . '/header.php';
                                 <?= e(number_format($currentTeamSummary['distance_miles'], 1)) ?> miles total
                             </span>
                         </p>
+
+                        <?php if ($currentTeamSummary['self_reported_miles'] > 0): ?>
+                        <p>
+                            <span class="distance-big">
+                                <?= e(number_format($currentTeamSummary['self_reported_miles'], 1)) ?> on foot miles total
+                            </span>
+                            <span class="muted">
+                                Self-reported by team.
+                            </span>
+                        </p>
+                        <?php endif; ?>
 
                         <?php if (!empty($locMilesPerDay)): ?>
                             <h3>Miles per day</h3>
@@ -3290,6 +3458,15 @@ include __DIR__ . '/header.php';
                             <?= e(number_format($currentTeamSummary['distance_miles'], 1)) ?> miles
                         </span>
                     </p>
+
+                    <?php if ($currentTeamSummary['self_reported_miles'] > 0): ?>
+                    <p>
+                        <span class="distance-big">
+                            <?= e(number_format($currentTeamSummary['self_reported_miles'], 1)) ?> on foot miles
+                        </span>
+                        <span class="muted">self-reported</span>
+                    </p>
+                    <?php endif; ?>
 
                     <p>
                         <strong>Today:</strong>

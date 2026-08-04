@@ -358,6 +358,10 @@ function explorer_build_leader_email_content(array $team, array $checkin, array 
     $content .= '<strong>Coordinates:</strong> ' . e($checkin['latitude']) . ', ' . e($checkin['longitude']) . '<br>';
     $content .= '<strong>Staying:</strong> ' . e($checkin['accommodation_type']) . '</p>';
 
+    if (!empty($checkin['miles_covered'])) {
+        $content .= '<p><strong>On foot miles today:</strong> ' . e(number_format((float)$checkin['miles_covered'], 1)) . '</p>';
+    }
+
     if (!empty($checkin['accommodation_notes'])) {
         $content .= '<p><strong>Accommodation notes:</strong><br>' . nl2br(e($checkin['accommodation_notes'])) . '</p>';
     }
@@ -500,6 +504,13 @@ $accommodationType = explorer_clean_text($_POST['accommodation_type'] ?? '', 100
 $accommodationNotes = explorer_clean_text($_POST['accommodation_notes'] ?? '', 3000);
 $submittedBy = explorer_clean_text($_POST['submitted_by'] ?? '', 150);
 $welfareNotes = explorer_clean_text($_POST['welfare_notes'] ?? '', 5000);
+$milesCovered = isset($_POST['miles_covered']) && $_POST['miles_covered'] !== ''
+    ? round((float)$_POST['miles_covered'], 1)
+    : null;
+
+if ($milesCovered !== null && ($milesCovered < 0 || $milesCovered > 999)) {
+    throw new RuntimeException('Please enter a valid number of miles covered (0–999).');
+}
 
 if ($locationName === '') {
     throw new RuntimeException('Please enter your nearest place or location name.');
@@ -547,6 +558,7 @@ if ($submittedBy === '') {
                     has_injuries,
                     has_medication,
                     welfare_notes,
+                    miles_covered,
                     member_reports_json,
                     submitted_by,
                     submitted_at,
@@ -557,6 +569,7 @@ if ($submittedBy === '') {
                 (
                     ?,
                     "pending",
+                    ?,
                     ?,
                     ?,
                     ?,
@@ -583,6 +596,7 @@ if ($submittedBy === '') {
             $hasInjuries,
             $hasMedication,
             $welfareNotes,
+            $milesCovered,
             json_encode($memberReports, JSON_UNESCAPED_UNICODE),
             $submittedBy,
             $submittedAt,
@@ -602,6 +616,7 @@ if ($submittedBy === '') {
             'has_injuries' => $hasInjuries,
             'has_medication' => $hasMedication,
             'welfare_notes' => $welfareNotes,
+            'miles_covered' => $milesCovered,
             'submitted_at' => $submittedAt,
         ];
 
@@ -1069,6 +1084,23 @@ include __DIR__ . '/explorer_header.php';
                         rows="3"
                         placeholder="Optional. Add any useful detail about where you are staying."
                     ></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="miles_covered">How many miles on foot have you covered today?</label>
+                    <p class="muted" style="margin-bottom:0.5rem;">Enter your best estimate of miles walked today (not including any transport).</p>
+                    <input
+                        class="form-control"
+                        type="number"
+                        id="miles_covered"
+                        name="miles_covered"
+                        min="0"
+                        max="99"
+                        step="0.1"
+                        placeholder="e.g. 12.5"
+                        required
+                        style="max-width: 160px;"
+                    >
                 </div>
 
                 <div class="form-group">
