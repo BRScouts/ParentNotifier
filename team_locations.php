@@ -277,6 +277,44 @@ foreach ($teamData as $teamId => &$data) {
 unset($data);
 
 /**
+ * Calculate self-reported on foot miles per team (from check-ins + manual adjustments).
+ */
+$selfReportedMilesByTeam = [];
+
+try {
+    $srStmt = $pdo->query(
+        'SELECT team_id, SUM(miles_covered) AS total_miles
+         FROM explorer_checkins
+         WHERE miles_covered IS NOT NULL
+         GROUP BY team_id'
+    );
+    foreach ($srStmt->fetchAll() as $row) {
+        $selfReportedMilesByTeam[(int)$row['team_id']] = (float)$row['total_miles'];
+    }
+} catch (Throwable $e) {
+    // Column may not exist yet
+}
+
+try {
+    $adjStmt = $pdo->query(
+        'SELECT team_id, SUM(miles) AS total_miles
+         FROM team_miles_adjustments
+         GROUP BY team_id'
+    );
+    foreach ($adjStmt->fetchAll() as $row) {
+        $tid = (int)$row['team_id'];
+        $selfReportedMilesByTeam[$tid] = ($selfReportedMilesByTeam[$tid] ?? 0.0) + (float)$row['total_miles'];
+    }
+} catch (Throwable $e) {
+    // Table may not exist yet
+}
+
+foreach ($teamData as $teamId => &$data) {
+    $data['self_reported_miles'] = $selfReportedMilesByTeam[$teamId] ?? 0.0;
+}
+unset($data);
+
+/**
  * Build map data.
  */
 $mapTeams = [];
@@ -638,7 +676,7 @@ include __DIR__ . '/header.php';
 
     .selected-stats-grid {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
         gap: 0.75rem;
         margin-bottom: 1.25rem;
     }
@@ -890,7 +928,11 @@ include __DIR__ . '/header.php';
                             </span>
 
                             <span class="compact-mileage">
-                                <?= e(number_format($data['total_miles'], 1)) ?> mi
+                                <?php if ($data['self_reported_miles'] > 0): ?>
+                                    <?= e(number_format($data['self_reported_miles'], 1)) ?> mi
+                                <?php else: ?>
+                                    <?= e(number_format($data['total_miles'], 1)) ?> mi
+                                <?php endif; ?>
                             </span>
                         </span>
 
@@ -980,9 +1022,17 @@ include __DIR__ . '/header.php';
 
                     <div class="selected-stats-grid">
                         <div class="stat-box">
-                            <span class="stat-label">Distance covered</span>
+                            <span class="stat-label">GPS distance</span>
                             <span class="stat-value"><?= e(number_format($data['total_miles'], 1)) ?> miles</span>
                         </div>
+
+                        <?php if ($data['self_reported_miles'] > 0): ?>
+                        <div class="stat-box">
+                            <span class="stat-label">On foot miles</span>
+                            <span class="stat-value"><?= e(number_format($data['self_reported_miles'], 1)) ?> miles</span>
+                            <span class="muted">Self-reported</span>
+                        </div>
+                        <?php endif; ?>
 
                         <div class="stat-box">
                             <span class="stat-label">Check-in state</span>

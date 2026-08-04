@@ -967,6 +967,150 @@ if ($isParentView && !empty($parentTeam['id'])) {
     $parentLatestLocation = $latestLocationByTeam[(int)$parentTeam['id']] ?? null;
 }
 
+/**
+ * Tactical Leader Feed Data
+ * Only fetched for leaders — recent activity across the system.
+ */
+$tacticalCheckins = [];
+$tacticalPosts = [];
+$tacticalLogs = [];
+$tacticalAnnouncements = [];
+
+if ($isLeader) {
+    // 1. Recently reviewed (approved/rejected) check-ins
+    if (dashboard_table_exists($pdo, 'explorer_checkins')) {
+        try {
+            $stmt = $pdo->query(
+                'SELECT ec.*, t.name AS team_name, l.name AS reviewer_name
+                 FROM explorer_checkins ec
+                 LEFT JOIN teams t ON t.id = ec.team_id
+                 LEFT JOIN leaders l ON l.id = ec.reviewed_by
+                 WHERE ec.status IN ("approved", "rejected")
+                 ORDER BY ec.reviewed_at DESC
+                 LIMIT 15'
+            );
+            $tacticalCheckins = $stmt->fetchAll();
+        } catch (Throwable $e) {
+            // reviewed_at or reviewed_by columns may not exist — try fallback
+            try {
+                $stmt = $pdo->query(
+                    'SELECT ec.*, t.name AS team_name, NULL AS reviewer_name
+                     FROM explorer_checkins ec
+                     LEFT JOIN teams t ON t.id = ec.team_id
+                     WHERE ec.status IN ("approved", "rejected")
+                     ORDER BY ec.submitted_at DESC
+                     LIMIT 15'
+                );
+                $tacticalCheckins = $stmt->fetchAll();
+            } catch (Throwable $e2) {
+                $tacticalCheckins = [];
+            }
+        }
+    }
+
+    // 2. Recent posts sent (non-check-in posts)
+    try {
+        $stmt = $pdo->query(
+            'SELECT p.id, p.title, p.published_at, p.visibility, p.post_type,
+                    t.name AS team_name, l.name AS leader_name
+             FROM posts p
+             LEFT JOIN teams t ON t.id = p.team_id
+             LEFT JOIN leaders l ON l.id = p.leader_id
+             WHERE p.is_published = 1 AND p.post_type != "check_in"
+             ORDER BY p.published_at DESC
+             LIMIT 15'
+        );
+        $tacticalPosts = $stmt->fetchAll();
+    } catch (Throwable $e) {
+        $tacticalPosts = [];
+    }
+
+    // 3. Recent personal record logs (team_logs)
+    if (dashboard_table_exists($pdo, 'team_logs')) {
+        try {
+            $stmt = $pdo->query(
+                'SELECT tl.*, t.name AS team_name, l.name AS leader_name
+                 FROM team_logs tl
+                 LEFT JOIN teams t ON t.id = tl.team_id
+                 LEFT JOIN leaders l ON l.id = tl.leader_id
+                 ORDER BY tl.created_at DESC
+                 LIMIT 15'
+            );
+            $tacticalLogs = $stmt->fetchAll();
+        } catch (Throwable $e) {
+            $tacticalLogs = [];
+        }
+    }
+
+    // 4. Announcements with read/ack counts
+    if (dashboard_table_exists($pdo, 'announcements')) {
+        try {
+            $stmt = $pdo->query(
+                'SELECT a.id, a.title, a.team_id, a.created_at, l.name AS sender_name,
+                        CASE WHEN a.team_id IS NULL THEN "All Teams" ELSE t.name END AS target_name
+                 FROM announcements a
+                 LEFT JOIN leaders l ON l.id = a.sender_leader_id
+                 LEFT JOIN teams t ON t.id = a.team_id
+                 ORDER BY a.created_at DESC
+                 LIMIT 10'
+            );
+            $tacticalAnnouncements = $stmt->fetchAll();
+
+            // Fetch read counts per announcement
+            $tacticalAnnouncementReadCounts = [];
+            if (!empty($tacticalAnnouncements) && dashboard_table_exists($pdo, 'announcement_reads')) {
+                $annIds = array_map(fn($a) => (int)$a['id'], $tacticalAnnouncements);
+                $placeholders = implode(',', array_fill(0, count($annIds), '?'));
+                $stmt = $pdo->prepare(
+                    'SELECT announcement_id, COUNT(*) AS read_count
+                     FROM announcement_reads
+                     WHERE announcement_id IN (' . $placeholders . ')
+                     GROUP BY announcement_id'
+                );
+                $stmt->execute($annIds);
+                foreach ($stmt->fetchAll() as $row) {
+                    $tacticalAnnouncementReadCounts[(int)$row['announcement_id']] = (int)$row['read_count'];
+                }
+            }
+
+            // Fetch ack counts per announcement
+            $tacticalAnnouncementAckCounts = [];
+            if (!empty($tacticalAnnouncements) && dashboard_table_exists($pdo, 'announcement_acknowledgements')) {
+                $annIds = array_map(fn($a) => (int)$a['id'], $tacticalAnnouncements);
+                $placeholders = implode(',', array_fill(0, count($annIds), '?'));
+                $stmt = $pdo->prepare(
+                    'SELECT announcement_id, COUNT(*) AS ack_count
+                     FROM announcement_acknowledgements
+                     WHERE announcement_id IN (' . $placeholders . ')
+                     GROUP BY announcement_id'
+                );
+                $stmt->execute($annIds);
+                foreach ($stmt->fetchAll() as $row) {
+                    $tacticalAnnouncementAckCounts[(int)$row['announcement_id']] = (int)$row['ack_count'];
+                }
+            }
+
+            // Count total target teams for each announcement (for "X of Y read" display)
+            $tacticalAnnouncementTargetCounts = [];
+            try {
+                $totalActiveTeams = (int)$pdo->query('SELECT COUNT(*) FROM teams WHERE is_active = 1')->fetchColumn();
+            } catch (Throwable $e) {
+                $totalActiveTeams = (int)$pdo->query('SELECT COUNT(*) FROM teams')->fetchColumn();
+            }
+            foreach ($tacticalAnnouncements as $ann) {
+                $tacticalAnnouncementTargetCounts[(int)$ann['id']] = $ann['team_id'] === null
+                    ? $totalActiveTeams
+                    : 1;
+            }
+        } catch (Throwable $e) {
+            $tacticalAnnouncements = [];
+            $tacticalAnnouncementReadCounts = [];
+            $tacticalAnnouncementAckCounts = [];
+            $tacticalAnnouncementTargetCounts = [];
+        }
+    }
+}
+
 include __DIR__ . '/header.php';
 ?>
 
@@ -1847,6 +1991,398 @@ include __DIR__ . '/header.php';
             height: 200px;
         }
     }
+
+    /* ===== TACTICAL LEADER VIEW ===== */
+
+    .view-toggle-wrap {
+        display: flex;
+        gap: 0;
+        margin-bottom: 1.5rem;
+        border: 2px solid #1d1d1d;
+        width: fit-content;
+    }
+
+    .view-toggle-btn {
+        padding: 0.6rem 1.25rem;
+        font-weight: 900;
+        font-size: 0.95rem;
+        border: none;
+        background: #f3f2f1;
+        color: #1d1d1d;
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s;
+    }
+
+    .view-toggle-btn:first-child {
+        border-right: 2px solid #1d1d1d;
+    }
+
+    .view-toggle-btn:hover {
+        background: #e8e6e3;
+    }
+
+    .view-toggle-btn.active {
+        background: #7413dc;
+        color: #ffffff;
+    }
+
+    .parent-view-hidden {
+        display: none;
+    }
+
+    .tactical-view {
+        margin-bottom: 2rem;
+    }
+
+    .tactical-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 340px;
+        gap: 1.5rem;
+        align-items: start;
+    }
+
+    @media (max-width: 980px) {
+        .tactical-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .tactical-feed h2 {
+        font-weight: 900;
+        margin-bottom: 0.25rem;
+    }
+
+    .tactical-timeline {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .tactical-item {
+        display: grid;
+        grid-template-columns: 42px minmax(0, 1fr);
+        gap: 0.75rem;
+        padding: 1rem 0;
+        border-bottom: 1px solid #d8d8d8;
+        align-items: start;
+    }
+
+    .tactical-item:first-child {
+        padding-top: 0;
+    }
+
+    .tactical-item:last-child {
+        border-bottom: none;
+    }
+
+    .tactical-item-icon {
+        width: 42px;
+        height: 42px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.2rem;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    .tactical-icon-checkin {
+        background: #e6f4ea;
+        color: #00703c;
+        border: 2px solid #00703c;
+    }
+
+    .tactical-icon-post {
+        background: #eef7ff;
+        color: #1d70b8;
+        border: 2px solid #1d70b8;
+    }
+
+    .tactical-icon-log {
+        background: #fef3e0;
+        color: #b45309;
+        border: 2px solid #b45309;
+    }
+
+    .tactical-icon-announcement {
+        background: #f3e8ff;
+        color: #7413dc;
+        border: 2px solid #7413dc;
+    }
+
+    .tactical-item-content {
+        min-width: 0;
+    }
+
+    .tactical-item-title {
+        font-weight: 900;
+        margin: 0 0 0.25rem;
+        font-size: 0.95rem;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .tactical-item-detail {
+        margin: 0 0 0.25rem;
+        font-size: 0.9rem;
+        color: #1d1d1d;
+        line-height: 1.4;
+    }
+
+    .tactical-item-actor {
+        color: #505a5f;
+        font-weight: 600;
+    }
+
+    .tactical-item-time {
+        margin: 0;
+        font-size: 0.82rem;
+        color: #505a5f;
+        font-weight: 600;
+    }
+
+    .tactical-badge {
+        display: inline-block;
+        padding: 0.1rem 0.4rem;
+        font-size: 0.75rem;
+        font-weight: 800;
+        border: 1px solid;
+        border-radius: 2px;
+    }
+
+    .tactical-badge-approved {
+        background: #e6f4ea;
+        color: #00703c;
+        border-color: #00703c;
+    }
+
+    .tactical-badge-rejected {
+        background: #fde8e8;
+        color: #d4351c;
+        border-color: #d4351c;
+    }
+
+    .tactical-badge-post {
+        background: #eef7ff;
+        color: #1d70b8;
+        border-color: #1d70b8;
+    }
+
+    .tactical-announcement-stats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+        margin: 0.35rem 0 0.25rem;
+    }
+
+    .tactical-stat {
+        font-size: 0.82rem;
+        font-weight: 800;
+        color: #505a5f;
+        background: #f3f2f1;
+        padding: 0.15rem 0.4rem;
+        border: 1px solid #d8d8d8;
+    }
+
+    .tactical-link {
+        font-size: 0.82rem;
+        font-weight: 800;
+        color: #1d70b8;
+        text-decoration: underline;
+    }
+
+    /* Tactical Sidebar */
+
+    .tactical-sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .tactical-stat-card {
+        border: 2px solid #d8d8d8;
+        background: #ffffff;
+        padding: 1.25rem;
+    }
+
+    .tactical-stat-card h3 {
+        margin: 0 0 0.75rem;
+        font-size: 1.05rem;
+        font-weight: 900;
+    }
+
+    .tactical-stat-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .tactical-stat-box {
+        text-align: center;
+        padding: 0.75rem 0.5rem;
+        border: 2px solid #d8d8d8;
+    }
+
+    .tactical-stat-number {
+        display: block;
+        font-size: 1.75rem;
+        font-weight: 900;
+        line-height: 1;
+        margin-bottom: 0.25rem;
+    }
+
+    .tactical-stat-label {
+        display: block;
+        font-size: 0.78rem;
+        font-weight: 700;
+        color: #505a5f;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+    }
+
+    .tactical-stat-good {
+        border-color: #00703c;
+    }
+
+    .tactical-stat-good .tactical-stat-number {
+        color: #00703c;
+    }
+
+    .tactical-stat-warn {
+        border-color: #b45309;
+    }
+
+    .tactical-stat-warn .tactical-stat-number {
+        color: #b45309;
+    }
+
+    .tactical-stat-danger {
+        border-color: #d4351c;
+    }
+
+    .tactical-stat-danger .tactical-stat-number {
+        color: #d4351c;
+    }
+
+    .tactical-stat-footer {
+        margin: 0;
+        font-size: 0.85rem;
+        color: #505a5f;
+        font-weight: 600;
+    }
+
+    .tactical-quick-links {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .tactical-quick-links li {
+        border-bottom: 1px solid #d8d8d8;
+    }
+
+    .tactical-quick-links li:last-child {
+        border-bottom: none;
+    }
+
+    .tactical-quick-links a {
+        display: block;
+        padding: 0.6rem 0;
+        font-weight: 800;
+        color: #1d70b8;
+        text-decoration: none;
+    }
+
+    .tactical-quick-links a:hover,
+    .tactical-quick-links a:focus {
+        text-decoration: underline;
+        color: #003078;
+    }
+
+    .tactical-announcement-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .tactical-announcement-list li {
+        border-bottom: 1px solid #d8d8d8;
+        padding: 0.55rem 0;
+    }
+
+    .tactical-announcement-list li:last-child {
+        border-bottom: none;
+    }
+
+    .tactical-announcement-list a {
+        display: block;
+        font-weight: 800;
+        color: #1d70b8;
+        text-decoration: none;
+        margin-bottom: 0.15rem;
+    }
+
+    .tactical-announcement-list a:hover,
+    .tactical-announcement-list a:focus {
+        text-decoration: underline;
+    }
+
+    .tactical-ann-meta {
+        display: block;
+        font-size: 0.8rem;
+        color: #505a5f;
+        font-weight: 600;
+    }
+
+    /* Tactical mobile */
+    @media (max-width: 480px) {
+        .view-toggle-wrap {
+            width: 100%;
+        }
+
+        .view-toggle-btn {
+            flex: 1;
+            text-align: center;
+            padding: 0.55rem 0.5rem;
+            font-size: 0.88rem;
+        }
+
+        .tactical-item {
+            grid-template-columns: 36px minmax(0, 1fr);
+            gap: 0.5rem;
+            padding: 0.75rem 0;
+        }
+
+        .tactical-item-icon {
+            width: 36px;
+            height: 36px;
+            font-size: 1rem;
+        }
+
+        .tactical-item-title {
+            font-size: 0.88rem;
+        }
+
+        .tactical-item-detail {
+            font-size: 0.84rem;
+        }
+
+        .tactical-stat-grid {
+            gap: 0.35rem;
+        }
+
+        .tactical-stat-number {
+            font-size: 1.4rem;
+        }
+
+        .tactical-stat-card {
+            padding: 1rem;
+        }
+    }
 </style>
 
 <section class="page-hero">
@@ -1894,6 +2430,268 @@ include __DIR__ . '/header.php';
         <?php if (is_readonly()): ?>
             <div class="alert alert-info">You have read-only access. You can view all data but cannot make changes or send emails.</div>
         <?php endif; ?>
+
+        <!-- View Toggle -->
+        <div class="view-toggle-wrap">
+            <button type="button" class="view-toggle-btn active" id="btn-tactical-view" aria-pressed="true">
+                Tactical view
+            </button>
+            <button type="button" class="view-toggle-btn" id="btn-parent-view" aria-pressed="false">
+                Parent view
+            </button>
+        </div>
+
+        <!-- Tactical Leader View -->
+        <div id="tactical-view" class="tactical-view">
+            <div class="tactical-grid">
+
+                <!-- Activity Feed -->
+                <div class="tactical-feed">
+                    <h2>Activity feed</h2>
+                    <p class="muted">Recent activity across all teams.</p>
+
+                    <?php
+                    // Merge all tactical items into a single timeline
+                    $tacticalItems = [];
+
+                    foreach ($tacticalCheckins as $ci) {
+                        $tacticalItems[] = [
+                            'type' => 'checkin',
+                            'time' => $ci['reviewed_at'] ?? $ci['submitted_at'] ?? '',
+                            'data' => $ci,
+                        ];
+                    }
+
+                    foreach ($tacticalPosts as $tp) {
+                        $tacticalItems[] = [
+                            'type' => 'post',
+                            'time' => $tp['published_at'] ?? '',
+                            'data' => $tp,
+                        ];
+                    }
+
+                    foreach ($tacticalLogs as $tl) {
+                        $tacticalItems[] = [
+                            'type' => 'log',
+                            'time' => $tl['created_at'] ?? '',
+                            'data' => $tl,
+                        ];
+                    }
+
+                    foreach ($tacticalAnnouncements as $ta) {
+                        $tacticalItems[] = [
+                            'type' => 'announcement',
+                            'time' => $ta['created_at'] ?? '',
+                            'data' => $ta,
+                        ];
+                    }
+
+                    // Sort by time descending
+                    usort($tacticalItems, function ($a, $b) {
+                        return strtotime($b['time'] ?: '1970-01-01') - strtotime($a['time'] ?: '1970-01-01');
+                    });
+
+                    $tacticalItems = array_slice($tacticalItems, 0, 30);
+                    ?>
+
+                    <?php if (empty($tacticalItems)): ?>
+                        <div class="empty-feed">No recent activity to show.</div>
+                    <?php else: ?>
+                        <div class="tactical-timeline">
+                            <?php foreach ($tacticalItems as $item): ?>
+                                <?php if ($item['type'] === 'checkin'): ?>
+                                    <?php $ci = $item['data']; ?>
+                                    <div class="tactical-item tactical-item-checkin">
+                                        <div class="tactical-item-icon tactical-icon-checkin" aria-hidden="true">&#10003;</div>
+                                        <div class="tactical-item-content">
+                                            <p class="tactical-item-title">
+                                                Check-in reviewed
+                                                <span class="tactical-badge tactical-badge-<?= e($ci['status'] ?? 'approved') ?>">
+                                                    <?= e(ucfirst($ci['status'] ?? 'approved')) ?>
+                                                </span>
+                                            </p>
+                                            <p class="tactical-item-detail">
+                                                <strong><?= e($ci['team_name'] ?? 'Unknown team') ?></strong>
+                                                <?php if (!empty($ci['location_name'])): ?>
+                                                    &mdash; <?= e($ci['location_name']) ?>
+                                                <?php endif; ?>
+                                                <?php if (!empty($ci['reviewer_name'])): ?>
+                                                    <span class="tactical-item-actor">by <?= e($ci['reviewer_name']) ?></span>
+                                                <?php endif; ?>
+                                            </p>
+                                            <p class="tactical-item-time"><?= e(dashboard_relative_time($item['time'])) ?></p>
+                                        </div>
+                                    </div>
+
+                                <?php elseif ($item['type'] === 'post'): ?>
+                                    <?php $tp = $item['data']; ?>
+                                    <div class="tactical-item tactical-item-post">
+                                        <div class="tactical-item-icon tactical-icon-post" aria-hidden="true">&#9998;</div>
+                                        <div class="tactical-item-content">
+                                            <p class="tactical-item-title">
+                                                Post sent
+                                                <span class="tactical-badge tactical-badge-post"><?= e(ucfirst(str_replace('_', ' ', $tp['post_type'] ?? 'general'))) ?></span>
+                                            </p>
+                                            <p class="tactical-item-detail">
+                                                <strong><?= e($tp['title']) ?></strong>
+                                                &mdash; <?= e($tp['team_name'] ?: 'All teams') ?>
+                                                <?php if (!empty($tp['leader_name'])): ?>
+                                                    <span class="tactical-item-actor">by <?= e($tp['leader_name']) ?></span>
+                                                <?php endif; ?>
+                                            </p>
+                                            <p class="tactical-item-time"><?= e(dashboard_relative_time($item['time'])) ?></p>
+                                        </div>
+                                    </div>
+
+                                <?php elseif ($item['type'] === 'log'): ?>
+                                    <?php $tl = $item['data']; ?>
+                                    <div class="tactical-item tactical-item-log">
+                                        <div class="tactical-item-icon tactical-icon-log" aria-hidden="true">&#128221;</div>
+                                        <div class="tactical-item-content">
+                                            <p class="tactical-item-title">
+                                                Personal record log
+                                            </p>
+                                            <p class="tactical-item-detail">
+                                                <strong><?= e($tl['title']) ?></strong>
+                                                &mdash; <?= e($tl['team_name'] ?? 'Unknown team') ?>
+                                                <?php if (!empty($tl['leader_name'])): ?>
+                                                    <span class="tactical-item-actor">by <?= e($tl['leader_name']) ?></span>
+                                                <?php endif; ?>
+                                            </p>
+                                            <p class="tactical-item-time"><?= e(dashboard_relative_time($item['time'])) ?></p>
+                                        </div>
+                                    </div>
+
+                                <?php elseif ($item['type'] === 'announcement'): ?>
+                                    <?php
+                                    $ta = $item['data'];
+                                    $annId = (int)$ta['id'];
+                                    $readCount = $tacticalAnnouncementReadCounts[$annId] ?? 0;
+                                    $ackCount = $tacticalAnnouncementAckCounts[$annId] ?? 0;
+                                    $targetCount = $tacticalAnnouncementTargetCounts[$annId] ?? 0;
+                                    ?>
+                                    <div class="tactical-item tactical-item-announcement">
+                                        <div class="tactical-item-icon tactical-icon-announcement" aria-hidden="true">&#128227;</div>
+                                        <div class="tactical-item-content">
+                                            <p class="tactical-item-title">
+                                                Announcement sent
+                                            </p>
+                                            <p class="tactical-item-detail">
+                                                <strong><?= e($ta['title']) ?></strong>
+                                                &mdash; <?= e($ta['target_name'] ?? 'All Teams') ?>
+                                                <?php if (!empty($ta['sender_name'])): ?>
+                                                    <span class="tactical-item-actor">by <?= e($ta['sender_name']) ?></span>
+                                                <?php endif; ?>
+                                            </p>
+                                            <div class="tactical-announcement-stats">
+                                                <span class="tactical-stat">
+                                                    <?= (int)$readCount ?> read<?= $readCount !== 1 ? 's' : '' ?>
+                                                </span>
+                                                <span class="tactical-stat">
+                                                    <?= (int)$ackCount ?> of <?= (int)$targetCount ?> acknowledged
+                                                </span>
+                                                <a href="<?= e(url('announcements_sent.php?id=' . $annId)) ?>" class="tactical-link">View details &rarr;</a>
+                                            </div>
+                                            <p class="tactical-item-time"><?= e(dashboard_relative_time($item['time'])) ?></p>
+                                        </div>
+                                    </div>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
+
+                <!-- Tactical Sidebar: Quick Stats -->
+                <aside class="tactical-sidebar">
+                    <div class="tactical-stat-card">
+                        <h3>Today's check-ins</h3>
+                        <?php
+                        $approvedToday = 0;
+                        $pendingToday = count($pendingCheckinTodayByTeam);
+                        $overdueToday = 0;
+                        foreach ($teams as $team) {
+                            $tid = (int)$team['id'];
+                            $ll = $latestLocationByTeam[$tid] ?? null;
+                            $hp = !empty($pendingCheckinTodayByTeam[$tid]);
+                            $st = dashboard_checkin_state($team, $ll, $hp);
+                            if ($st['class'] === 'checkin-state-approved') $approvedToday++;
+                            if ($st['class'] === 'checkin-state-overdue') $overdueToday++;
+                        }
+                        ?>
+                        <div class="tactical-stat-grid">
+                            <div class="tactical-stat-box tactical-stat-good">
+                                <span class="tactical-stat-number"><?= $approvedToday ?></span>
+                                <span class="tactical-stat-label">Approved</span>
+                            </div>
+                            <div class="tactical-stat-box tactical-stat-warn">
+                                <span class="tactical-stat-number"><?= $pendingToday ?></span>
+                                <span class="tactical-stat-label">Pending</span>
+                            </div>
+                            <div class="tactical-stat-box tactical-stat-danger">
+                                <span class="tactical-stat-number"><?= $overdueToday ?></span>
+                                <span class="tactical-stat-label">Overdue</span>
+                            </div>
+                        </div>
+                        <p class="tactical-stat-footer">
+                            Finland time: <?= e(dashboard_finland_now()->format('H:i')) ?>
+                        </p>
+                    </div>
+
+                    <div class="tactical-stat-card">
+                        <h3>Quick links</h3>
+                        <ul class="tactical-quick-links">
+                            <li><a href="<?= e(url('team_links.php')) ?>">Team check-ins</a></li>
+                            <li><a href="<?= e(url('announcements_manage.php')) ?>">Announcements</a></li>
+                            <li><a href="<?= e(url('announcements_sent.php')) ?>">Announcement reads</a></li>
+                            <li><a href="<?= e(url('add_update.php')) ?>">Send new update</a></li>
+                            <li><a href="<?= e(url('analytics.php')) ?>">Analytics</a></li>
+                        </ul>
+                    </div>
+
+                    <div class="tactical-stat-card">
+                        <h3>Recent announcements</h3>
+                        <?php if (empty($tacticalAnnouncements)): ?>
+                            <p class="muted">No announcements yet.</p>
+                        <?php else: ?>
+                            <ul class="tactical-announcement-list">
+                                <?php foreach (array_slice($tacticalAnnouncements, 0, 5) as $ann): ?>
+                                    <?php
+                                    $aId = (int)$ann['id'];
+                                    $rc = $tacticalAnnouncementReadCounts[$aId] ?? 0;
+                                    $ac = $tacticalAnnouncementAckCounts[$aId] ?? 0;
+                                    $tc = $tacticalAnnouncementTargetCounts[$aId] ?? 0;
+                                    ?>
+                                    <li>
+                                        <a href="<?= e(url('announcements_sent.php?id=' . $aId)) ?>">
+                                            <?= e($ann['title']) ?>
+                                        </a>
+                                        <span class="tactical-ann-meta">
+                                            <?= (int)$ac ?>/<?= (int)$tc ?> ack &middot; <?= (int)$rc ?> reads
+                                        </span>
+                                    </li>
+                                <?php endforeach; ?>
+                            </ul>
+                        <?php endif; ?>
+                    </div>
+                </aside>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <!-- Parent/Posts View (visible to parents always, togglable for leaders) -->
+    <div id="parent-view" class="<?= $isLeader ? 'parent-view-hidden' : '' ?>">
+
+    <?php if ($isLeader): ?>
+        <div class="dashboard-actions">
+            <?php if (!is_readonly()): ?>
+            <a class="btn btn-primary" href="<?= e(url('add_update.php')) ?>">Add update</a>
+            <?php endif; ?>
+            <a class="btn btn-outline-primary" href="<?= e(url('team_links.php')) ?>">Manage teams</a>
+            <a class="btn btn-outline-primary" href="<?= e(url('leaders.php')) ?>">Manage leaders</a>
+            <?php if (!is_readonly()): ?>
+            <a class="btn btn-primary" href="<?= e(url('email_all.php')) ?>">Email to all</a>
+            <?php endif; ?>
+        </div>
     <?php endif; ?>
 
     <div class="dashboard-layout">
@@ -2595,6 +3393,8 @@ include __DIR__ . '/header.php';
 
     </div>
 
+    </div><!-- /#parent-view -->
+
 </main>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -2709,5 +3509,59 @@ include __DIR__ . '/header.php';
         }
     })();
 </script>
+
+<?php if ($isLeader): ?>
+<script>
+    (function () {
+        var btnTactical = document.getElementById('btn-tactical-view');
+        var btnParent = document.getElementById('btn-parent-view');
+        var tacticalView = document.getElementById('tactical-view');
+        var parentView = document.getElementById('parent-view');
+
+        if (!btnTactical || !btnParent || !tacticalView || !parentView) {
+            return;
+        }
+
+        var STORAGE_KEY = 'dashboard_view_preference';
+
+        function showTactical() {
+            tacticalView.style.display = '';
+            parentView.classList.add('parent-view-hidden');
+            btnTactical.classList.add('active');
+            btnTactical.setAttribute('aria-pressed', 'true');
+            btnParent.classList.remove('active');
+            btnParent.setAttribute('aria-pressed', 'false');
+
+            try { localStorage.setItem(STORAGE_KEY, 'tactical'); } catch (e) {}
+        }
+
+        function showParent() {
+            tacticalView.style.display = 'none';
+            parentView.classList.remove('parent-view-hidden');
+            btnParent.classList.add('active');
+            btnParent.setAttribute('aria-pressed', 'true');
+            btnTactical.classList.remove('active');
+            btnTactical.setAttribute('aria-pressed', 'false');
+
+            try { localStorage.setItem(STORAGE_KEY, 'parent'); } catch (e) {}
+        }
+
+        btnTactical.addEventListener('click', showTactical);
+        btnParent.addEventListener('click', showParent);
+
+        // Restore preference from localStorage
+        try {
+            var saved = localStorage.getItem(STORAGE_KEY);
+            if (saved === 'parent') {
+                showParent();
+            } else {
+                showTactical();
+            }
+        } catch (e) {
+            showTactical();
+        }
+    })();
+</script>
+<?php endif; ?>
 
 <?php include __DIR__ . '/footer.php'; ?>
