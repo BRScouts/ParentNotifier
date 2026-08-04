@@ -977,7 +977,7 @@ $tacticalLogs = [];
 $tacticalAnnouncements = [];
 
 if ($isLeader) {
-    // 1. Recently reviewed (approved/rejected) check-ins
+    // 1. Recent check-ins (all statuses — pending, approved, reviewed, rejected)
     if (dashboard_table_exists($pdo, 'explorer_checkins')) {
         try {
             $stmt = $pdo->query(
@@ -985,21 +985,18 @@ if ($isLeader) {
                  FROM explorer_checkins ec
                  LEFT JOIN teams t ON t.id = ec.team_id
                  LEFT JOIN leaders l ON l.id = ec.reviewed_by
-                 WHERE ec.status IN ("approved", "rejected")
-                 ORDER BY ec.reviewed_at DESC
-                 LIMIT 15'
+                 ORDER BY ec.submitted_at DESC
+                 LIMIT 20'
             );
             $tacticalCheckins = $stmt->fetchAll();
         } catch (Throwable $e) {
-            // reviewed_at or reviewed_by columns may not exist — try fallback
             try {
                 $stmt = $pdo->query(
                     'SELECT ec.*, t.name AS team_name, NULL AS reviewer_name, NULL AS reviewer_photo
                      FROM explorer_checkins ec
                      LEFT JOIN teams t ON t.id = ec.team_id
-                     WHERE ec.status IN ("approved", "rejected")
                      ORDER BY ec.submitted_at DESC
-                     LIMIT 15'
+                     LIMIT 20'
                 );
                 $tacticalCheckins = $stmt->fetchAll();
             } catch (Throwable $e2) {
@@ -2279,7 +2276,7 @@ include __DIR__ . '/header.php';
                     foreach ($tacticalCheckins as $ci) {
                         $tacticalItems[] = [
                             'type' => 'checkin',
-                            'time' => $ci['reviewed_at'] ?? $ci['submitted_at'] ?? '',
+                            'time' => $ci['submitted_at'] ?? '',
                             'data' => $ci,
                         ];
                     }
@@ -2323,8 +2320,9 @@ include __DIR__ . '/header.php';
                             <?php if ($item['type'] === 'checkin'): ?>
                                 <?php
                                 $ci = $item['data'];
-                                $ciName = $ci['reviewer_name'] ?? 'Leader';
+                                $ciName = $ci['reviewer_name'] ?? ($ci['submitted_by'] ?? 'Explorer');
                                 $ciPhoto = !empty($ci['reviewer_photo']) ? media_url($ci['reviewer_photo']) : '';
+                                $ciStatus = $ci['status'] ?? 'pending';
                                 ?>
                                 <article class="feed-card">
                                     <div class="feed-card-header">
@@ -2339,19 +2337,23 @@ include __DIR__ . '/header.php';
                                                 <?php endif; ?>
                                             </div>
                                             <div class="feed-title-block">
-                                                <h2>Check-in reviewed</h2>
+                                                <h2><?= e($ci['team_name'] ?? 'Unknown team') ?> — Check-in</h2>
                                                 <p class="feed-meta">
-                                                    <span><?= e($ci['team_name'] ?? 'Unknown team') ?></span>
-                                                    <span class="meta-separator">|</span>
+                                                    <?php if (!empty($ci['submitted_by'])): ?>
+                                                        <span>Submitted by <?= e($ci['submitted_by']) ?></span>
+                                                        <span class="meta-separator">|</span>
+                                                    <?php endif; ?>
                                                     <span><?= e(dashboard_relative_time($item['time'])) ?></span>
-                                                    <span class="meta-separator">|</span>
-                                                    <span><?= e($ciName) ?></span>
+                                                    <?php if (!empty($ci['reviewer_name'])): ?>
+                                                        <span class="meta-separator">|</span>
+                                                        <span>Reviewed by <?= e($ci['reviewer_name']) ?></span>
+                                                    <?php endif; ?>
                                                 </p>
                                             </div>
                                         </div>
                                         <div class="feed-badge-row">
                                             <span class="feed-badge" style="background:#00703c;color:#fff;border-color:#00703c;">Check-in</span>
-                                            <span class="feed-badge"><?= e(ucfirst($ci['status'] ?? 'approved')) ?></span>
+                                            <span class="feed-badge"><?= e(ucfirst($ciStatus)) ?></span>
                                         </div>
                                     </div>
                                     <div class="feed-card-body">
@@ -2360,10 +2362,22 @@ include __DIR__ . '/header.php';
                                                 <p><strong>Location:</strong> <?= e($ci['location_name']) ?></p>
                                             <?php endif; ?>
                                             <?php if (!empty($ci['miles_covered'])): ?>
-                                                <p><strong>Miles today:</strong> <?= e(number_format((float)$ci['miles_covered'], 1)) ?></p>
+                                                <p><strong>Miles on foot today:</strong> <?= e(number_format((float)$ci['miles_covered'], 1)) ?></p>
                                             <?php endif; ?>
                                             <?php if (!empty($ci['welfare_notes'])): ?>
-                                                <p><strong>Welfare:</strong> <?= e($ci['welfare_notes']) ?></p>
+                                                <p><strong>Welfare notes:</strong> <?= e($ci['welfare_notes']) ?></p>
+                                            <?php endif; ?>
+                                            <?php if (!empty($ci['has_injuries']) && $ci['has_injuries']): ?>
+                                                <p><strong>Injuries reported:</strong> Yes</p>
+                                            <?php endif; ?>
+                                            <?php if (!empty($ci['has_medication']) && $ci['has_medication']): ?>
+                                                <p><strong>Medication needed:</strong> Yes</p>
+                                            <?php endif; ?>
+                                            <?php if (!empty($ci['accommodation_type'])): ?>
+                                                <p><strong>Accommodation:</strong> <?= e($ci['accommodation_type']) ?></p>
+                                            <?php endif; ?>
+                                            <?php if (!empty($ci['accommodation_notes'])): ?>
+                                                <p><strong>Accommodation notes:</strong> <?= e($ci['accommodation_notes']) ?></p>
                                             <?php endif; ?>
                                         </div>
                                     </div>
