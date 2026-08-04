@@ -223,6 +223,14 @@ function dashboard_pagination_url(int $page): string
     return url('dashboard.php?' . http_build_query($params));
 }
 
+function tactical_pagination_url(int $tpage): string
+{
+    $params = $_GET;
+    $params['tpage'] = max(1, $tpage);
+
+    return url('dashboard.php?' . http_build_query($params));
+}
+
 /**
  * Upload helpers
  */
@@ -986,7 +994,7 @@ if ($isLeader) {
                  LEFT JOIN teams t ON t.id = ec.team_id
                  LEFT JOIN leaders l ON l.id = ec.reviewed_by
                  ORDER BY ec.submitted_at DESC
-                 LIMIT 20'
+                 LIMIT 100'
             );
             $tacticalCheckins = $stmt->fetchAll();
         } catch (Throwable $e) {
@@ -996,7 +1004,7 @@ if ($isLeader) {
                      FROM explorer_checkins ec
                      LEFT JOIN teams t ON t.id = ec.team_id
                      ORDER BY ec.submitted_at DESC
-                     LIMIT 20'
+                     LIMIT 100'
                 );
                 $tacticalCheckins = $stmt->fetchAll();
             } catch (Throwable $e2) {
@@ -1015,7 +1023,7 @@ if ($isLeader) {
              LEFT JOIN leaders l ON l.id = p.leader_id
              WHERE p.is_published = 1 AND p.post_type != "check_in"
              ORDER BY p.published_at DESC
-             LIMIT 15'
+             LIMIT 100'
         );
         $tacticalPosts = $stmt->fetchAll();
     } catch (Throwable $e) {
@@ -1031,7 +1039,7 @@ if ($isLeader) {
                  LEFT JOIN teams t ON t.id = tl.team_id
                  LEFT JOIN leaders l ON l.id = tl.leader_id
                  ORDER BY tl.created_at DESC
-                 LIMIT 15'
+                 LIMIT 100'
             );
             $tacticalLogs = $stmt->fetchAll();
         } catch (Throwable $e) {
@@ -1049,7 +1057,7 @@ if ($isLeader) {
                  LEFT JOIN leaders l ON l.id = a.sender_leader_id
                  LEFT JOIN teams t ON t.id = a.team_id
                  ORDER BY a.created_at DESC
-                 LIMIT 10'
+                 LIMIT 50'
             );
             $tacticalAnnouncements = $stmt->fetchAll();
 
@@ -2267,7 +2275,6 @@ include __DIR__ . '/header.php';
                 <!-- Activity Feed -->
                 <div class="tactical-feed">
                     <h2>Activity feed</h2>
-                    <p class="muted">Recent activity across all teams and leaders.</p>
 
                     <?php
                     // Merge all tactical items into a single timeline
@@ -2310,8 +2317,19 @@ include __DIR__ . '/header.php';
                         return strtotime($b['time'] ?: '1970-01-01') - strtotime($a['time'] ?: '1970-01-01');
                     });
 
-                    $tacticalItems = array_slice($tacticalItems, 0, 30);
+                    // Pagination
+                    $tacticalPerPage = 15;
+                    $tacticalPage = max(1, (int)($_GET['tpage'] ?? 1));
+                    $tacticalTotal = count($tacticalItems);
+                    $tacticalTotalPages = max(1, (int)ceil($tacticalTotal / $tacticalPerPage));
+                    $tacticalOffset = ($tacticalPage - 1) * $tacticalPerPage;
+                    $tacticalItems = array_slice($tacticalItems, $tacticalOffset, $tacticalPerPage);
                     ?>
+
+                    <p class="muted">
+                        Page <?= (int)$tacticalPage ?> of <?= (int)$tacticalTotalPages ?>.
+                        <?= (int)$tacticalTotal ?> item<?= $tacticalTotal === 1 ? '' : 's' ?> total.
+                    </p>
 
                     <?php if (empty($tacticalItems)): ?>
                         <div class="empty-feed">No recent activity to show.</div>
@@ -2380,6 +2398,11 @@ include __DIR__ . '/header.php';
                                                 <p><strong>Accommodation notes:</strong> <?= e($ci['accommodation_notes']) ?></p>
                                             <?php endif; ?>
                                         </div>
+                                        <?php if (!empty($ci['team_id'])): ?>
+                                            <a href="<?= e(url('team_links.php?view=team&team_id=' . (int)$ci['team_id'])) ?>" class="btn btn-outline-primary btn-sm" style="margin-top:0.75rem;">
+                                                View team
+                                            </a>
+                                        <?php endif; ?>
                                     </div>
                                 </article>
 
@@ -2511,6 +2534,53 @@ include __DIR__ . '/header.php';
                                 </article>
                             <?php endif; ?>
                         <?php endforeach; ?>
+
+                        <?php if ($tacticalTotalPages > 1): ?>
+                            <nav class="pagination-wrap" aria-label="Activity feed pagination">
+                                <?php if ($tacticalPage > 1): ?>
+                                    <a class="pagination-link" href="<?= e(tactical_pagination_url($tacticalPage - 1)) ?>">
+                                        Previous
+                                    </a>
+                                <?php endif; ?>
+
+                                <?php
+                                $tStartPage = max(1, $tacticalPage - 2);
+                                $tEndPage = min($tacticalTotalPages, $tacticalPage + 2);
+                                ?>
+
+                                <?php if ($tStartPage > 1): ?>
+                                    <a class="pagination-link" href="<?= e(tactical_pagination_url(1)) ?>">1</a>
+                                    <?php if ($tStartPage > 2): ?>
+                                        <span class="muted">...</span>
+                                    <?php endif; ?>
+                                <?php endif; ?>
+
+                                <?php for ($ti = $tStartPage; $ti <= $tEndPage; $ti++): ?>
+                                    <?php if ($ti === $tacticalPage): ?>
+                                        <span class="pagination-current"><?= (int)$ti ?></span>
+                                    <?php else: ?>
+                                        <a class="pagination-link" href="<?= e(tactical_pagination_url($ti)) ?>">
+                                            <?= (int)$ti ?>
+                                        </a>
+                                    <?php endif; ?>
+                                <?php endfor; ?>
+
+                                <?php if ($tEndPage < $tacticalTotalPages): ?>
+                                    <?php if ($tEndPage < $tacticalTotalPages - 1): ?>
+                                        <span class="muted">...</span>
+                                    <?php endif; ?>
+                                    <a class="pagination-link" href="<?= e(tactical_pagination_url($tacticalTotalPages)) ?>">
+                                        <?= (int)$tacticalTotalPages ?>
+                                    </a>
+                                <?php endif; ?>
+
+                                <?php if ($tacticalPage < $tacticalTotalPages): ?>
+                                    <a class="pagination-link" href="<?= e(tactical_pagination_url($tacticalPage + 1)) ?>">
+                                        Next
+                                    </a>
+                                <?php endif; ?>
+                            </nav>
+                        <?php endif; ?>
                     <?php endif; ?>
                 </div>
 
