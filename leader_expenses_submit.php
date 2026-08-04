@@ -416,7 +416,6 @@ include __DIR__ . '/header.php';
                             id="receipt"
                             name="receipt"
                             accept="image/*,application/pdf"
-                            capture="environment"
                         >
                         <small class="form-text text-muted">JPG, PNG, WEBP, GIF or PDF. Max 10MB.</small>
                     </div>

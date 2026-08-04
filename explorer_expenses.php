@@ -677,7 +677,7 @@ body { background: #f3f2f1; color: #1d1d1d; }
                         <div class="rd-hint">JPG, PNG, PDF up to 10MB</div>
                     </div>
                     <input type="file" id="receipt" name="receipt" accept="image/*,application/pdf"
-                           capture="environment" style="display:none;">
+                           style="display:none;">
 
                     <div class="no-receipt-section" style="margin-top:0.75rem;">
                         <label class="no-receipt-toggle" style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; font-weight:600; font-size:0.9rem;">
@@ -834,7 +834,7 @@ body { background: #f3f2f1; color: #1d1d1d; }
                     <div class="rd-hint">JPG, PNG, PDF up to 10MB</div>
                 </div>
                 <input type="file" id="edit_receipt" name="receipt" accept="image/*,application/pdf"
-                       capture="environment" style="display:none;">
+                       style="display:none;">
 
                 <div class="no-receipt-section" style="margin-top:0.75rem;">
                     <label class="no-receipt-toggle" style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; font-weight:600; font-size:0.9rem;">
