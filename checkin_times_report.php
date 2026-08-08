@@ -4,6 +4,7 @@
  *
  * Shows explorer check-in times vs the 7pm (19:00) deadline each day,
  * whether they were on time or late, minutes missed, and per-team leaderboard.
+ * Also includes leader review speed leaderboard, best/worst day, earliest/latest per team.
  *
  * Cut-off: check-ins up to 03:00 the next day count towards the previous day's deadline.
  */
@@ -33,13 +34,17 @@ try {
             ec.id,
             ec.team_id,
             ec.submitted_at,
+            ec.reviewed_at,
+            ec.reviewed_by,
             ec.submitted_by,
             ec.location_name,
             ec.status,
             ec.miles_covered,
-            t.name AS team_name
+            t.name AS team_name,
+            l.name AS reviewer_name
          FROM explorer_checkins ec
          JOIN teams t ON t.id = ec.team_id
+         LEFT JOIN leaders l ON l.id = ec.reviewed_by
          WHERE ec.status IN ("reviewed", "approved")
          ORDER BY ec.submitted_at ASC'
     );
@@ -71,7 +76,8 @@ function checkin_day(DateTime $dt): string
  * Process each check-in to determine on-time/late status.
  */
 $processedCheckins = [];
-$teamStats = []; // team_id => [on_time, late, total_late_minutes, total_diff_minutes, checkins_count, dates]
+$teamStats = []; // team_id => stats array
+$leaderReviewStats = []; // reviewer_name => stats
 
 foreach ($checkins as $checkin) {
     $teamId = (int)$checkin['team_id'];
@@ -82,9 +88,19 @@ foreach ($checkins as $checkin) {
             'on_time' => 0,
             'late' => 0,
             'total_late_minutes' => 0,
-            'total_diff_minutes' => 0, // signed: negative = early, positive = late
+            'total_diff_minutes' => 0,
             'checkins_count' => 0,
             'dates' => [],
+            'earliest_diff' => null, // most negative = earliest
+            'earliest_time' => null,
+            'earliest_date' => null,
+            'latest_diff' => null,   // most positive = latest
+            'latest_time' => null,
+            'latest_date' => null,
+            'best_day_diff' => null,  // lowest diff = best
+            'best_day_date' => null,
+            'worst_day_diff' => null, // highest diff = worst
+            'worst_day_date' => null,
         ];
     }
 
@@ -112,11 +128,58 @@ foreach ($checkins as $checkin) {
 
     $teamStats[$teamId]['total_diff_minutes'] += $diffMinutes;
 
+    // Track earliest and latest
+    if ($teamStats[$teamId]['earliest_diff'] === null || $diffMinutes < $teamStats[$teamId]['earliest_diff']) {
+        $teamStats[$teamId]['earliest_diff'] = $diffMinutes;
+        $teamStats[$teamId]['earliest_time'] = $submittedDt->format('H:i');
+        $teamStats[$teamId]['earliest_date'] = $submittedDt->format('D d M');
+    }
+    if ($teamStats[$teamId]['latest_diff'] === null || $diffMinutes > $teamStats[$teamId]['latest_diff']) {
+        $teamStats[$teamId]['latest_diff'] = $diffMinutes;
+        $teamStats[$teamId]['latest_time'] = $submittedDt->format('H:i');
+        $teamStats[$teamId]['latest_date'] = $submittedDt->format('D d M');
+    }
+
+    // Best day = smallest diff, worst day = largest diff
+    if ($teamStats[$teamId]['best_day_diff'] === null || $diffMinutes < $teamStats[$teamId]['best_day_diff']) {
+        $teamStats[$teamId]['best_day_diff'] = $diffMinutes;
+        $teamStats[$teamId]['best_day_date'] = $submittedDt->format('D d M') . ' (' . $submittedDt->format('H:i') . ')';
+    }
+    if ($teamStats[$teamId]['worst_day_diff'] === null || $diffMinutes > $teamStats[$teamId]['worst_day_diff']) {
+        $teamStats[$teamId]['worst_day_diff'] = $diffMinutes;
+        $teamStats[$teamId]['worst_day_date'] = $submittedDt->format('D d M') . ' (' . $submittedDt->format('H:i') . ')';
+    }
+
     if ($isOnTime) {
         $teamStats[$teamId]['on_time']++;
     } else {
         $teamStats[$teamId]['late']++;
         $teamStats[$teamId]['total_late_minutes'] += $minutesLate;
+    }
+
+    // Leader review speed
+    if (!empty($checkin['reviewed_at']) && !empty($checkin['reviewer_name'])) {
+        $reviewedDt = new DateTime($checkin['reviewed_at'], $tz);
+        $reviewSeconds = $reviewedDt->getTimestamp() - $submittedDt->getTimestamp();
+        if ($reviewSeconds >= 0) {
+            $reviewerName = $checkin['reviewer_name'];
+            if (!isset($leaderReviewStats[$reviewerName])) {
+                $leaderReviewStats[$reviewerName] = [
+                    'reviews' => 0,
+                    'total_seconds' => 0,
+                    'fastest_seconds' => null,
+                    'slowest_seconds' => null,
+                ];
+            }
+            $leaderReviewStats[$reviewerName]['reviews']++;
+            $leaderReviewStats[$reviewerName]['total_seconds'] += $reviewSeconds;
+            if ($leaderReviewStats[$reviewerName]['fastest_seconds'] === null || $reviewSeconds < $leaderReviewStats[$reviewerName]['fastest_seconds']) {
+                $leaderReviewStats[$reviewerName]['fastest_seconds'] = $reviewSeconds;
+            }
+            if ($leaderReviewStats[$reviewerName]['slowest_seconds'] === null || $reviewSeconds > $leaderReviewStats[$reviewerName]['slowest_seconds']) {
+                $leaderReviewStats[$reviewerName]['slowest_seconds'] = $reviewSeconds;
+            }
+        }
     }
 
     $processedCheckins[] = [
@@ -144,7 +207,6 @@ usort($processedCheckins, function ($a, $b) {
 
 /**
  * Build the leaderboard — sorted by average minutes from deadline (lower = more punctual).
- * Average is signed: negative means on average they checked in early.
  */
 $leaderboard = [];
 foreach ($teamStats as $tId => $stats) {
@@ -161,7 +223,13 @@ foreach ($teamStats as $tId => $stats) {
         'pct_on_time' => $pct,
         'total_late_minutes' => $stats['total_late_minutes'],
         'avg_late_minutes' => $avgLate,
-        'avg_diff_minutes' => $avgDiff, // negative = early on average
+        'avg_diff_minutes' => $avgDiff,
+        'earliest_time' => $stats['earliest_time'],
+        'earliest_date' => $stats['earliest_date'],
+        'latest_time' => $stats['latest_time'],
+        'latest_date' => $stats['latest_date'],
+        'best_day' => $stats['best_day_date'],
+        'worst_day' => $stats['worst_day_date'],
     ];
 }
 
@@ -169,6 +237,34 @@ foreach ($teamStats as $tId => $stats) {
 usort($leaderboard, function ($a, $b) {
     return $a['avg_diff_minutes'] <=> $b['avg_diff_minutes'];
 });
+
+/**
+ * Build leader review speed leaderboard — sorted by average review time (fastest first).
+ */
+$leaderReviewLeaderboard = [];
+foreach ($leaderReviewStats as $name => $stats) {
+    $avgSeconds = $stats['reviews'] > 0 ? (int)round($stats['total_seconds'] / $stats['reviews']) : 0;
+    $leaderReviewLeaderboard[] = [
+        'name' => $name,
+        'reviews' => $stats['reviews'],
+        'avg_seconds' => $avgSeconds,
+        'fastest_seconds' => $stats['fastest_seconds'],
+        'slowest_seconds' => $stats['slowest_seconds'],
+    ];
+}
+usort($leaderReviewLeaderboard, fn($a, $b) => $a['avg_seconds'] <=> $b['avg_seconds']);
+
+/**
+ * Helper to format seconds to human-readable.
+ */
+function format_review_time(int $seconds): string
+{
+    if ($seconds < 60) return $seconds . 's';
+    if ($seconds < 3600) return floor($seconds / 60) . 'm ' . ($seconds % 60) . 's';
+    $h = floor($seconds / 3600);
+    $m = floor(($seconds % 3600) / 60);
+    return $h . 'h ' . $m . 'm';
+}
 
 // Filter by team if requested
 $filterTeamId = isset($_GET['team_id']) && $_GET['team_id'] !== '' ? (int)$_GET['team_id'] : null;
@@ -402,16 +498,18 @@ include __DIR__ . '/header.php';
                         <th>#</th>
                         <th>Team</th>
                         <th>Check-ins</th>
-                        <th>On Time</th>
-                        <th>Late</th>
                         <th>% On Time</th>
                         <th>Avg from Deadline</th>
+                        <th>Earliest</th>
+                        <th>Latest</th>
+                        <th>Best Day</th>
+                        <th>Worst Day</th>
                         <th>Total Mins Late</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (empty($leaderboard)): ?>
-                        <tr><td colspan="8" style="text-align:center; color:#505a5f; padding:2rem;">No check-in data available yet.</td></tr>
+                        <tr><td colspan="10" style="text-align:center; color:#505a5f; padding:2rem;">No check-in data available yet.</td></tr>
                     <?php else: ?>
                         <?php foreach ($leaderboard as $rank => $row): ?>
                             <?php
@@ -431,14 +529,62 @@ include __DIR__ . '/header.php';
                                     </a>
                                 </td>
                                 <td><?= $row['checkins_count'] ?></td>
-                                <td style="color:#00703c; font-weight:700;"><?= $row['on_time'] ?></td>
-                                <td style="color:#d4351c; font-weight:700;"><?= $row['late'] ?></td>
                                 <td>
                                     <strong><?= $row['pct_on_time'] ?>%</strong>
                                     <div class="pct-bar"><div class="pct-bar-fill <?= $barClass ?>" style="width:<?= $row['pct_on_time'] ?>%"></div></div>
                                 </td>
                                 <td><span class="avg-badge <?= $avgClass ?>"><?= $avgLabel ?></span></td>
+                                <td>
+                                    <span style="font-weight:700;"><?= e($row['earliest_time'] ?? '—') ?></span>
+                                    <br><span style="font-size:0.75rem; color:#505a5f;"><?= e($row['earliest_date'] ?? '') ?></span>
+                                </td>
+                                <td>
+                                    <span style="font-weight:700;"><?= e($row['latest_time'] ?? '—') ?></span>
+                                    <br><span style="font-size:0.75rem; color:#505a5f;"><?= e($row['latest_date'] ?? '') ?></span>
+                                </td>
+                                <td><span class="badge-early"><?= e($row['best_day'] ?? '—') ?></span></td>
+                                <td><span class="badge-late-mins"><?= e($row['worst_day'] ?? '—') ?></span></td>
                                 <td><?= $row['total_late_minutes'] > 0 ? number_format($row['total_late_minutes']) . ' min' : '—' ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Leader Review Speed Leaderboard -->
+    <div class="report-panel">
+        <h2>Leader Review Speed</h2>
+        <p style="color:#505a5f; font-size:0.9rem; margin-bottom:1rem;">How quickly leaders reviewed check-ins after submission. Ranked by average review time.</p>
+        <div class="report-table-wrap">
+            <table class="report-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Leader</th>
+                        <th>Reviews</th>
+                        <th>Avg Review Time</th>
+                        <th>Fastest</th>
+                        <th>Slowest</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (empty($leaderReviewLeaderboard)): ?>
+                        <tr><td colspan="6" style="text-align:center; color:#505a5f; padding:2rem;">No review data available.</td></tr>
+                    <?php else: ?>
+                        <?php foreach ($leaderReviewLeaderboard as $lRank => $lRow): ?>
+                            <?php
+                                $lPos = $lRank + 1;
+                                $lRankClass = match($lPos) { 1 => 'rank-1', 2 => 'rank-2', 3 => 'rank-3', default => 'rank-default' };
+                            ?>
+                            <tr>
+                                <td><span class="leaderboard-rank <?= $lRankClass ?>"><?= $lPos ?></span></td>
+                                <td style="font-weight:700;"><?= e($lRow['name']) ?></td>
+                                <td><?= $lRow['reviews'] ?></td>
+                                <td><span class="avg-badge avg-early"><?= format_review_time($lRow['avg_seconds']) ?></span></td>
+                                <td><?= format_review_time($lRow['fastest_seconds'] ?? 0) ?></td>
+                                <td><?= format_review_time($lRow['slowest_seconds'] ?? 0) ?></td>
                             </tr>
                         <?php endforeach; ?>
                     <?php endif; ?>
