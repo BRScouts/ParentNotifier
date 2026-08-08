@@ -497,19 +497,15 @@ include __DIR__ . '/header.php';
                     <tr>
                         <th>#</th>
                         <th>Team</th>
-                        <th>Check-ins</th>
                         <th>% On Time</th>
                         <th>Avg from Deadline</th>
-                        <th>Earliest</th>
-                        <th>Latest</th>
                         <th>Best Day</th>
-                        <th>Worst Day</th>
                         <th>Total Mins Late</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (empty($leaderboard)): ?>
-                        <tr><td colspan="10" style="text-align:center; color:#505a5f; padding:2rem;">No check-in data available yet.</td></tr>
+                        <tr><td colspan="6" style="text-align:center; color:#505a5f; padding:2rem;">No check-in data available yet.</td></tr>
                     <?php else: ?>
                         <?php foreach ($leaderboard as $rank => $row): ?>
                             <?php
@@ -528,22 +524,12 @@ include __DIR__ . '/header.php';
                                         <?= e($row['team_name']) ?>
                                     </a>
                                 </td>
-                                <td><?= $row['checkins_count'] ?></td>
                                 <td>
                                     <strong><?= $row['pct_on_time'] ?>%</strong>
                                     <div class="pct-bar"><div class="pct-bar-fill <?= $barClass ?>" style="width:<?= $row['pct_on_time'] ?>%"></div></div>
                                 </td>
                                 <td><span class="avg-badge <?= $avgClass ?>"><?= $avgLabel ?></span></td>
-                                <td>
-                                    <span style="font-weight:700;"><?= e($row['earliest_time'] ?? '—') ?></span>
-                                    <br><span style="font-size:0.75rem; color:#505a5f;"><?= e($row['earliest_date'] ?? '') ?></span>
-                                </td>
-                                <td>
-                                    <span style="font-weight:700;"><?= e($row['latest_time'] ?? '—') ?></span>
-                                    <br><span style="font-size:0.75rem; color:#505a5f;"><?= e($row['latest_date'] ?? '') ?></span>
-                                </td>
                                 <td><span class="badge-early"><?= e($row['best_day'] ?? '—') ?></span></td>
-                                <td><span class="badge-late-mins"><?= e($row['worst_day'] ?? '—') ?></span></td>
                                 <td><?= $row['total_late_minutes'] > 0 ? number_format($row['total_late_minutes']) . ' min' : '—' ?></td>
                             </tr>
                         <?php endforeach; ?>
