@@ -3,7 +3,9 @@
  * Check-in Times Report
  *
  * Shows explorer check-in times vs the 7pm (19:00) deadline each day,
- * whether they were on time or late, minutes missed, and per-team summary.
+ * whether they were on time or late, minutes missed, and per-team leaderboard.
+ *
+ * Cut-off: check-ins up to 03:00 the next day count towards the previous day's deadline.
  */
 require_once __DIR__ . '/auth.php';
 
@@ -13,21 +15,18 @@ $pdo = db();
 $user = current_user();
 
 const CHECKIN_DEADLINE_HOUR = 19; // 7pm
+const CHECKIN_CUTOFF_HOUR = 3;   // 3am next day — anything before this still counts for previous day
 const CHECKIN_TIMEZONE = 'Europe/Helsinki';
 
 /**
- * Fetch all reviewed/approved check-ins with team info.
- * We use submitted_at as the check-in time (when the explorer actually checked in).
+ * Fetch all check-ins with team info.
  */
 $checkins = [];
 $teams = [];
-$teamSummary = [];
 
 try {
-    // Get all teams
     $teams = $pdo->query('SELECT id, name FROM teams ORDER BY name ASC')->fetchAll();
 
-    // Get all check-ins that have been reviewed (status = reviewed or approved)
     $stmt = $pdo->query(
         'SELECT
             ec.id,
@@ -52,10 +51,26 @@ try {
 $tz = new DateTimeZone(CHECKIN_TIMEZONE);
 
 /**
+ * Determine the "check-in day" for a given datetime.
+ * If the time is between midnight and 03:00, it belongs to the previous calendar day.
+ */
+function checkin_day(DateTime $dt): string
+{
+    $hour = (int)$dt->format('G');
+    if ($hour < CHECKIN_CUTOFF_HOUR) {
+        // Before 3am — belongs to previous day
+        $day = clone $dt;
+        $day->modify('-1 day');
+        return $day->format('Y-m-d');
+    }
+    return $dt->format('Y-m-d');
+}
+
+/**
  * Process each check-in to determine on-time/late status.
  */
 $processedCheckins = [];
-$teamStats = []; // team_id => [on_time, late, total_late_minutes, checkins_count, dates]
+$teamStats = []; // team_id => [on_time, late, total_late_minutes, total_diff_minutes, checkins_count, dates]
 
 foreach ($checkins as $checkin) {
     $teamId = (int)$checkin['team_id'];
@@ -66,6 +81,7 @@ foreach ($checkins as $checkin) {
             'on_time' => 0,
             'late' => 0,
             'total_late_minutes' => 0,
+            'total_diff_minutes' => 0, // signed: negative = early, positive = late
             'checkins_count' => 0,
             'dates' => [],
         ];
@@ -75,24 +91,26 @@ foreach ($checkins as $checkin) {
     $submittedDt = new DateTime($checkin['submitted_at'], new DateTimeZone('UTC'));
     $submittedDt->setTimezone($tz);
 
-    $checkinDate = $submittedDt->format('Y-m-d');
+    $checkinDate = checkin_day($submittedDt);
 
-    // Skip if we already have a check-in for this team on this date (use the first one)
+    // Skip duplicate check-ins for same team on same day (keep first)
     if (in_array($checkinDate, $teamStats[$teamId]['dates'], true)) {
         continue;
     }
     $teamStats[$teamId]['dates'][] = $checkinDate;
     $teamStats[$teamId]['checkins_count']++;
 
-    // The deadline is 19:00 on the same day in Finland time
+    // The deadline is 19:00 on the check-in day
     $deadlineDt = new DateTime($checkinDate . ' ' . CHECKIN_DEADLINE_HOUR . ':00:00', $tz);
 
-    // Calculate difference in minutes
+    // Calculate difference in minutes (positive = late, negative = early)
     $diffSeconds = $submittedDt->getTimestamp() - $deadlineDt->getTimestamp();
     $diffMinutes = (int)round($diffSeconds / 60);
 
     $isOnTime = $diffMinutes <= 0;
     $minutesLate = $isOnTime ? 0 : $diffMinutes;
+
+    $teamStats[$teamId]['total_diff_minutes'] += $diffMinutes;
 
     if ($isOnTime) {
         $teamStats[$teamId]['on_time']++;
@@ -109,24 +127,47 @@ foreach ($checkins as $checkin) {
         'location_name' => $checkin['location_name'],
         'submitted_at' => $submittedDt->format('d M Y, H:i'),
         'date' => $submittedDt->format('D d M'),
+        'checkin_day' => $checkinDate,
         'time' => $submittedDt->format('H:i'),
         'is_on_time' => $isOnTime,
         'minutes_late' => $minutesLate,
         'minutes_early' => $isOnTime ? abs($diffMinutes) : 0,
+        'diff_minutes' => $diffMinutes,
         'status' => $checkin['status'],
     ];
 }
 
 // Sort processed check-ins by date descending
 usort($processedCheckins, function ($a, $b) {
-    return strcmp($b['submitted_at'], $a['submitted_at']);
+    return strcmp($b['checkin_day'], $a['checkin_day']) ?: strcmp($a['team_name'], $b['team_name']);
 });
 
-// Sort team stats by on-time percentage descending
-uasort($teamStats, function ($a, $b) {
-    $pctA = $a['checkins_count'] > 0 ? ($a['on_time'] / $a['checkins_count']) : 0;
-    $pctB = $b['checkins_count'] > 0 ? ($b['on_time'] / $b['checkins_count']) : 0;
-    return $pctB <=> $pctA;
+/**
+ * Build the leaderboard — sorted by average minutes from deadline (lower = more punctual).
+ * Average is signed: negative means on average they checked in early.
+ */
+$leaderboard = [];
+foreach ($teamStats as $tId => $stats) {
+    $avgDiff = $stats['checkins_count'] > 0 ? round($stats['total_diff_minutes'] / $stats['checkins_count'], 1) : 0;
+    $pct = $stats['checkins_count'] > 0 ? round(($stats['on_time'] / $stats['checkins_count']) * 100, 1) : 0;
+    $avgLate = $stats['late'] > 0 ? round($stats['total_late_minutes'] / $stats['late']) : 0;
+
+    $leaderboard[] = [
+        'team_id' => $tId,
+        'team_name' => $stats['team_name'],
+        'checkins_count' => $stats['checkins_count'],
+        'on_time' => $stats['on_time'],
+        'late' => $stats['late'],
+        'pct_on_time' => $pct,
+        'total_late_minutes' => $stats['total_late_minutes'],
+        'avg_late_minutes' => $avgLate,
+        'avg_diff_minutes' => $avgDiff, // negative = early on average
+    ];
+}
+
+// Sort leaderboard: best average (most negative / least positive) first
+usort($leaderboard, function ($a, $b) {
+    return $a['avg_diff_minutes'] <=> $b['avg_diff_minutes'];
 });
 
 // Filter by team if requested
@@ -275,6 +316,32 @@ include __DIR__ . '/header.php';
     .pct-bar-warn { background: #f47738; }
     .pct-bar-bad { background: #d4351c; }
 
+    .leaderboard-rank {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        font-weight: 900;
+        font-size: 0.85rem;
+        border-radius: 50%;
+        color: #fff;
+    }
+    .rank-1 { background: #d4af37; }
+    .rank-2 { background: #a0a0a0; }
+    .rank-3 { background: #cd7f32; }
+    .rank-default { background: #505a5f; }
+
+    .avg-badge {
+        display: inline-block;
+        padding: 0.25rem 0.65rem;
+        font-size: 0.82rem;
+        font-weight: 800;
+        border-radius: 3px;
+    }
+    .avg-early { background: #e8f5e9; color: #00703c; }
+    .avg-late { background: #fde8e4; color: #d4351c; }
+
     .filter-form {
         display: flex;
         align-items: center;
@@ -324,47 +391,54 @@ include __DIR__ . '/header.php';
         </div>
     </div>
 
-    <!-- Team Summary Table -->
+    <!-- Leaderboard -->
     <div class="report-panel">
-        <h2>Team Summary</h2>
+        <h2>Punctuality Leaderboard</h2>
+        <p style="color:#505a5f; font-size:0.9rem; margin-bottom:1rem;">Ranked by average check-in time relative to the 19:00 deadline. Negative = early on average.</p>
         <div class="report-table-wrap">
             <table class="report-table">
                 <thead>
                     <tr>
+                        <th>#</th>
                         <th>Team</th>
                         <th>Check-ins</th>
                         <th>On Time</th>
                         <th>Late</th>
                         <th>% On Time</th>
+                        <th>Avg from Deadline</th>
                         <th>Total Mins Late</th>
-                        <th>Avg Mins Late</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php if (empty($teamStats)): ?>
-                        <tr><td colspan="7" style="text-align:center; color:#505a5f; padding:2rem;">No check-in data available yet.</td></tr>
+                    <?php if (empty($leaderboard)): ?>
+                        <tr><td colspan="8" style="text-align:center; color:#505a5f; padding:2rem;">No check-in data available yet.</td></tr>
                     <?php else: ?>
-                        <?php foreach ($teamStats as $tId => $stats): ?>
+                        <?php foreach ($leaderboard as $rank => $row): ?>
                             <?php
-                                $pct = $stats['checkins_count'] > 0 ? round(($stats['on_time'] / $stats['checkins_count']) * 100, 1) : 0;
-                                $avgLate = $stats['late'] > 0 ? round($stats['total_late_minutes'] / $stats['late']) : 0;
-                                $barClass = $pct >= 80 ? 'pct-bar-good' : ($pct >= 50 ? 'pct-bar-warn' : 'pct-bar-bad');
+                                $position = $rank + 1;
+                                $rankClass = match($position) { 1 => 'rank-1', 2 => 'rank-2', 3 => 'rank-3', default => 'rank-default' };
+                                $barClass = $row['pct_on_time'] >= 80 ? 'pct-bar-good' : ($row['pct_on_time'] >= 50 ? 'pct-bar-warn' : 'pct-bar-bad');
+                                $avgClass = $row['avg_diff_minutes'] <= 0 ? 'avg-early' : 'avg-late';
+                                $avgLabel = $row['avg_diff_minutes'] <= 0
+                                    ? abs($row['avg_diff_minutes']) . ' min early'
+                                    : '+' . $row['avg_diff_minutes'] . ' min late';
                             ?>
                             <tr>
+                                <td><span class="leaderboard-rank <?= $rankClass ?>"><?= $position ?></span></td>
                                 <td>
-                                    <a href="?team_id=<?= $tId ?>" style="font-weight:700; color:#1d70b8; text-decoration:none;">
-                                        <?= e($stats['team_name']) ?>
+                                    <a href="?team_id=<?= $row['team_id'] ?>" style="font-weight:700; color:#1d70b8; text-decoration:none;">
+                                        <?= e($row['team_name']) ?>
                                     </a>
                                 </td>
-                                <td><?= $stats['checkins_count'] ?></td>
-                                <td style="color:#00703c; font-weight:700;"><?= $stats['on_time'] ?></td>
-                                <td style="color:#d4351c; font-weight:700;"><?= $stats['late'] ?></td>
+                                <td><?= $row['checkins_count'] ?></td>
+                                <td style="color:#00703c; font-weight:700;"><?= $row['on_time'] ?></td>
+                                <td style="color:#d4351c; font-weight:700;"><?= $row['late'] ?></td>
                                 <td>
-                                    <strong><?= $pct ?>%</strong>
-                                    <div class="pct-bar"><div class="pct-bar-fill <?= $barClass ?>" style="width:<?= $pct ?>%"></div></div>
+                                    <strong><?= $row['pct_on_time'] ?>%</strong>
+                                    <div class="pct-bar"><div class="pct-bar-fill <?= $barClass ?>" style="width:<?= $row['pct_on_time'] ?>%"></div></div>
                                 </td>
-                                <td><?= $stats['total_late_minutes'] > 0 ? number_format($stats['total_late_minutes']) . ' min' : '—' ?></td>
-                                <td><?= $avgLate > 0 ? $avgLate . ' min' : '—' ?></td>
+                                <td><span class="avg-badge <?= $avgClass ?>"><?= $avgLabel ?></span></td>
+                                <td><?= $row['total_late_minutes'] > 0 ? number_format($row['total_late_minutes']) . ' min' : '—' ?></td>
                             </tr>
                         <?php endforeach; ?>
                     <?php endif; ?>
@@ -392,9 +466,15 @@ include __DIR__ . '/header.php';
     <!-- Detailed Check-ins Table -->
     <div class="report-panel">
         <h2>
-            Detailed Check-ins
-            <?php if ($filterTeamId !== null && isset($teamStats[$filterTeamId])): ?>
-                — <?= e($teamStats[$filterTeamId]['team_name']) ?>
+            Daily Check-ins
+            <?php if ($filterTeamId !== null): ?>
+                <?php
+                    $filterTeamName = '';
+                    foreach ($leaderboard as $lb) {
+                        if ($lb['team_id'] === $filterTeamId) { $filterTeamName = $lb['team_name']; break; }
+                    }
+                ?>
+                — <?= e($filterTeamName) ?>
             <?php endif; ?>
         </h2>
         <div class="report-table-wrap">
@@ -402,7 +482,7 @@ include __DIR__ . '/header.php';
                 <thead>
                     <tr>
                         <th>Team</th>
-                        <th>Date</th>
+                        <th>Day</th>
                         <th>Time</th>
                         <th>Submitted By</th>
                         <th>Location</th>
