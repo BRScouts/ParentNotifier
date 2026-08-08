@@ -15,6 +15,7 @@ $pdo = db();
 $user = current_user();
 
 const CHECKIN_DEADLINE_HOUR = 19; // 7pm
+const CHECKIN_GRACE_MINUTES = 15; // within 15 mins of deadline counts as on time
 const CHECKIN_CUTOFF_HOUR = 3;   // 3am next day — anything before this still counts for previous day
 const CHECKIN_TIMEZONE = 'Europe/Helsinki';
 
@@ -39,7 +40,7 @@ try {
             t.name AS team_name
          FROM explorer_checkins ec
          JOIN teams t ON t.id = ec.team_id
-         WHERE ec.status IN ("reviewed", "approved", "pending")
+         WHERE ec.status IN ("reviewed", "approved")
          ORDER BY ec.submitted_at ASC'
     );
     $checkins = $stmt->fetchAll();
@@ -87,9 +88,8 @@ foreach ($checkins as $checkin) {
         ];
     }
 
-    // Parse submitted_at in the event timezone
-    $submittedDt = new DateTime($checkin['submitted_at'], new DateTimeZone('UTC'));
-    $submittedDt->setTimezone($tz);
+    // Parse submitted_at — stored as local time (Europe/Helsinki), not UTC
+    $submittedDt = new DateTime($checkin['submitted_at'], $tz);
 
     $checkinDate = checkin_day($submittedDt);
 
@@ -107,8 +107,8 @@ foreach ($checkins as $checkin) {
     $diffSeconds = $submittedDt->getTimestamp() - $deadlineDt->getTimestamp();
     $diffMinutes = (int)round($diffSeconds / 60);
 
-    $isOnTime = $diffMinutes <= 0;
-    $minutesLate = $isOnTime ? 0 : $diffMinutes;
+    $isOnTime = $diffMinutes <= CHECKIN_GRACE_MINUTES;
+    $minutesLate = $isOnTime ? 0 : ($diffMinutes - CHECKIN_GRACE_MINUTES);
 
     $teamStats[$teamId]['total_diff_minutes'] += $diffMinutes;
 
@@ -131,7 +131,7 @@ foreach ($checkins as $checkin) {
         'time' => $submittedDt->format('H:i'),
         'is_on_time' => $isOnTime,
         'minutes_late' => $minutesLate,
-        'minutes_early' => $isOnTime ? abs($diffMinutes) : 0,
+        'minutes_early' => $isOnTime ? max(0, -$diffMinutes) : 0,
         'diff_minutes' => $diffMinutes,
         'status' => $checkin['status'],
     ];
@@ -361,7 +361,7 @@ include __DIR__ . '/header.php';
 <div class="page-hero">
     <div class="container">
         <h1>Check-in Times Report</h1>
-        <p class="lead">Explorer check-in punctuality vs the 19:00 (<?= e(CHECKIN_TIMEZONE) ?>) deadline</p>
+        <p class="lead">Explorer check-in punctuality vs the 19:00 (<?= e(CHECKIN_TIMEZONE) ?>) deadline — 15 min grace period</p>
     </div>
 </div>
 
