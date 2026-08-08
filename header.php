@@ -458,12 +458,13 @@ if ($user) {
                     </li>
 
                     <!-- Teams dropdown -->
-                    <li class="nav-item dropdown<?= header_nav_active_group(['team_links.php', 'team_locations.php', 'people.php']) ?>">
+                    <li class="nav-item dropdown<?= header_nav_active_group(['team_links.php', 'team_locations.php', 'people.php', 'checkin_times_report.php']) ?>">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Teams</a>
                         <div class="dropdown-menu">
                             <a class="dropdown-item<?= header_nav_active('team_links.php') ?>" href="<?= e(url('team_links.php')) ?>">Teams</a>
                             <a class="dropdown-item<?= header_nav_active('team_locations.php') ?>" href="<?= e(url('team_locations.php')) ?>">Locations</a>
                             <a class="dropdown-item<?= header_nav_active('people.php') ?>" href="<?= e(url('people.php')) ?>">People</a>
+                            <a class="dropdown-item<?= header_nav_active('checkin_times_report.php') ?>" href="<?= e(url('checkin_times_report.php')) ?>">Check-in Times</a>
                         </div>
                     </li>
 
@@ -616,13 +617,14 @@ if ($user) {
 
                 <!-- Teams group -->
                 <li>
-                    <button class="sidebar-group-label<?= header_nav_active_group(['team_links.php', 'team_locations.php', 'people.php']) ?>" aria-expanded="false" data-sidebar-group="teams">
+                    <button class="sidebar-group-label<?= header_nav_active_group(['team_links.php', 'team_locations.php', 'people.php', 'checkin_times_report.php']) ?>" aria-expanded="false" data-sidebar-group="teams">
                         Teams <span class="group-arrow">&#9654;</span>
                     </button>
                     <ul class="sidebar-sub" id="sidebarGroupTeams">
                         <li><a class="sidebar-link<?= header_nav_active('team_links.php') ?>" href="<?= e(url('team_links.php')) ?>">Teams</a></li>
                         <li><a class="sidebar-link<?= header_nav_active('team_locations.php') ?>" href="<?= e(url('team_locations.php')) ?>">Locations</a></li>
                         <li><a class="sidebar-link<?= header_nav_active('people.php') ?>" href="<?= e(url('people.php')) ?>">People</a></li>
+                        <li><a class="sidebar-link<?= header_nav_active('checkin_times_report.php') ?>" href="<?= e(url('checkin_times_report.php')) ?>">Check-in Times</a></li>
                     </ul>
                 </li>
 
